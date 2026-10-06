@@ -18,6 +18,10 @@ COPY src ./src
 # Build TypeScript
 RUN npm run build
 
+# Copy SQL migration files to dist (TypeScript doesn't copy .sql files)
+RUN mkdir -p dist/database/migrations && \
+    cp src/database/migrations/*.sql dist/database/migrations/
+
 # Stage 2: Production
 FROM node:18-alpine
 
