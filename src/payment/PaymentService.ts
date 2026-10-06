@@ -11,7 +11,7 @@ export class PaymentService {
   async processSuccessfulPayment(
     telegramPaymentChargeId: string,
     telegramUserId: number,
-    chatId: number,
+    telegramChatId: number,
     amount: number,
     currency: string,
     payload: string
@@ -50,7 +50,7 @@ export class PaymentService {
       };
     }
 
-    if (pendingPayment.chat_id !== chatId) {
+    if (pendingPayment.chat_id !== telegramChatId) {
       return {
         valid: false,
         error: 'Chat mismatch',
@@ -84,7 +84,7 @@ export class PaymentService {
     await this.savePayment({
       telegram_payment_charge_id: telegramPaymentChargeId,
       telegram_user_id: telegramUserId,
-      chat_id: chatId,
+      chat_id: telegramChatId,
       amount,
       currency,
       payload,

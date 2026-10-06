@@ -6,6 +6,15 @@ export async function handleStart(ctx: Context) {
     return;
   }
 
+  // Check if this is a private chat (not a group)
+  if (ctx.chat?.type !== 'private') {
+    await ctx.reply(
+      '⚠️ Команда /start работает только в личных сообщениях с ботом.\n\n' +
+      'Откройте личный чат с ботом и отправьте /start там.'
+    );
+    return;
+  }
+
   const telegramId = ctx.from.id;
   const username = ctx.from.username;
   const firstName = ctx.from.first_name;
@@ -25,8 +34,10 @@ export async function handleStart(ctx: Context) {
       `⚔️ Доступные команды:\n` +
       `• атака - атаковать противника\n` +
       `• защита - защититься от атаки\n` +
-      `• статус - посмотреть свой прогресс\n` +
-      `• инвентарь - открыть инвентарь\n\n` +
+      `• /status - посмотреть свой прогресс\n` +
+      `• /inventory - открыть инвентарь\n` +
+      `• /class - выбрать класс\n` +
+      `• /achievements - достижения\n\n` +
       `⏳ Между действиями - КД 10 минут.\n` +
       `⭐ Можно пропустить КД за 1 Telegram Star.`
     );
@@ -49,8 +60,10 @@ export async function handleStart(ctx: Context) {
       `⚔️ Основные команды:\n` +
       `• атака - атаковать противника\n` +
       `• защита - защититься от атаки\n` +
-      `• статус - посмотреть прогресс\n` +
-      `• инвентарь - открыть инвентарь\n\n` +
+      `• /status - посмотреть прогресс\n` +
+      `• /inventory - открыть инвентарь\n` +
+      `• /class - выбрать класс\n` +
+      `• /achievements - достижения\n\n` +
       `⏳ Между действиями есть КД 10 минут.\n` +
       `⭐ КД можно пропустить за 1 Telegram Star.\n\n` +
       `🚀 Добавьте бота в групповой чат и начните игру!`
