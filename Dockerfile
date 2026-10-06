@@ -27,8 +27,8 @@ FROM node:18-alpine
 
 WORKDIR /app
 
-# Install netcat for health checks and wait script
-RUN apk add --no-cache netcat-openbsd
+# Install netcat for health checks, wait script, and postgresql-client for DB creation
+RUN apk add --no-cache netcat-openbsd postgresql-client
 
 # Install production dependencies only
 COPY package*.json ./
