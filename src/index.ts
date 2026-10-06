@@ -39,7 +39,9 @@ bot.command('achievements', handleAchievements);
 bot.command('достижения', handleAchievements);
 
 // Callback query handlers
-bot.on('callback_query:data', handleClassCallback);
+bot.on('callback_query:data', async (ctx) => {
+  await handleClassCallback(ctx);
+});
 
 // Game action handlers
 bot.hears(/^(атака|атаковать|удар|attack|a)$/i, (ctx) => handleGameAction(ctx, invoiceService));

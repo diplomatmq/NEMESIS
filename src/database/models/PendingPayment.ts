@@ -68,7 +68,7 @@ export class PendingPaymentModel {
        RETURNING id`,
       [id]
     );
-    return result.rowCount > 0;
+    return (result.rowCount ?? 0) > 0;
   }
 
   static async cleanupExpired(): Promise<void> {

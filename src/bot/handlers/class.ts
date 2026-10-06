@@ -1,4 +1,4 @@
-import { Context, CallbackQueryContext } from 'grammy';
+import { Context } from 'grammy';
 import { classService } from '../../game/ClassService';
 import { UserModel } from '../../database/models/User';
 import { ChatModel } from '../../database/models/Chat';
@@ -48,8 +48,8 @@ export async function handleClassSelection(ctx: Context) {
   });
 }
 
-export async function handleClassCallback(ctx: CallbackQueryContext<Context>) {
-  if (!ctx.from || !ctx.chat || !ctx.callbackQuery.data) {
+export async function handleClassCallback(ctx: Context) {
+  if (!ctx.from || !ctx.chat || !ctx.callbackQuery?.data) {
     return;
   }
 
