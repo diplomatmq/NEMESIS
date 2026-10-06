@@ -21,9 +21,14 @@ echo "✅ Redis is ready!"
 
 # Create database if it doesn't exist
 echo "🗄️ Checking database..."
-PGPASSWORD=$POSTGRES_PASSWORD psql -h postgres -U $POSTGRES_USER -tc "SELECT 1 FROM pg_database WHERE datname = '$POSTGRES_DB'" | grep -q 1 || \
-PGPASSWORD=$POSTGRES_PASSWORD psql -h postgres -U $POSTGRES_USER -c "CREATE DATABASE $POSTGRES_DB"
-echo "✅ Database ready!"
+export PGPASSWORD="$POSTGRES_PASSWORD"
+if ! psql -h postgres -U "$POSTGRES_USER" -lqt | cut -d \| -f 1 | grep -qw "$POSTGRES_DB"; then
+    echo "📝 Creating database $POSTGRES_DB..."
+    psql -h postgres -U "$POSTGRES_USER" -c "CREATE DATABASE $POSTGRES_DB;"
+    echo "✅ Database created!"
+else
+    echo "✅ Database already exists!"
+fi
 
 # Run migrations
 echo "📦 Running database migrations..."
