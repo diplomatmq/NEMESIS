@@ -245,9 +245,6 @@ export class GameService {
     
     return `⚔️ Вы ещё не готовы к следующему действию.\n\n⏳ КД: ${timeLeft}\n\n⭐ Пропустить КД за 1 Telegram Star`;
   }
-}
-
-export const gameService = new GameService();
 
   async getPlayerStatus(
     telegramUserId: number,
@@ -369,3 +366,6 @@ export const gameService = new GameService();
       default: return '📦';
     }
   }
+}
+
+export const gameService = new GameService();
