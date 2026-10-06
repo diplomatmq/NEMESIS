@@ -43,13 +43,16 @@ services:
       BOT_TOKEN: ${BOT_TOKEN}
       BOT_USERNAME: ${BOT_USERNAME}
       
-      # Database configuration
+      # Database configuration (both formats for compatibility)
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/nemesis_game
       DB_HOST: postgres
       DB_PORT: 5432
       DB_USER: postgres
       DB_PASSWORD: postgres
       DB_NAME: nemesis_game
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: nemesis_game
       
       # Redis configuration
       REDIS_URL: redis://redis:6379
