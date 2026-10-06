@@ -35,6 +35,15 @@ export class PaymentService {
       };
     }
 
+    console.log('Pending payment found:', {
+      id: pendingPayment.id,
+      stored_user_id: pendingPayment.telegram_user_id,
+      received_user_id: telegramUserId,
+      stored_chat_id: pendingPayment.chat_id,
+      received_chat_id: telegramChatId,
+      status: pendingPayment.status,
+    });
+
     // Validate payment details
     if (!await PendingPaymentModel.isValid(pendingPayment)) {
       return {
@@ -43,19 +52,24 @@ export class PaymentService {
       };
     }
 
+    // Only validate user ID - chat ID will differ (payment comes to PM, but action was in group)
     if (pendingPayment.telegram_user_id !== telegramUserId) {
+      console.error('User ID mismatch:', {
+        expected: pendingPayment.telegram_user_id,
+        received: telegramUserId,
+        expectedType: typeof pendingPayment.telegram_user_id,
+        receivedType: typeof telegramUserId,
+      });
       return {
         valid: false,
         error: 'User mismatch',
       };
     }
 
-    if (pendingPayment.chat_id !== telegramChatId) {
-      return {
-        valid: false,
-        error: 'Chat mismatch',
-      };
-    }
+    // NOTE: We don't validate chat_id because:
+    // - Payment notification always comes to PM (telegramChatId = user's ID)
+    // - But the game action was performed in a group chat (pendingPayment.chat_id = group ID)
+    // - We need to execute the action in the original chat where the invoice was created
 
     if (currency !== 'XTR') {
       return {

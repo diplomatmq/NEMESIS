@@ -46,10 +46,12 @@ export async function handleSuccessfulPayment(ctx: Context) {
 
   try {
     // Execute the saved action automatically
+    // IMPORTANT: Use chat_id from pendingPayment, not from payment context
+    // because payment notification comes to PM, but action should be executed in original chat
     const actionResult = await gameService.executeAction(
       {
         telegramUserId: ctx.from.id,
-        telegramChatId: ctx.chat.id,
+        telegramChatId: pendingPayment.chat_id, // Use original chat ID from pending payment
         username: ctx.from.username,
         firstName: ctx.from.first_name,
         lastName: ctx.from.last_name,
@@ -61,10 +63,12 @@ export async function handleSuccessfulPayment(ctx: Context) {
     // Mark payment as completed
     await paymentService.markPaymentCompleted(pendingPayment.id);
 
-    // Send success message
-    await ctx.reply(
+    // Send success message to the original chat where the action was initiated
+    await ctx.api.sendMessage(
+      pendingPayment.chat_id,
       `✅ Оплата успешна! КД пропущен.\n\n` +
-      actionResult.message
+      actionResult.message,
+      { parse_mode: 'Markdown' }
     );
 
   } catch (error) {
