@@ -17,6 +17,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - nemesis_network
 
   redis:
     image: redis:7-alpine
@@ -30,7 +32,54 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - nemesis_network
+
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nemesis_bot
+    environment:
+      # Bot configuration
+      BOT_TOKEN: ${BOT_TOKEN}
+      BOT_USERNAME: ${BOT_USERNAME}
+      
+      # Database configuration
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/nemesis_game
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: nemesis_game
+      
+      # Redis configuration
+      REDIS_URL: redis://redis:6379
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      
+      # Game configuration
+      COOLDOWN_MINUTES: ${COOLDOWN_MINUTES:-10}
+      STARS_PRICE: ${STARS_PRICE:-1}
+      
+      # Server configuration
+      PORT: 3000
+      NODE_ENV: ${NODE_ENV:-production}
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - nemesis_network
 
 volumes:
   postgres_data:
   redis_data:
+
+networks:
+  nemesis_network:
+    driver: bridge

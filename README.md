@@ -27,6 +27,33 @@ Telegram RPG игра с адаптивным AI и системой оплат�
 
 ## 🚀 Установка
 
+### Вариант 1: Docker (Рекомендуется) 🐳
+
+**Самый простой способ!** Всё запускается одной командой.
+
+```bash
+# 1. Клонировать репозиторий
+git clone <repository-url>
+cd NEMESIS
+
+# 2. Настроить .env
+cp .env.example .env
+# Заполните BOT_TOKEN и BOT_USERNAME
+
+# 3. Запустить всё (БД + Бот)
+docker-compose up -d --build
+```
+
+Готово! Бот работает! 🎉
+
+Подробнее: [DOCKER.md](DOCKER.md)
+
+---
+
+### Вариант 2: Локальная установка
+
+Требуется: Node.js 18+, PostgreSQL 14+, Redis 6+
+
 ### 1. Клонировать репозиторий
 
 ```bash
@@ -88,17 +115,27 @@ npm run migrate
 
 ### 6. Запустить бота
 
-Для разработки (с hot-reload):
+**Для разработки (с hot-reload):**
 
 ```bash
 npm run dev
 ```
 
-Для продакшена:
+**Для продакшена:**
 
 ```bash
-npm run build
 npm start
+```
+
+---
+
+## 🐳 Docker
+
+Для запуска с Docker см. [DOCKER.md](DOCKER.md)
+
+Быстрая команда:
+```bash
+docker-compose up -d --build
 ```
 
 ## 🎯 Игровые команды
