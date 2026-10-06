@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS users (
     is_active BOOLEAN DEFAULT true
 );
 
-CREATE INDEX idx_users_telegram_id ON users(telegram_id);
+CREATE INDEX IF NOT EXISTS idx_users_telegram_id ON users(telegram_id);
 
 -- Chats table
 CREATE TABLE IF NOT EXISTS chats (
@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS chats (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_chats_telegram_chat_id ON chats(telegram_chat_id);
+CREATE INDEX IF NOT EXISTS idx_chats_telegram_chat_id ON chats(telegram_chat_id);
 
 -- Seasons table
 CREATE TABLE IF NOT EXISTS seasons (
@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS seasons (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_seasons_active ON seasons(is_active) WHERE is_active = true;
+CREATE INDEX IF NOT EXISTS idx_seasons_active ON seasons(is_active) WHERE is_active = true;
 
 -- Classes table
 CREATE TABLE IF NOT EXISTS classes (
@@ -74,8 +74,8 @@ CREATE TABLE IF NOT EXISTS player_progress (
     UNIQUE(user_id, chat_id, season_id)
 );
 
-CREATE INDEX idx_player_progress_user_chat_season ON player_progress(user_id, chat_id, season_id);
-CREATE INDEX idx_player_progress_floor ON player_progress(floor);
+CREATE INDEX IF NOT EXISTS idx_player_progress_user_chat_season ON player_progress(user_id, chat_id, season_id);
+CREATE INDEX IF NOT EXISTS idx_player_progress_floor ON player_progress(floor);
 
 -- Cooldowns table
 CREATE TABLE IF NOT EXISTS cooldowns (
@@ -88,8 +88,8 @@ CREATE TABLE IF NOT EXISTS cooldowns (
     UNIQUE(user_id, chat_id, action_type)
 );
 
-CREATE INDEX idx_cooldowns_user_chat ON cooldowns(user_id, chat_id);
-CREATE INDEX idx_cooldowns_available_at ON cooldowns(available_at);
+CREATE INDEX IF NOT EXISTS idx_cooldowns_user_chat ON cooldowns(user_id, chat_id);
+CREATE INDEX IF NOT EXISTS idx_cooldowns_available_at ON cooldowns(available_at);
 
 -- Enemies table
 CREATE TABLE IF NOT EXISTS enemies (
@@ -110,8 +110,8 @@ CREATE TABLE IF NOT EXISTS enemies (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_enemies_floor_range ON enemies(floor_range_min, floor_range_max);
-CREATE INDEX idx_enemies_is_boss ON enemies(is_boss);
+CREATE INDEX IF NOT EXISTS idx_enemies_floor_range ON enemies(floor_range_min, floor_range_max);
+CREATE INDEX IF NOT EXISTS idx_enemies_is_boss ON enemies(is_boss);
 
 -- Items table
 CREATE TABLE IF NOT EXISTS items (
@@ -133,8 +133,8 @@ CREATE TABLE IF NOT EXISTS items (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_items_slot ON items(slot);
-CREATE INDEX idx_items_rarity ON items(rarity);
+CREATE INDEX IF NOT EXISTS idx_items_slot ON items(slot);
+CREATE INDEX IF NOT EXISTS idx_items_rarity ON items(rarity);
 
 -- Player Inventory table
 CREATE TABLE IF NOT EXISTS player_inventory (
@@ -145,7 +145,7 @@ CREATE TABLE IF NOT EXISTS player_inventory (
     acquired_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_inventory_player ON player_inventory(player_progress_id);
+CREATE INDEX IF NOT EXISTS idx_inventory_player ON player_inventory(player_progress_id);
 
 -- Player Equipment table
 CREATE TABLE IF NOT EXISTS player_equipment (
@@ -174,9 +174,9 @@ CREATE TABLE IF NOT EXISTS pending_payments (
     status VARCHAR(50) DEFAULT 'pending'
 );
 
-CREATE INDEX idx_pending_payments_payload ON pending_payments(payload);
-CREATE INDEX idx_pending_payments_status ON pending_payments(status);
-CREATE INDEX idx_pending_payments_expires_at ON pending_payments(expires_at);
+CREATE INDEX IF NOT EXISTS idx_pending_payments_payload ON pending_payments(payload);
+CREATE INDEX IF NOT EXISTS idx_pending_payments_status ON pending_payments(status);
+CREATE INDEX IF NOT EXISTS idx_pending_payments_expires_at ON pending_payments(expires_at);
 
 -- Payments table
 CREATE TABLE IF NOT EXISTS payments (
@@ -192,8 +192,8 @@ CREATE TABLE IF NOT EXISTS payments (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_payments_charge_id ON payments(telegram_payment_charge_id);
-CREATE INDEX idx_payments_user ON payments(telegram_user_id);
+CREATE INDEX IF NOT EXISTS idx_payments_charge_id ON payments(telegram_payment_charge_id);
+CREATE INDEX IF NOT EXISTS idx_payments_user ON payments(telegram_user_id);
 
 -- Behavior Profiles table
 CREATE TABLE IF NOT EXISTS behavior_profiles (
@@ -215,7 +215,7 @@ CREATE TABLE IF NOT EXISTS behavior_profiles (
     UNIQUE(user_id, chat_id, season_id)
 );
 
-CREATE INDEX idx_behavior_profiles_user_chat ON behavior_profiles(user_id, chat_id);
+CREATE INDEX IF NOT EXISTS idx_behavior_profiles_user_chat ON behavior_profiles(user_id, chat_id);
 
 -- Combat Logs table
 CREATE TABLE IF NOT EXISTS combat_logs (
@@ -233,8 +233,8 @@ CREATE TABLE IF NOT EXISTS combat_logs (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_combat_logs_player ON combat_logs(player_progress_id);
-CREATE INDEX idx_combat_logs_floor ON combat_logs(floor);
+CREATE INDEX IF NOT EXISTS idx_combat_logs_player ON combat_logs(player_progress_id);
+CREATE INDEX IF NOT EXISTS idx_combat_logs_floor ON combat_logs(floor);
 
 -- Leaderboards table
 CREATE TABLE IF NOT EXISTS leaderboards (
@@ -250,4 +250,4 @@ CREATE TABLE IF NOT EXISTS leaderboards (
     UNIQUE(season_id, user_id, chat_id)
 );
 
-CREATE INDEX idx_leaderboards_season_floor ON leaderboards(season_id, floor_reached DESC);
+CREATE INDEX IF NOT EXISTS idx_leaderboards_season_floor ON leaderboards(season_id, floor_reached DESC);

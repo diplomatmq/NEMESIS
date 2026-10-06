@@ -15,8 +15,8 @@ CREATE TABLE IF NOT EXISTS achievements (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_achievements_code ON achievements(code);
-CREATE INDEX idx_achievements_category ON achievements(category);
+CREATE INDEX IF NOT EXISTS idx_achievements_code ON achievements(code);
+CREATE INDEX IF NOT EXISTS idx_achievements_category ON achievements(category);
 
 CREATE TABLE IF NOT EXISTS player_achievements (
     id SERIAL PRIMARY KEY,
@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS player_achievements (
     UNIQUE(player_progress_id, achievement_id)
 );
 
-CREATE INDEX idx_player_achievements_player ON player_achievements(player_progress_id);
+CREATE INDEX IF NOT EXISTS idx_player_achievements_player ON player_achievements(player_progress_id);
 
 -- Insert initial achievements
 INSERT INTO achievements (code, name, description, icon, category, requirement_type, requirement_value, reward_gold, reward_title) VALUES
