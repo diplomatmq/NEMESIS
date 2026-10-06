@@ -13,14 +13,7 @@ export async function handleSuccessfulPayment(ctx: Context) {
   const totalAmount = payment.total_amount; // in Stars
   const currency = payment.currency;
 
-  console.log('Payment received:', {
-    chargeId: telegramPaymentChargeId,
-    userId: ctx.from.id,
-    chatId: ctx.chat.id,
-    amount: totalAmount,
-    currency,
-    payload,
-  });
+  console.log(`💰 Payment received from user ${ctx.from.id}: ${totalAmount} ${currency}`);
 
   // Process and validate payment
   const validationResult = await paymentService.processSuccessfulPayment(
@@ -33,7 +26,7 @@ export async function handleSuccessfulPayment(ctx: Context) {
   );
 
   if (!validationResult.valid) {
-    console.error('Payment validation failed:', validationResult.error);
+    console.log(`❌ Payment validation failed: ${validationResult.error}`);
     await ctx.reply(
       `❌ Произошла ошибка при обработке платежа.\n\n` +
       `Причина: ${validationResult.error}\n\n` +
@@ -63,6 +56,8 @@ export async function handleSuccessfulPayment(ctx: Context) {
     // Mark payment as completed
     await paymentService.markPaymentCompleted(pendingPayment.id);
 
+    console.log(`✅ Payment processed successfully for user ${ctx.from.id}`);
+
     // Send success message to the original chat where the action was initiated
     await ctx.api.sendMessage(
       pendingPayment.chat_id,
@@ -72,7 +67,7 @@ export async function handleSuccessfulPayment(ctx: Context) {
     );
 
   } catch (error) {
-    console.error('Error executing paid action:', error);
+    console.error(`❌ Error executing paid action:`, error);
     await ctx.reply(
       `⚠️ Оплата принята, но возникла ошибка при выполнении действия.\n\n` +
       `Пожалуйста, попробуйте выполнить команду снова.`

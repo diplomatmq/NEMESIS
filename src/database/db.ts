@@ -26,10 +26,15 @@ class Database {
     try {
       const res = await this.pool.query(text, params);
       const duration = Date.now() - start;
-      console.log('Executed query', { text, duration, rows: res.rowCount });
+      // Only log slow queries (> 100ms)
+      if (duration > 100) {
+        const shortText = text.length > 50 ? text.substring(0, 50) + '...' : text;
+        console.log(`⚠️ Slow query (${duration}ms): ${shortText}`);
+      }
       return res;
     } catch (error) {
-      console.error('Database query error:', error);
+      const shortText = text.length > 50 ? text.substring(0, 50) + '...' : text;
+      console.error(`❌ DB Error: ${shortText}`, error);
       throw error;
     }
   }

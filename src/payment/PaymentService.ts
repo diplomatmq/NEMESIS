@@ -29,20 +29,14 @@ export class PaymentService {
     // Find pending payment
     const pendingPayment = await PendingPaymentModel.findByPayload(payload);
     if (!pendingPayment) {
+      console.log(`❌ Pending payment not found for payload: ${payload}`);
       return {
         valid: false,
         error: 'Pending payment not found',
       };
     }
 
-    console.log('Pending payment found:', {
-      id: pendingPayment.id,
-      stored_user_id: pendingPayment.telegram_user_id,
-      received_user_id: telegramUserId,
-      stored_chat_id: pendingPayment.chat_id,
-      received_chat_id: telegramChatId,
-      status: pendingPayment.status,
-    });
+    console.log(`✅ Payment validated for user ${telegramUserId} in chat ${pendingPayment.chat_id}`);
 
     // Validate payment details
     if (!await PendingPaymentModel.isValid(pendingPayment)) {
@@ -53,13 +47,9 @@ export class PaymentService {
     }
 
     // Only validate user ID - chat ID will differ (payment comes to PM, but action was in group)
-    if (pendingPayment.telegram_user_id !== telegramUserId) {
-      console.error('User ID mismatch:', {
-        expected: pendingPayment.telegram_user_id,
-        received: telegramUserId,
-        expectedType: typeof pendingPayment.telegram_user_id,
-        receivedType: typeof telegramUserId,
-      });
+    // Convert both to numbers for comparison (PostgreSQL BIGINT returns as string)
+    if (Number(pendingPayment.telegram_user_id) !== telegramUserId) {
+      console.log(`❌ Payment validation failed: User mismatch (expected ${pendingPayment.telegram_user_id}, got ${telegramUserId})`);
       return {
         valid: false,
         error: 'User mismatch',
