@@ -1,0 +1,41 @@
+{
+  "name": "nemesis-tower-game",
+  "version": "1.0.0",
+  "description": "Telegram Tower RPG Game with adaptive AI and Telegram Stars payment",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "migrate": "node -r dotenv/config dist/database/migrations/run.js",
+    "lint": "eslint src/**/*.ts"
+  },
+  "keywords": [
+    "telegram",
+    "bot",
+    "game",
+    "rpg",
+    "tower",
+    "grammy"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "grammy": "^1.21.1",
+    "fastify": "^4.26.2",
+    "@fastify/cors": "^9.0.1",
+    "pg": "^8.11.3",
+    "redis": "^4.6.13",
+    "dotenv": "^16.4.5",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.24",
+    "@types/pg": "^8.11.2",
+    "typescript": "^5.3.3",
+    "tsx": "^4.7.1",
+    "eslint": "^8.57.0",
+    "@typescript-eslint/eslint-plugin": "^7.1.0",
+    "@typescript-eslint/parser": "^7.1.0"
+  }
+}
