@@ -58,8 +58,10 @@ const HEALTH_EMOJI_BY_SEGMENT = [
 ] as const;
 
 export function formatHealthBar(currentHp: number, maxHp: number): string {
-  const safeMaxHp = Math.max(1, maxHp);
-  const safeCurrentHp = Math.max(0, Math.min(currentHp, safeMaxHp));
+  const safeMaxHp = Number.isFinite(maxHp) && maxHp > 0 ? maxHp : 1;
+  const safeCurrentHp = Number.isFinite(currentHp)
+    ? Math.max(0, Math.min(currentHp, safeMaxHp))
+    : 0;
   const segments = safeCurrentHp === 0
     ? 0
     : Math.min(6, Math.ceil((safeCurrentHp / safeMaxHp) * 6));

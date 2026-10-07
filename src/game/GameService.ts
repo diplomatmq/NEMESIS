@@ -111,6 +111,7 @@ export class GameService {
       action, 
       progress, 
       chatProgress, 
+      chat.id,
       season.id,
       user!.id,
       isCooldownExempt
@@ -133,6 +134,7 @@ export class GameService {
     action: string,
     progress: PlayerProgress,
     chatProgress: any,
+    chatId: number,
     seasonId: number,
     userId: number,
     isCooldownExempt: boolean
@@ -193,10 +195,11 @@ export class GameService {
       playerClass = await classService.getClassById(progress.class_id);
     }
 
-    // Get or create behavior profile (user-global)
+    // Track behavior for the real database chat row. Passing the internal
+    // user id here violates behavior_profiles.chat_id's foreign key.
     const behaviorProfile = await behaviorTracker.getOrCreateProfile(
       userId,
-      userId, // Use userId as chat_id for global tracking
+      chatId,
       seasonId
     );
 
@@ -236,7 +239,7 @@ export class GameService {
     // Record action for behavior tracking
     await behaviorTracker.recordAction(
       userId,
-      userId, // Global tracking
+      chatId,
       seasonId,
       actionType,
       combatResult.enemyDamage
@@ -438,7 +441,7 @@ export class GameService {
       `🌍 **Глобальный прогресс:**\n` +
       `🏰 Этаж: ${progress.floor}\n` +
       `🚩 Checkpoint: ${progress.checkpoint_floor}\n` +
-      `❤️ HP: ${progress.hp}/${progress.max_hp}\n` +
+      `❤️ HP: ${formatHealthBar(progress.hp, progress.max_hp)}\n` +
       `⚔️ Атака: ${progress.attack}\n` +
       `🛡️ Защита: ${progress.defense}\n` +
       `⭐ Уровень: ${progress.level}\n` +
