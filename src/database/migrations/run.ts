@@ -75,6 +75,21 @@ async function runMigrations() {
     await db.query(achievementProgressSql);
     console.log('✅ Achievement progress references repaired');
 
+    const requiredTables = await db.query(`
+      SELECT
+        current_database() AS database_name,
+        to_regclass('public.users') AS users_table,
+        to_regclass('public.chats') AS chats_table,
+        to_regclass('public.player_progress') AS progress_table
+    `);
+    const schema = requiredTables.rows[0];
+    if (!schema.users_table || !schema.chats_table || !schema.progress_table) {
+      throw new Error(
+        `Migration completed against an incomplete schema in ${schema.database_name}: ` +
+        'users, chats, and player_progress are required'
+      );
+    }
+
     console.log('✅ Database migrations completed successfully!');
     process.exit(0);
   } catch (error) {

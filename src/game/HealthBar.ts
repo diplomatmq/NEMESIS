@@ -67,7 +67,8 @@ export function formatHealthBar(currentHp: number, maxHp: number): string {
     : safeCurrentHp === 0
     ? 0
     : Math.min(5, Math.ceil((safeCurrentHp / safeMaxHp) * 6));
-  const emojis = HEALTH_EMOJI_BY_SEGMENT[segments];
+  // The supplied configurations are ordered from full (6/6) to empty (0/6).
+  const emojis = HEALTH_EMOJI_BY_SEGMENT[6 - segments];
 
   return `${emojis
     .map((id) => `<tg-emoji emoji-id="${id}">❤️</tg-emoji>`)

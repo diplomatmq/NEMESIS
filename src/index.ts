@@ -70,6 +70,20 @@ async function start() {
     // Test database connection
     console.log('🔌 Testing database connection...');
     await db.query('SELECT NOW()');
+    const schemaCheck = await db.query(`
+      SELECT
+        current_database() AS database_name,
+        current_schema() AS schema_name,
+        to_regclass('public.users') AS users_table,
+        to_regclass('public.chats') AS chats_table
+    `);
+    const schema = schemaCheck.rows[0];
+    if (!schema.users_table || !schema.chats_table) {
+      throw new Error(
+        `Database schema is incomplete in ${schema.database_name}.${schema.schema_name}: ` +
+        'public.users and public.chats are required'
+      );
+    }
     console.log('✅ Database connected');
 
     // Start bot

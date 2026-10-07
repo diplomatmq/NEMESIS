@@ -169,6 +169,32 @@ export class ChatProgressModel {
       );
       chatProgress = result.rows[0];
     }
+
+    if (!chatProgress) {
+      throw new Error(`Failed to create chat progress for user ${userId}, chat ${chatId}, season ${seasonId}`);
+    }
+
+    // Repair records created before chat identity tracking was fixed. A user
+    // with only one chat must never see it as an additional chat.
+    if (!chatProgress.is_primary_chat) {
+      const otherChats = await db.query(
+        `SELECT COUNT(*) AS count
+         FROM chat_progress
+         WHERE user_id = $1 AND season_id = $2 AND id <> $3`,
+        [userId, seasonId, chatProgress.id]
+      );
+      if (Number(otherChats.rows[0].count) === 0) {
+        const result = await db.query(
+          `UPDATE chat_progress
+           SET is_primary_chat = true, updated_at = NOW()
+           WHERE id = $1
+           RETURNING *`,
+          [chatProgress.id]
+        );
+        chatProgress = result.rows[0];
+      }
+    }
+
     return chatProgress!;
   }
 
