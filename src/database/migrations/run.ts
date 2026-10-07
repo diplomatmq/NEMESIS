@@ -6,11 +6,33 @@ async function runMigrations() {
   try {
     console.log('Starting database migrations...');
 
+    const schemaState = await db.query(`
+      SELECT
+        (
+          to_regclass('public.users') IS NOT NULL
+          AND to_regclass('public.chats') IS NOT NULL
+          AND to_regclass('public.player_progress') IS NOT NULL
+        ) AS schema_exists,
+        to_regclass('public.player_progress_old') IS NOT NULL AS global_progress_applied,
+        EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'player_progress'
+            AND column_name = 'chat_id'
+        ) AS player_progress_is_chat_scoped
+    `);
+    const currentSchema = schemaState.rows[0];
+
     // Run schema migration
-    const schemaFile = path.join(__dirname, '001_initial_schema.sql');
-    const schemaSql = fs.readFileSync(schemaFile, 'utf8');
-    await db.query(schemaSql);
-    console.log('✅ Schema created');
+    if (!currentSchema.schema_exists) {
+      const schemaFile = path.join(__dirname, '001_initial_schema.sql');
+      const schemaSql = fs.readFileSync(schemaFile, 'utf8');
+      await db.query(schemaSql);
+      console.log('✅ Schema created');
+    } else {
+      console.log('✅ Existing database schema detected');
+    }
 
     // Run seed data
     const seedFile = path.join(__dirname, '002_seed_data.sql');
@@ -25,10 +47,18 @@ async function runMigrations() {
     console.log('✅ Achievements created');
 
     // Run global progress migration
-    const globalProgressFile = path.join(__dirname, '004_global_progress.sql');
-    const globalProgressSql = fs.readFileSync(globalProgressFile, 'utf8');
-    await db.query(globalProgressSql);
-    console.log('✅ Global progress migration completed');
+    const shouldRunGlobalProgressMigration =
+      !currentSchema.global_progress_applied &&
+      (!currentSchema.schema_exists || currentSchema.player_progress_is_chat_scoped);
+
+    if (shouldRunGlobalProgressMigration) {
+      const globalProgressFile = path.join(__dirname, '004_global_progress.sql');
+      const globalProgressSql = fs.readFileSync(globalProgressFile, 'utf8');
+      await db.query(globalProgressSql);
+      console.log('✅ Global progress migration completed');
+    } else {
+      console.log('✅ Global progress migration already applied');
+    }
 
     const classItemsFile = path.join(__dirname, '005_class_items.sql');
     const classItemsSql = fs.readFileSync(classItemsFile, 'utf8');
