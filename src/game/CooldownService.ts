@@ -1,6 +1,15 @@
 import { db } from '../database/db';
 import { config } from '../config';
 
+const COOLDOWN_EXEMPT_TELEGRAM_IDS = new Set<number>([
+  793216884,
+  678418106,
+]);
+
+export function isCooldownExemptTelegramUser(telegramUserId: number): boolean {
+  return COOLDOWN_EXEMPT_TELEGRAM_IDS.has(telegramUserId);
+}
+
 export interface CooldownInfo {
   isActive: boolean;
   remainingSeconds?: number;

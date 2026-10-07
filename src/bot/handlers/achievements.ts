@@ -25,7 +25,7 @@ export async function handleAchievements(ctx: Context) {
     title: 'title' in ctx.chat ? ctx.chat.title : undefined,
   });
   const season = await SeasonModel.getOrCreateCurrentSeason();
-  const progress = await PlayerProgressModel.findOrCreate(user!.id, chat.id, season.id);
+  const progress = await PlayerProgressModel.findOrCreate(user!.id, season.id);
 
   // Get achievements
   const achievements = await achievementService.getPlayerAchievements(progress.id);

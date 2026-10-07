@@ -24,6 +24,22 @@ async function runMigrations() {
     await db.query(achievementsSql);
     console.log('✅ Achievements created');
 
+    // Run global progress migration
+    const globalProgressFile = path.join(__dirname, '004_global_progress.sql');
+    const globalProgressSql = fs.readFileSync(globalProgressFile, 'utf8');
+    await db.query(globalProgressSql);
+    console.log('✅ Global progress migration completed');
+
+    const classItemsFile = path.join(__dirname, '005_class_items.sql');
+    const classItemsSql = fs.readFileSync(classItemsFile, 'utf8');
+    await db.query(classItemsSql);
+    console.log('✅ Class items migration completed');
+
+    const seasonOneEnemiesFile = path.join(__dirname, '006_season_one_enemies.sql');
+    const seasonOneEnemiesSql = fs.readFileSync(seasonOneEnemiesFile, 'utf8');
+    await db.query(seasonOneEnemiesSql);
+    console.log('✅ Season 1 enemy catalog completed');
+
     console.log('✅ Database migrations completed successfully!');
     process.exit(0);
   } catch (error) {

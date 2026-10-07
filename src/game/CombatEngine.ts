@@ -2,6 +2,8 @@ import { PlayerProgress } from '../database/models/PlayerProgress';
 import { ActionType, CombatResult } from '../types/game.types';
 import { classService } from './ClassService';
 import { bossSystem, BossConfig } from './BossSystem';
+import { SeededRandom } from './SeededRandom';
+import { formatHealthBar } from './HealthBar';
 
 export interface Enemy {
   id?: number;
@@ -15,6 +17,58 @@ export interface Enemy {
   boss_config?: BossConfig;
   turnCount?: number;
 }
+
+const MOB_ZONES: Array<[string, string, string]> = [
+  ['Пещерный гоблин', 'Слабый скелет', 'Крысиный разведчик'],
+  ['Каменный голем', 'Пещерный паук', 'Разбойник тоннелей'],
+  ['Орк-воин', 'Гоблин-шаман', 'Боевой кабан'],
+  ['Теневой волк', 'Ночной убийца', 'Призрачная летучая мышь'],
+  ['Огненный элементаль', 'Пепельный бес', 'Лавовый жук'],
+  ['Ледяной элементаль', 'Морозный волк', 'Снежный призрак'],
+  ['Корневой зверь', 'Гнилой друид', 'Лесной охотник'],
+  ['Железный страж', 'Механический паук', 'Ржавый голем'],
+  ['Громовой ящер', 'Штормовой сокол', 'Искровой бес'],
+  ['Ученик бездны', 'Живая книга', 'Магический паразит'],
+  ['Песчаный червь', 'Разбойник дюн', 'Миражный шакал'],
+  ['Рыцарь пепла', 'Огненный скелет', 'Пепельная гарпия'],
+  ['Морская сирена', 'Глубинный краб', 'Утопленник'],
+  ['Лабиринтный минотавр', 'Каменный бык', 'Блуждающий фантом'],
+  ['Сломанный голем', 'Часовой механизм', 'Хрономант'],
+  ['Алый дуэлянт', 'Кровавый культист', 'Лунный волк'],
+  ['Костяной маг', 'Могильный рыцарь', 'Мёртвый знаменосец'],
+  ['Призрачный матрос', 'Скелет-канонир', 'Туманная сирена'],
+  ['Химерный зверь', 'Безликий охотник', 'Щупальце бездны'],
+  ['Магмовый червь', 'Вулканический бес', 'Обсидиановый страж'],
+  ['Сфинкс-пилигрим', 'Песчаный пророк', 'Забытый страж'],
+  ['Чумной монах', 'Гниющий носитель', 'Крыса-мутант'],
+  ['Серебряный охотник', 'Лунная гарпия', 'Зверь затмения'],
+  ['Осадный орк', 'Каменный разрушитель', 'Таранный зверь'],
+  ['Миражный убийца', 'Пустынный фантом', 'Зеркальная змея'],
+  ['Морозный лич', 'Ледяной рыцарь', 'Кристальный волк'],
+  ['Королевский гоблин', 'Золотой вор', 'Шаман племени'],
+  ['Девятиглавый змей', 'Ядовитая гидра', 'Кобра алтаря'],
+  ['Стальной самурай', 'Дух клинка', 'Ронин-тень'],
+  ['Багровая ведьма', 'Кровавый ворон', 'Проклятый жрец'],
+  ['Звёздный паразит', 'Астральная медуза', 'Пожиратель света'],
+  ['Титан корней', 'Древесный энт', 'Сердце чащи'],
+  ['Зеркальный двойник', 'Отражённый рыцарь', 'Мимик зеркал'],
+  ['Ночной граф', 'Алый вампир', 'Замковый упырь'],
+  ['Оракул-слепец', 'Глаз пустоты', 'Прорицатель теней'],
+  ['Адский кузнец', 'Железный демон', 'Огненный рабочий'],
+  ['Миазменный дух', 'Чумной зверь', 'Туманная личинка'],
+  ['Пепельный феникс', 'Воскресший воин', 'Жар-птица'],
+  ['Кристальный рыцарь', 'Осколочный голем', 'Лучистый паук'],
+  ['Охотник на героев', 'Проклятый ведьмак', 'Трофейный зверь'],
+  ['Небесный дракон', 'Крылатый лев', 'Грозовой змей'],
+  ['Ткач-паразит', 'Нитяная ведьма', 'Кукла судьбы'],
+  ['Имперский некромант', 'Костяной легионер', 'Мёртвый знаменосец'],
+  ['Живой ураган', 'Грозовой элементаль', 'Молниевый дух'],
+  ['Младший архидемон', 'Бездонный пёс', 'Пламенный инкуб'],
+  ['Астральный голем', 'Звёздный рыцарь', 'Световой охотник'],
+  ['Хаотический зверь', 'Случайный фантом', 'Мутант пустоты'],
+  ['Последний страж', 'Вершинный рыцарь', 'Хранитель клятвы'],
+  ['Мёртвый апостол', 'Апокалиптический зверь', 'Пожиратель душ'],
+];
 
 export class CombatEngine {
   
@@ -92,7 +146,8 @@ export class CombatEngine {
       }
 
       // Crit chance (varies by class)
-      const critChance = playerClassCode ? classService.getClassCritBonus(playerClassCode) : 0.1;
+      const critChance = (player.crit_chance || 0) / 100 +
+        (playerClassCode ? classService.getClassCritBonus(playerClassCode) : 0.1);
       if (Math.random() < critChance) {
         playerDamage = Math.floor(playerDamage * 1.5);
         isCrit = true;
@@ -100,7 +155,8 @@ export class CombatEngine {
 
       // Lifesteal (for Vampire class)
       if (playerClassCode) {
-        const lifestealRate = classService.getClassLifesteal(playerClassCode);
+        const lifestealRate = (player.lifesteal || 0) / 100 +
+          classService.getClassLifesteal(playerClassCode);
         if (lifestealRate > 0) {
           lifestealHealing = Math.floor(playerDamage * lifestealRate);
         }
@@ -135,8 +191,9 @@ export class CombatEngine {
         enemyDamage = classService.calculateClassDefenseBonus(playerClassCode, enemyDamage);
       }
 
-      // Random dodge chance (5%)
-      if (Math.random() < 0.05) {
+      // Equipment and class dodge are percentage values.
+      const dodgeChance = Math.min(0.95, 0.05 + (player.dodge || 0) / 100);
+      if (Math.random() < dodgeChance) {
         enemyDamage = 0;
         isDodge = true;
       }
@@ -257,51 +314,58 @@ export class CombatEngine {
     if (enemyDefeated) {
       msg += `✅ ${enemyName} повержен!\n\n`;
     } else {
-      msg += `👹 HP противника: ${enemyHp}/${enemyMaxHp}\n`;
+      msg += `👹 HP противника: ${formatHealthBar(enemyHp, enemyMaxHp)}\n`;
     }
 
     if (playerDefeated) {
       msg += `❌ Вы погибли!\n`;
     } else {
-      msg += `❤️ Ваше HP: ${playerHp}/${playerMaxHp}\n`;
+      msg += `Ваше HP: ${formatHealthBar(playerHp, playerMaxHp)}\n`;
     }
 
     return msg;
   }
 
-  generateEnemy(floor: number): Enemy {
+  generateEnemyS1(floor: number, seasonId: number): Enemy {
     const level = Math.floor(floor / 10) + 1;
     const isBoss = floor % 10 === 0;
     
     if (isBoss) {
-      // Generate boss using boss system
-      return bossSystem.generateBossEnemy(floor);
+      // Generate boss using boss system with seeded random
+      return bossSystem.generateBossEnemy(floor, seasonId);
     }
     
-    // Regular enemy
+    // Regular enemy with deterministic generation
+    const rng = SeededRandom.forFloor(floor, seasonId);
+    
     const baseHp = 50 + (level * 20);
     const baseAttack = 8 + (level * 3);
     const baseDefense = 3 + (level * 2);
     
-    const enemyTypes = [
-      'Страж', 'Демон', 'Голем', 'Химера', 'Драконид', 
-      'Скелет-воин', 'Теневой убийца', 'Каменный титан',
-      'Огненный элементаль', 'Ледяной элементаль', 'Орк-берсерк',
-      'Тёмный рыцарь', 'Некромант', 'Вампир лорд'
-    ];
-    
-    const randomName = enemyTypes[Math.floor(Math.random() * enemyTypes.length)];
+    // Each ten-floor zone has its own three regular mobs. Floor 1-9 uses
+    // zone 0; floors 11-19 use zone 1, and so on up to floors 491-499.
+    const zoneIndex = Math.min(MOB_ZONES.length - 1, Math.floor((floor - 1) / 10));
+    const randomName = rng.choose(MOB_ZONES[zoneIndex]);
     const name = `${randomName} ${level} ур.`;
+
+    // Add some variance to stats (±10%) using seeded random
+    const hpVariance = rng.nextFloat(0.9, 1.1);
+    const attackVariance = rng.nextFloat(0.9, 1.1);
+    const defenseVariance = rng.nextFloat(0.9, 1.1);
 
     return {
       name,
-      hp: baseHp,
-      maxHp: baseHp,
-      attack: baseAttack,
-      defense: baseDefense,
+      hp: Math.floor(baseHp * hpVariance),
+      maxHp: Math.floor(baseHp * hpVariance),
+      attack: Math.floor(baseAttack * attackVariance),
+      defense: Math.floor(baseDefense * defenseVariance),
       level,
       isBoss: false,
     };
+  }
+
+  generateEnemy(floor: number, seasonId: number): Enemy {
+    return this.generateEnemyS1(floor, seasonId);
   }
 }
 

@@ -1,6 +1,7 @@
 import { db } from '../database/db';
 import { Enemy } from './CombatEngine';
 import { ActionType } from '../types/game.types';
+import { SeededRandom } from './SeededRandom';
 
 export interface BossAbility {
   name: string;
@@ -96,20 +97,134 @@ export class BossSystem {
     },
   };
 
-  getBossConfig(floor: number): BossConfig {
+  getBossConfigS1(floor: number, seasonId: number): BossConfig {
     const level = Math.floor(floor / 10);
     
     // Определяем босса по этажу
     const bossIndex = Math.floor(floor / 10) - 1;
-    const bossConfigs = this.getAllBossConfigs();
+    const bossConfigs = this.getExpandedBossConfigs();
     
     // Если есть предопределённый босс, используем его
     if (bossIndex < bossConfigs.length) {
       return this.scaleBossToFloor(bossConfigs[bossIndex], floor);
     }
-    
-    // Иначе генерируем процедурного босса
-    return this.generateProceduralBoss(floor);
+
+    return this.generateProceduralBoss(floor, seasonId);
+  }
+
+  getBossConfig(floor: number, seasonId: number): BossConfig {
+    return this.getBossConfigS1(floor, seasonId);
+  }
+
+    /**
+     * Every tenth floor has its own named boss. The data is generated from a
+     * fixed catalogue so floors 10..500 are deterministic and fully described.
+     */
+    private getExpandedBossConfigs(): BossConfig[] {
+      const bosses: Array<[string, string, string, string, string]> = [
+        ['Страж Врат', 'Первый хранитель', 'Древний страж входа', 'defensive', 'guardian'],
+        ['Костяной Дракон', 'Нежить драконьего рода', 'Восставший дракон из костяных пустошей', 'aggressive', 'arcanist'],
+        ['Владыка Теней', 'Повелитель тьмы', 'Маг, питающийся страхом путников', 'adaptive', 'tactician'],
+        ['Повелитель Пламени', 'Огненный титан', 'Элементаль чистого огня', 'aggressive', 'vampire'],
+        ['Ледяной Колосс', 'Вечная мерзлота', 'Гигант, скованный древним льдом', 'defensive', 'berserker'],
+        ['Королева Пауков', 'Мать ядовитого улья', 'Хозяйка тысячи паутинных тоннелей', 'tactical', 'assassin'],
+        ['Гниющий Друид', 'Голос проклятого леса', 'Древесный маг, поднявший мёртвые корни', 'adaptive', 'arcanist'],
+        ['Железный Голем', 'Кузня воли', 'Живой механизм, выкованный в башне', 'defensive', 'berserker'],
+        ['Громовой Виверн', 'Крыло бури', 'Дракон, несущий молнии над башней', 'aggressive', 'guardian'],
+        ['Архимаг Предела', 'Последний учёный', 'Маг, разорвавший границы заклинаний', 'tactical', 'jester'],
+        ['Песчаный Пожиратель', 'Владыка дюн', 'Чудовище, поглощающее целые караваны', 'chaotic', 'vampire'],
+        ['Рыцарь Пепла', 'Несломленный клятвопреступник', 'Воин, вернувшийся из погребального костра', 'defensive', 'berserker'],
+        ['Морская Ведьма', 'Певица глубин', 'Колдунья, затопившая нижние залы', 'adaptive', 'arcanist'],
+        ['Минотавр Лабиринта', 'Хозяин тысячи стен', 'Непобедимый охотник закрытых проходов', 'aggressive', 'assassin'],
+        ['Хранитель Часов', 'Сломанный хронос', 'Существо, застрявшее между мгновениями', 'tactical', 'tactician'],
+        ['Алый Палач', 'Клинок кровавой луны', 'Палач, который никогда не промахивается', 'aggressive', 'guardian'],
+        ['Некромант-Король', 'Повелитель костей', 'Монарх армии, которой не нужен сон', 'adaptive', 'necromancer'],
+        ['Призрачный Адмирал', 'Флот мёртвых вод', 'Капитан корабля, пришедшего из могилы', 'tactical', 'jester'],
+        ['Химера Бездны', 'Три голоса хаоса', 'Слияние трёх древних хищников', 'chaotic', 'assassin'],
+        ['Вулканический Титан', 'Сердце магмы', 'Гигант, шагающий по раскалённым залам', 'aggressive', 'arcanist'],
+        ['Сфинкс Забвения', 'Загадка без ответа', 'Хранительница дверей, стирающая память', 'tactical', 'jester'],
+        ['Чумной Епископ', 'Проповедник распада', 'Носитель болезни, которой боятся даже демоны', 'adaptive', 'vampire'],
+        ['Лунный Охотник', 'Серебряный след', 'Невидимый зверь, преследующий слабых', 'chaotic', 'assassin'],
+        ['Башенный Разрушитель', 'Осадная машина', 'Живой таран древней цивилизации', 'aggressive', 'guardian'],
+        ['Дракон Миражей', 'Сон пустыни', 'Иллюзия, ставшая плотью', 'chaotic', 'jester'],
+        ['Морозный Лич', 'Вечный холод', 'Лич, запечатавший собственное сердце', 'defensive', 'arcanist'],
+        ['Король Гоблинов', 'Собиратель корон', 'Хитрый правитель подземных племён', 'tactical', 'tactician'],
+        ['Змей Девяти Клыков', 'Яд глубин', 'Древняя змея, охраняющая чёрный алтарь', 'adaptive', 'vampire'],
+        ['Стальной Самурай', 'Последняя стойка', 'Дух воина, отказавшийся умирать', 'defensive', 'assassin'],
+        ['Колдунья Багрового Дождя', 'Небо из крови', 'Ведьма, меняющая погоду проклятиями', 'chaotic', 'arcanist'],
+        ['Пожиратель Звёзд', 'Бездна над башней', 'Космический хищник, упавший в этот мир', 'aggressive', 'jester'],
+        ['Титан Корней', 'Сердце чащи', 'Гора древесины и древней ярости', 'defensive', 'guardian'],
+        ['Владыка Зеркал', 'Тысяча отражений', 'Противник, копирующий каждое движение', 'adaptive', 'tactician'],
+        ['Граф Ноктюрн', 'Бессмертная ночь', 'Вампир, превративший этаж в замок', 'tactical', 'vampire'],
+        ['Оракул Пустоты', 'Глаз за гранью', 'Прорицатель, видящий все варианты будущего', 'tactical', 'jester'],
+        ['Демон-Кузнец', 'Молот преисподней', 'Кузнец оружия, способного убивать богов', 'aggressive', 'berserker'],
+        ['Повелитель Миазмов', 'Дыхание гнили', 'Туманное существо из забытой чумы', 'adaptive', 'necromancer'],
+        ['Феникс Пепла', 'Последнее возрождение', 'Птица, воскресающая после каждого поражения', 'chaotic', 'vampire'],
+        ['Кристальный Страж', 'Осколок вечности', 'Живая крепость из неземного кристалла', 'defensive', 'guardian'],
+        ['Ведьмак Бездны', 'Охотник на героев', 'Наёмник, изучивший слабости всех классов', 'tactical', 'assassin'],
+        ['Левиафан Небес', 'Затмение крыльев', 'Гигант, закрывающий собой луну', 'aggressive', 'arcanist'],
+        ['Ткач Судеб', 'Нить последнего часа', 'Существо, переписывающее судьбы путников', 'adaptive', 'tactician'],
+        ['Император Мёртвых', 'Трон костей', 'Владыка всех павших на нижних этажах', 'defensive', 'necromancer'],
+        ['Сердце Бури', 'Живой ураган', 'Сгусток молний и разрушительной воли', 'chaotic', 'jester'],
+        ['Архидемон Врат', 'Печать последнего круга', 'Демон, охраняющий путь к вершине', 'aggressive', 'berserker'],
+        ['Астральный Колосс', 'Тело созвездия', 'Гигант из света далёких миров', 'defensive', 'arcanist'],
+        ['Повелитель Хаоса', 'Случайность плоти', 'Непредсказуемый разум без единой формы', 'chaotic', 'jester'],
+        ['Последний Рыцарь', 'Клятва вершины', 'Защитник финального подъёма', 'tactical', 'guardian'],
+        ['Апокалипсис', 'Конец пути', 'Древняя сила, ожидавшая у вершины башни', 'adaptive', 'necromancer'],
+        ['Вершинный Судья', 'Приговор башни', 'Последний испытатель, оценивающий каждого героя', 'defensive', 'tactician'],
+      ];
+
+      return bosses.map((boss, index) => {
+        const floor = (index + 1) * 10;
+        const level = index + 1;
+        const [name, title, description, aiType, weakness] = boss;
+        const abilityNames = [
+          'power_strike',
+          index % 3 === 0 ? 'defensive_stance' : 'elemental_blast',
+          index % 4 === 0 ? 'heal' : index % 4 === 1 ? 'counter_attack' : 'adaptation',
+        ];
+        const signatureAbility = this.createSignatureAbility(index, name);
+        return {
+          name,
+          title,
+          description,
+          floor,
+          level,
+          base_hp: 180 + level * 90,
+          base_attack: 12 + level * 5,
+          base_defense: 8 + level * 3,
+          abilities: [
+            ...abilityNames.map((ability) => this.BOSS_ABILITIES[ability]),
+            signatureAbility,
+          ],
+          ai_type: aiType as BossConfig['ai_type'],
+          icon: ['👹', '🐉', '💀', '🔥', '❄️'][index % 5],
+          loot_multiplier: 1.5 + level * 0.1,
+          weakness,
+        };
+      });
+    }
+
+  private createSignatureAbility(index: number, bossName: string): BossAbility {
+    const damageMultiplier = 1.15 + (index % 6) * 0.1;
+    const abilityVariants = [
+      ['Разлом брони', 'Временно снижает защиту игрока', '🪓'],
+      ['Кровавая метка', 'Усиливает следующий удар босса', '🩸'],
+      ['Печать молчания', 'Ослабляет способности игрока', '🔇'],
+      ['Зеркальный выпад', 'Повторяет часть последнего урона', '🪞'],
+      ['Пожирание света', 'Наносит урон и восстанавливает здоровье', '🌑'],
+      ['Цепь хаоса', 'Меняет стиль атаки каждый ход', '⛓️'],
+    ];
+    const [variant, description, icon] = abilityVariants[index % abilityVariants.length];
+    return {
+      name: `${variant} ${index + 1}`,
+      description: `${description}. Особенность босса: ${bossName}.`,
+      damage_multiplier: damageMultiplier,
+      heal_amount: index % 5 === 0 ? 0.05 + (index % 4) * 0.02 : undefined,
+      condition: index % 2 === 0 ? 'random' : 'low_hp',
+      cooldown: 2 + (index % 4),
+      icon,
+    };
   }
 
   private getAllBossConfigs(): BossConfig[] {
@@ -257,8 +372,11 @@ export class BossSystem {
     };
   }
 
-  private generateProceduralBoss(floor: number): BossConfig {
+  private generateProceduralBoss(floor: number, seasonId: number): BossConfig {
     const level = Math.floor(floor / 10);
+    
+    // Use seeded random for deterministic generation
+    const rng = SeededRandom.forFloor(floor, seasonId);
     
     const names = [
       'Архидемон', 'Титан Хаоса', 'Пожиратель Душ', 'Владыка Бездны',
@@ -273,17 +391,17 @@ export class BossSystem {
     const aiTypes: Array<'aggressive' | 'defensive' | 'adaptive' | 'chaotic' | 'tactical'> = 
       ['aggressive', 'defensive', 'adaptive', 'chaotic', 'tactical'];
     
-    const name = names[Math.floor(Math.random() * names.length)];
-    const title = titles[Math.floor(Math.random() * titles.length)];
+    const name = rng.choose(names);
+    const title = rng.choose(titles);
     
-    // Выбираем 3-4 случайные способности
+    // Выбираем 3-4 случайные способности детерминированно
     const abilityKeys = Object.keys(this.BOSS_ABILITIES);
     const selectedAbilities: BossAbility[] = [];
-    const abilityCount = 3 + Math.floor(Math.random() * 2);
+    const abilityCount = 3 + rng.nextInt(0, 1);
     
-    for (let i = 0; i < abilityCount; i++) {
-      const randomKey = abilityKeys[Math.floor(Math.random() * abilityKeys.length)];
-      selectedAbilities.push(this.BOSS_ABILITIES[randomKey]);
+    const shuffledKeys = rng.shuffle(abilityKeys);
+    for (let i = 0; i < abilityCount && i < shuffledKeys.length; i++) {
+      selectedAbilities.push(this.BOSS_ABILITIES[shuffledKeys[i]]);
     }
     
     return {
@@ -296,14 +414,14 @@ export class BossSystem {
       base_attack: 15 + (level * 5),
       base_defense: 10 + (level * 3),
       abilities: selectedAbilities,
-      ai_type: aiTypes[Math.floor(Math.random() * aiTypes.length)],
+      ai_type: rng.choose(aiTypes),
       icon: '👑',
       loot_multiplier: 1.5 + (level * 0.5),
     };
   }
 
-  generateBossEnemy(floor: number): Enemy & { boss_config: BossConfig; current_phase?: BossPhase } {
-    const config = this.getBossConfig(floor);
+  generateBossEnemy(floor: number, seasonId: number): Enemy & { boss_config: BossConfig; current_phase?: BossPhase } {
+    const config = this.getBossConfigS1(floor, seasonId);
     
     return {
       id: undefined,

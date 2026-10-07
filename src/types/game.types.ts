@@ -48,6 +48,12 @@ export enum ItemSlot {
   ACCESSORY = 'accessory'
 }
 
+export enum ItemType {
+  UNIVERSAL = 'universal',
+  CLASS_AFFINITY = 'class_affinity',
+  CLASS_EXCLUSIVE = 'class_exclusive'
+}
+
 export interface PlayerStats {
   hp: number;
   maxHp: number;

@@ -25,7 +25,7 @@ export async function handleClassSelection(ctx: Context) {
     title: 'title' in ctx.chat ? ctx.chat.title : undefined,
   });
   const season = await SeasonModel.getOrCreateCurrentSeason();
-  const progress = await PlayerProgressModel.findOrCreate(user!.id, chat.id, season.id);
+  const progress = await PlayerProgressModel.findOrCreate(user!.id, season.id);
 
   // Check if class already selected
   if (progress.class_id) {
@@ -76,7 +76,7 @@ export async function handleClassCallback(ctx: Context) {
     title: 'title' in ctx.chat ? ctx.chat.title : undefined,
   });
   const season = await SeasonModel.getOrCreateCurrentSeason();
-  const progress = await PlayerProgressModel.findOrCreate(user!.id, chat.id, season.id);
+  const progress = await PlayerProgressModel.findOrCreate(user!.id, season.id);
 
   // Check if class already selected
   if (progress.class_id) {

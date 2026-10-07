@@ -3,7 +3,7 @@ import { config } from './config';
 import { db } from './database/db';
 import { redis } from './database/redis';
 import { handleStart } from './bot/handlers/start';
-import { handleGameAction, handleStatus, handleInventory } from './bot/handlers/game';
+import { handleGameAction, handleStatus, handleInventory, handleUsePotion } from './bot/handlers/game';
 import { handleSuccessfulPayment, handlePreCheckoutQuery } from './bot/handlers/payment';
 import { handleClassSelection, handleClassCallback } from './bot/handlers/class';
 import { handleAchievements } from './bot/handlers/achievements';
@@ -31,6 +31,9 @@ bot.command('статус', handleStatus);
 
 bot.command('inventory', handleInventory);
 bot.command('инвентарь', handleInventory);
+
+bot.command('potion', handleUsePotion);
+bot.command('зелье', handleUsePotion);
 
 bot.command('class', handleClassSelection);
 bot.command('класс', handleClassSelection);

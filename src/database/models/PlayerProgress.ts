@@ -3,7 +3,6 @@ import { db } from '../db';
 export interface PlayerProgress {
   id: number;
   user_id: number;
-  chat_id: number;
   season_id: number;
   class_id?: number;
   floor: number;
@@ -11,47 +10,72 @@ export interface PlayerProgress {
   max_hp: number;
   attack: number;
   defense: number;
+  crit_chance: number;
+  dodge: number;
+  lifesteal: number;
+  ai_resist: number;
   gold: number;
   xp: number;
   level: number;
   checkpoint_floor: number;
-  current_enemy_id?: number;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface ChatProgress {
+  id: number;
+  user_id: number;
+  chat_id: number;
+  season_id: number;
+  current_floor: number;
+  highest_floor_reached: number;
+  is_primary_chat: boolean;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface CombatState {
+  id: number;
+  user_id: number;
+  season_id: number;
+  floor: number;
+  enemy_data: any; // JSON data for enemy
+  player_hp_before: number;
+  rounds_completed: number;
   created_at: Date;
   updated_at: Date;
 }
 
 export class PlayerProgressModel {
-  static async find(userId: number, chatId: number, seasonId: number): Promise<PlayerProgress | null> {
+  static async find(userId: number, seasonId: number): Promise<PlayerProgress | null> {
     const result = await db.query(
-      'SELECT * FROM player_progress WHERE user_id = $1 AND chat_id = $2 AND season_id = $3',
-      [userId, chatId, seasonId]
+      'SELECT * FROM player_progress WHERE user_id = $1 AND season_id = $2',
+      [userId, seasonId]
     );
     return result.rows[0] || null;
   }
 
   static async create(data: {
     user_id: number;
-    chat_id: number;
     season_id: number;
     class_id?: number;
   }): Promise<PlayerProgress> {
     const result = await db.query(
-      `INSERT INTO player_progress (user_id, chat_id, season_id, class_id)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO player_progress (user_id, season_id, class_id)
+       VALUES ($1, $2, $3)
        RETURNING *`,
-      [data.user_id, data.chat_id, data.season_id, data.class_id]
+      [data.user_id, data.season_id, data.class_id]
     );
     return result.rows[0];
   }
 
   static async findOrCreate(
     userId: number,
-    chatId: number,
     seasonId: number
   ): Promise<PlayerProgress> {
-    let progress = await this.find(userId, chatId, seasonId);
+    let progress = await this.find(userId, seasonId);
     if (!progress) {
-      progress = await this.create({ user_id: userId, chat_id: chatId, season_id: seasonId });
+      progress = await this.create({ user_id: userId, season_id: seasonId });
     }
     return progress;
   }
@@ -74,13 +98,6 @@ export class PlayerProgressModel {
     await db.query(
       'UPDATE player_progress SET checkpoint_floor = $1, updated_at = NOW() WHERE id = $2',
       [checkpointFloor, id]
-    );
-  }
-
-  static async setCurrentEnemy(id: number, enemyId: number | null): Promise<void> {
-    await db.query(
-      'UPDATE player_progress SET current_enemy_id = $1, updated_at = NOW() WHERE id = $2',
-      [enemyId, id]
     );
   }
 
@@ -120,5 +137,136 @@ export class PlayerProgressModel {
         values
       );
     }
+  }
+}
+
+
+// Chat Progress Model
+export class ChatProgressModel {
+  static async find(userId: number, chatId: number, seasonId: number): Promise<ChatProgress | null> {
+    const result = await db.query(
+      'SELECT * FROM chat_progress WHERE user_id = $1 AND chat_id = $2 AND season_id = $3',
+      [userId, chatId, seasonId]
+    );
+    return result.rows[0] || null;
+  }
+
+  static async findOrCreate(userId: number, chatId: number, seasonId: number): Promise<ChatProgress> {
+    let chatProgress = await this.find(userId, chatId, seasonId);
+    if (!chatProgress) {
+      // Check if this is the first chat for this user/season
+      const existingChats = await db.query(
+        'SELECT COUNT(*) as count FROM chat_progress WHERE user_id = $1 AND season_id = $2',
+        [userId, seasonId]
+      );
+      const isPrimary = existingChats.rows[0].count === 0;
+
+      const result = await db.query(
+        `INSERT INTO chat_progress (user_id, chat_id, season_id, is_primary_chat)
+         VALUES ($1, $2, $3, $4)
+         RETURNING *`,
+        [userId, chatId, seasonId, isPrimary]
+      );
+      chatProgress = result.rows[0];
+    }
+    return chatProgress!;
+  }
+
+  static async updateFloor(id: number, floor: number): Promise<void> {
+    await db.query(
+      `UPDATE chat_progress 
+       SET current_floor = $1, 
+           highest_floor_reached = GREATEST(highest_floor_reached, $1),
+           updated_at = NOW() 
+       WHERE id = $2`,
+      [floor, id]
+    );
+  }
+
+  static async isPrimaryChat(userId: number, chatId: number, seasonId: number): Promise<boolean> {
+    const chatProgress = await this.find(userId, chatId, seasonId);
+    return chatProgress?.is_primary_chat || false;
+  }
+}
+
+// Combat State Model
+export class CombatStateModel {
+  static async find(userId: number, seasonId: number): Promise<CombatState | null> {
+    const result = await db.query(
+      'SELECT * FROM combat_state WHERE user_id = $1 AND season_id = $2',
+      [userId, seasonId]
+    );
+    return result.rows[0] || null;
+  }
+
+  static async create(data: {
+    user_id: number;
+    season_id: number;
+    floor: number;
+    enemy_data: any;
+    player_hp_before: number;
+  }): Promise<CombatState> {
+    const result = await db.query(
+      `INSERT INTO combat_state (user_id, season_id, floor, enemy_data, player_hp_before)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING *`,
+      [data.user_id, data.season_id, data.floor, JSON.stringify(data.enemy_data), data.player_hp_before]
+    );
+    return result.rows[0];
+  }
+
+  static async update(id: number, data: {
+    enemy_data?: any;
+    rounds_completed?: number;
+  }): Promise<void> {
+    const updates: string[] = [];
+    const values: any[] = [];
+    let paramIndex = 1;
+
+    if (data.enemy_data !== undefined) {
+      updates.push(`enemy_data = $${paramIndex++}`);
+      values.push(JSON.stringify(data.enemy_data));
+    }
+    if (data.rounds_completed !== undefined) {
+      updates.push(`rounds_completed = $${paramIndex++}`);
+      values.push(data.rounds_completed);
+    }
+
+    if (updates.length > 0) {
+      updates.push(`updated_at = NOW()`);
+      values.push(id);
+      
+      await db.query(
+        `UPDATE combat_state SET ${updates.join(', ')} WHERE id = $${paramIndex}`,
+        values
+      );
+    }
+  }
+
+  static async delete(userId: number, seasonId: number): Promise<void> {
+    await db.query(
+      'DELETE FROM combat_state WHERE user_id = $1 AND season_id = $2',
+      [userId, seasonId]
+    );
+  }
+
+  static async findOrCreate(
+    userId: number,
+    seasonId: number,
+    floor: number,
+    enemyData: any,
+    playerHpBefore: number
+  ): Promise<CombatState> {
+    let state = await this.find(userId, seasonId);
+    if (!state) {
+      state = await this.create({
+        user_id: userId,
+        season_id: seasonId,
+        floor,
+        enemy_data: enemyData,
+        player_hp_before: playerHpBefore
+      });
+    }
+    return state;
   }
 }

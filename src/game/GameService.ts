@@ -1,15 +1,27 @@
 import { UserModel } from '../database/models/User';
 import { ChatModel } from '../database/models/Chat';
 import { SeasonModel } from '../database/models/Season';
-import { PlayerProgressModel, PlayerProgress } from '../database/models/PlayerProgress';
-import { cooldownService, CooldownInfo } from './CooldownService';
+import { 
+  PlayerProgressModel, 
+  PlayerProgress, 
+  ChatProgressModel, 
+  CombatStateModel,
+  CombatState 
+} from '../database/models/PlayerProgress';
+import {
+  cooldownService,
+  CooldownInfo,
+  isCooldownExemptTelegramUser,
+} from './CooldownService';
 import { combatEngine, Enemy } from './CombatEngine';
 import { behaviorTracker } from './BehaviorTracker';
 import { lootService } from './LootService';
 import { classService } from './ClassService';
 import { achievementService } from './AchievementService';
+import { potionService } from './PotionService';
 import { ActionType, CombatResult } from '../types/game.types';
 import { db } from '../database/db';
+import { formatHealthBar } from './HealthBar';
 
 export interface GameContext {
   telegramUserId: number;
@@ -64,7 +76,7 @@ export class GameService {
       };
     }
 
-    // Get or create user, chat, season, and player progress
+    // Get or create user, chat, season
     const user = await UserModel.findByTelegramId(context.telegramUserId);
     const chat = await ChatModel.findOrCreate({
       telegram_chat_id: context.telegramChatId,
@@ -72,10 +84,16 @@ export class GameService {
       title: context.chatTitle,
     });
     const season = await SeasonModel.getOrCreateCurrentSeason();
-    const progress = await PlayerProgressModel.findOrCreate(user!.id, chat.id, season.id);
+    
+    // Get GLOBAL player progress (not tied to chat)
+    const progress = await PlayerProgressModel.findOrCreate(user!.id, season.id);
+    const isCooldownExempt = isCooldownExemptTelegramUser(context.telegramUserId);
+    
+    // Get or create chat progress (for tracking floors per chat)
+    const chatProgress = await ChatProgressModel.findOrCreate(user!.id, chat.id, season.id);
 
     // Check cooldown (unless bypassed by payment)
-    if (!bypassCooldown) {
+    if (!bypassCooldown && !isCooldownExempt) {
       const cooldownInfo = await cooldownService.check(user!.id, chat.id);
       
       if (cooldownInfo.isActive) {
@@ -89,25 +107,44 @@ export class GameService {
     }
 
     // Execute the action
-    const actionResult = await this.performAction(action, progress);
+    const actionResult = await this.performAction(
+      action, 
+      progress, 
+      chatProgress, 
+      season.id,
+      user!.id,
+      isCooldownExempt
+    );
 
-    // Set new cooldown
-    await cooldownService.set(user!.id, chat.id);
+    // Set new cooldown (user-global, not per chat)
+    if (!isCooldownExempt) {
+      await cooldownService.set(user!.id, chat.id);
+    }
 
     return {
       success: true,
       message: actionResult.message,
-      cooldownSet: true,
+      cooldownSet: !isCooldownExempt,
       combatResult: actionResult.combatResult,
     };
   }
 
   private async performAction(
     action: string,
-    progress: PlayerProgress
+    progress: PlayerProgress,
+    chatProgress: any,
+    seasonId: number,
+    userId: number,
+    isCooldownExempt: boolean
   ): Promise<{ message: string; combatResult?: CombatResult }> {
     
     const actionLower = action.toLowerCase().trim();
+
+    // Check if player wants to use a potion
+    if (actionLower.includes('зель') || actionLower.includes('лечен') || actionLower === 'p') {
+      const potionResult = await potionService.usePotion(progress.id, progress.hp, progress.max_hp);
+      return { message: potionResult.message };
+    }
 
     // Parse action type
     let actionType: ActionType;
@@ -120,29 +157,58 @@ export class GameService {
       actionType = ActionType.ATTACK; // Default to attack
     }
 
+    // Check if player has existing combat state
+    let combatState = await CombatStateModel.find(userId, seasonId);
+    let enemy: Enemy;
+    let currentFloor = chatProgress.current_floor;
+
+    if (combatState) {
+      // Continue existing combat
+      enemy = combatState.enemy_data;
+      currentFloor = combatState.floor;
+      
+      // Check if player switched chat during combat
+      if (currentFloor !== chatProgress.current_floor) {
+        // Player is fighting from a different floor in another chat
+        // They continue with the same enemy
+      }
+    } else {
+      // Start new combat - generate enemy for current chat floor
+      currentFloor = chatProgress.current_floor;
+      enemy = combatEngine.generateEnemyS1(currentFloor, seasonId);
+      
+      // Save combat state
+      combatState = await CombatStateModel.create({
+        user_id: userId,
+        season_id: seasonId,
+        floor: currentFloor,
+        enemy_data: enemy,
+        player_hp_before: progress.hp
+      });
+    }
+
     // Get player class
     let playerClass = null;
     if (progress.class_id) {
       playerClass = await classService.getClassById(progress.class_id);
     }
 
-    // Get or create behavior profile
-    const season = await SeasonModel.getCurrentSeason();
+    // Get or create behavior profile (user-global)
     const behaviorProfile = await behaviorTracker.getOrCreateProfile(
-      progress.user_id,
-      progress.chat_id,
-      season!.id
+      userId,
+      userId, // Use userId as chat_id for global tracking
+      seasonId
     );
-
-    // Generate enemy based on current floor
-    const enemy = combatEngine.generateEnemy(progress.floor);
 
     // Predict player action using AI (if floor > 10)
     let enemyAction: ActionType = ActionType.ATTACK;
     
-    if (progress.floor > 10 && behaviorProfile.total_actions >= 3) {
+    if (currentFloor > 10 && behaviorProfile.total_actions >= 3) {
       const predictedAction = behaviorTracker.predictNextAction(behaviorProfile);
-      const aiAccuracy = behaviorTracker.calculateAIAccuracy(progress.floor);
+      const aiAccuracy = behaviorTracker.calculateAIAccuracy(
+        currentFloor,
+        progress.ai_resist || 0
+      );
       
       // AI uses prediction with accuracy rate
       if (Math.random() < aiAccuracy) {
@@ -169,9 +235,9 @@ export class GameService {
 
     // Record action for behavior tracking
     await behaviorTracker.recordAction(
-      progress.user_id,
-      progress.chat_id,
-      season!.id,
+      userId,
+      userId, // Global tracking
+      seasonId,
       actionType,
       combatResult.enemyDamage
     );
@@ -181,7 +247,17 @@ export class GameService {
 
     // If enemy defeated, handle loot and floor progression
     if (combatResult.enemyDefeated) {
-      const loot = await lootService.generateLoot(progress.floor, enemy.isBoss || false);
+      // Calculate reward multiplier (50% reduction for non-primary chats)
+      const rewardMultiplier = chatProgress.is_primary_chat ? 1.0 : 0.5;
+      
+      // Generate loot with reward multiplier
+      const loot = await lootService.generateLootS1(
+        currentFloor, 
+        enemy.isBoss || false,
+        progress.id,
+        seasonId,
+        rewardMultiplier
+      );
       
       // Add gold
       await lootService.addGold(progress.id, loot.gold);
@@ -193,14 +269,22 @@ export class GameService {
       
       combatResult.message += loot.message;
 
-      // Advance floor
-      const newFloor = progress.floor + 1;
-      await PlayerProgressModel.updateFloor(progress.id, newFloor);
+      // Advance floor in GLOBAL progress
+      const newGlobalFloor = progress.floor + 1;
+      await PlayerProgressModel.updateFloor(progress.id, newGlobalFloor);
+
+      // Also advance floor in chat progress
+      const newChatFloor = currentFloor + 1;
+      await ChatProgressModel.updateFloor(chatProgress.id, newChatFloor);
+
+      // Full HP restore on floor completion
+      await potionService.healOnFloorCompletion(progress.id, progress.max_hp);
+      combatResult.message += `\n💚 **HP полностью восстановлено!**\n`;
 
       // Check achievements
       const floorAchievements = await achievementService.checkAndUnlockAchievements(
         progress.id,
-        { type: 'floor_reached', value: newFloor }
+        { type: 'floor_reached', value: newGlobalFloor }
       );
 
       for (const ach of floorAchievements) {
@@ -220,23 +304,46 @@ export class GameService {
       }
 
       // Update checkpoint every 10 floors
-      if (newFloor % 10 === 0) {
-        await PlayerProgressModel.updateCheckpoint(progress.id, newFloor);
+      if (newGlobalFloor % 10 === 0) {
+        await PlayerProgressModel.updateCheckpoint(progress.id, newGlobalFloor);
       }
 
-      combatResult.message += `\n🏆 Этаж ${progress.floor} пройден!\n`;
-      combatResult.message += `⬆️ Переход на этаж ${newFloor}.\n`;
+      // Clear combat state
+      await CombatStateModel.delete(userId, seasonId);
+
+      combatResult.message += `\n🏆 **Этаж ${currentFloor} пройден!**\n`;
+      combatResult.message += `⬆️ Переход на этаж ${newChatFloor} (в этом чате).\n`;
+      combatResult.message += `🌍 Глобальный прогресс: этаж ${newGlobalFloor}\n`;
+    } else {
+      // Combat continues - update combat state with new enemy HP
+      await CombatStateModel.update(combatState.id, {
+        enemy_data: enemy,
+        rounds_completed: (combatState.rounds_completed || 0) + 1
+      });
     }
 
     // If player defeated, respawn at checkpoint
     if (combatResult.playerDefeated) {
+      // Reset to checkpoint in global progress
       await PlayerProgressModel.updateFloor(progress.id, progress.checkpoint_floor);
-      await PlayerProgressModel.updateHp(progress.id, progress.max_hp);
       
-      combatResult.message += `\n💀 Вы возродились на этаже ${progress.checkpoint_floor}.\n`;
+      // Reset chat progress to checkpoint as well
+      await ChatProgressModel.updateFloor(chatProgress.id, progress.checkpoint_floor);
+      
+      // Full HP restore on respawn
+      await potionService.healOnFloorCompletion(progress.id, progress.max_hp);
+      
+      // Clear combat state
+      await CombatStateModel.delete(userId, seasonId);
+      
+      combatResult.message += `\n💀 **Вы пали в бою...**\n`;
+      combatResult.message += `⚰️ Возрождение на этаже ${progress.checkpoint_floor}.\n`;
+      combatResult.message += `💚 HP восстановлено.\n`;
     }
 
-    combatResult.message += `\n⏳ Следующее действие доступно через 10 минут.`;
+    if (!isCooldownExempt) {
+      combatResult.message += `\n⏳ Следующее действие доступно через 10 минут.`;
+    }
 
     return {
       message: combatResult.message,
@@ -269,9 +376,22 @@ export class GameService {
       return 'Сезон не найден.';
     }
 
-    const progress = await PlayerProgressModel.find(user.id, chat.id, season.id);
+    // Get GLOBAL progress
+    const progress = await PlayerProgressModel.find(user.id, season.id);
     if (!progress) {
       return 'Прогресс не найден. Начните игру!';
+    }
+
+    // Get chat-specific progress
+    const chatProgress = await ChatProgressModel.find(user.id, chat.id, season.id);
+
+    // Check if in combat
+    const combatState = await CombatStateModel.find(user.id, season.id);
+    let combatInfo = '';
+    if (combatState) {
+      const enemy = combatState.enemy_data;
+      combatInfo = `\n⚔️ **В бою:** ${enemy.name}\n` +
+                   `🩸 HP противника: ${formatHealthBar(enemy.hp, enemy.maxHp)}\n`;
     }
 
     // Get class info
@@ -284,24 +404,49 @@ export class GameService {
     }
 
     // Get cooldown info
-    const cooldown = await cooldownService.check(user.id, chat.id);
     let cooldownText = '✅ Доступно';
-    if (cooldown.isActive) {
-      cooldownText = `⏳ ${cooldownService.formatRemainingTime(cooldown.remainingSeconds!)}`;
+    if (!isCooldownExemptTelegramUser(telegramUserId)) {
+      const cooldown = await cooldownService.check(user.id, chat.id);
+      if (cooldown.isActive) {
+        cooldownText = `⏳ ${cooldownService.formatRemainingTime(cooldown.remainingSeconds!)}`;
+      }
+    }
+
+    // Check if low health
+    let healthWarning = '';
+    if (potionService.isLowHealth(progress.hp, progress.max_hp)) {
+      const potions = await potionService.getPlayerPotions(progress.id);
+      if (potions.length > 0) {
+        healthWarning = `\n⚠️ Низкое HP! У вас есть ${potions.length} зелий. Используйте: /potion`;
+      } else {
+        healthWarning = `\n⚠️ Низкое HP! Зелий нет. Будьте осторожны!`;
+      }
+    }
+
+    let chatInfo = '';
+    if (chatProgress) {
+      const chatType = chatProgress.is_primary_chat ? '⭐ Основной' : '📎 Дополнительный (-50% наград)';
+      chatInfo = `\n🏠 Чат: ${chatType}\n` +
+                 `🏰 Этаж в чате: ${chatProgress.current_floor}\n` +
+                 `🏆 Макс. этаж в чате: ${chatProgress.highest_floor_reached}`;
     }
 
     return `📊 **Статус игрока**\n\n` +
       `👤 ${user.first_name}\n` +
       `🎭 Класс: ${className}\n` +
       `🏆 Сезон: ${season.season_number}\n\n` +
+      `🌍 **Глобальный прогресс:**\n` +
       `🏰 Этаж: ${progress.floor}\n` +
       `🚩 Checkpoint: ${progress.checkpoint_floor}\n` +
       `❤️ HP: ${progress.hp}/${progress.max_hp}\n` +
       `⚔️ Атака: ${progress.attack}\n` +
       `🛡️ Защита: ${progress.defense}\n` +
       `⭐ Уровень: ${progress.level}\n` +
-      `💰 Золото: ${progress.gold}\n\n` +
-      `⏱️ Следующее действие: ${cooldownText}`;
+      `💰 Золото: ${progress.gold}\n` +
+      chatInfo +
+      combatInfo +
+      healthWarning +
+      `\n⏱️ Следующее действие: ${cooldownText}`;
   }
 
   async getInventory(
@@ -323,13 +468,15 @@ export class GameService {
       return 'Сезон не найден.';
     }
 
-    const progress = await PlayerProgressModel.find(user.id, chat.id, season.id);
+    // Get GLOBAL progress
+    const progress = await PlayerProgressModel.find(user.id, season.id);
     if (!progress) {
       return 'Прогресс не найден.';
     }
 
     const inventory = await lootService.getInventory(progress.id);
     const equipment = await lootService.getEquipment(progress.id);
+    const potions = await potionService.getPlayerPotions(progress.id);
 
     let msg = `🎒 **Инвентарь**\n\n`;
     msg += `💰 Золото: ${progress.gold}\n\n`;
@@ -340,6 +487,21 @@ export class GameService {
       if (equipment.armor_id) msg += `  • Броня: экипирована\n`;
       if (equipment.shield_id) msg += `  • Щит: экипирован\n`;
       msg += `\n`;
+    }
+
+    // Show potions first
+    if (potions.length > 0) {
+      msg += `🧪 **Зелья:** (всего: ${potions.length})\n`;
+      const potionCounts = new Map<string, number>();
+      for (const potion of potions) {
+        potionCounts.set(potion.name, (potionCounts.get(potion.name) || 0) + 1);
+      }
+      for (const [name, count] of potionCounts) {
+        msg += `  • ${name} x${count}\n`;
+      }
+      msg += `\n💡 Использовать: /potion\n\n`;
+    } else {
+      msg += `🧪 **Зелья:** нет\n\n`;
     }
 
     if (inventory.length > 0) {
