@@ -71,7 +71,7 @@ export function formatHealthBar(currentHp: number, maxHp: number): string {
 
   return `${emojis
     .map((id) => `<tg-emoji emoji-id="${id}">❤️</tg-emoji>`)
-    .join('')} (${Math.floor(safeCurrentHp)}/${Math.floor(safeMaxHp)})`;
+    .join('')} (${segments}/6) (${Math.floor(safeCurrentHp)}/${Math.floor(safeMaxHp)})`;
 }
 
 export function markdownToTelegramHtml(message: string): string {

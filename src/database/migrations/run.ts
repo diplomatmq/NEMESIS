@@ -70,6 +70,11 @@ async function runMigrations() {
     await db.query(seasonOneEnemiesSql);
     console.log('✅ Season 1 enemy catalog completed');
 
+    const achievementProgressFile = path.join(__dirname, '007_fix_achievement_progress_fk.sql');
+    const achievementProgressSql = fs.readFileSync(achievementProgressFile, 'utf8');
+    await db.query(achievementProgressSql);
+    console.log('✅ Achievement progress references repaired');
+
     console.log('✅ Database migrations completed successfully!');
     process.exit(0);
   } catch (error) {
