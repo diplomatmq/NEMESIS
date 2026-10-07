@@ -75,6 +75,11 @@ async function runMigrations() {
     await db.query(achievementProgressSql);
     console.log('✅ Achievement progress references repaired');
 
+    const cooldownFile = path.join(__dirname, '008_repair_cooldown_constraint.sql');
+    const cooldownSql = fs.readFileSync(cooldownFile, 'utf8');
+    await db.query(cooldownSql);
+    console.log('✅ Cooldown constraint repaired');
+
     const requiredTables = await db.query(`
       SELECT
         current_database() AS database_name,

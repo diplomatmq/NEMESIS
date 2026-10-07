@@ -1,3 +1,5 @@
+name: nemesis
+
 services:
   postgres:
     image: postgres:15-alpine
@@ -79,7 +81,9 @@ services:
 
 volumes:
   postgres_data:
+    name: nemesis_postgres_data
   redis_data:
+    name: nemesis_redis_data
 
 networks:
   nemesis_network:
