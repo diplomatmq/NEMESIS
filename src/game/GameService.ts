@@ -148,6 +148,19 @@ export class GameService {
       return { message: potionResult.message };
     }
 
+    const isCombatAction =
+      actionLower.includes('атак') ||
+      actionLower.includes('удар') ||
+      actionLower.includes('защит') ||
+      actionLower.includes('блок') ||
+      actionLower === 'a' ||
+      actionLower === 'd';
+    if (isCombatAction && !progress.class_id) {
+      return {
+        message: '🎭 Сначала выберите класс командой /class, затем начинайте бой.',
+      };
+    }
+
     // Parse action type
     let actionType: ActionType;
     
@@ -319,6 +332,7 @@ export class GameService {
       combatResult.message += `🌍 Глобальный прогресс: этаж ${newGlobalFloor}\n`;
     } else {
       // Combat continues - update combat state with new enemy HP
+      enemy.hp = combatResult.enemyHp;
       await CombatStateModel.update(combatState.id, {
         enemy_data: enemy,
         rounds_completed: (combatState.rounds_completed || 0) + 1

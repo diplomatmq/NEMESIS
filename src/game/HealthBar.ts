@@ -62,9 +62,11 @@ export function formatHealthBar(currentHp: number, maxHp: number): string {
   const safeCurrentHp = Number.isFinite(currentHp)
     ? Math.max(0, Math.min(currentHp, safeMaxHp))
     : 0;
-  const segments = safeCurrentHp === 0
+  const segments = safeCurrentHp >= safeMaxHp
+    ? 6
+    : safeCurrentHp === 0
     ? 0
-    : Math.min(6, Math.ceil((safeCurrentHp / safeMaxHp) * 6));
+    : Math.min(5, Math.ceil((safeCurrentHp / safeMaxHp) * 6));
   const emojis = HEALTH_EMOJI_BY_SEGMENT[segments];
 
   return `${emojis

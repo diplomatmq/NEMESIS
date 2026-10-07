@@ -37,12 +37,20 @@ export async function handleGameAction(ctx: Context, invoiceService: InvoiceServ
     await ctx.reply(markdownToTelegramHtml(result.message), {
       reply_markup: keyboard,
       parse_mode: 'HTML',
+      reply_parameters: {
+        message_id: ctx.message.message_id,
+      },
     });
     return;
   }
 
   // Send result message
-  await ctx.reply(markdownToTelegramHtml(result.message), { parse_mode: 'HTML' });
+  await ctx.reply(markdownToTelegramHtml(result.message), {
+    parse_mode: 'HTML',
+    reply_parameters: {
+      message_id: ctx.message.message_id,
+    },
+  });
 }
 
 export async function handleStatus(ctx: Context) {
