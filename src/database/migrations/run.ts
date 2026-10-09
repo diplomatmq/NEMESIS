@@ -80,6 +80,11 @@ async function runMigrations() {
     await db.query(cooldownSql);
     console.log('✅ Cooldown constraint repaired');
 
+    const trailEventsFile = path.join(__dirname, '009_trail_events.sql');
+    const trailEventsSql = fs.readFileSync(trailEventsFile, 'utf8');
+    await db.query(trailEventsSql);
+    console.log('✅ Trail events created');
+
     const requiredTables = await db.query(`
       SELECT
         current_database() AS database_name,

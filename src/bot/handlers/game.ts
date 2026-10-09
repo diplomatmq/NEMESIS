@@ -46,11 +46,40 @@ export async function handleGameAction(ctx: Context, invoiceService: InvoiceServ
 
   // Send result message
   await ctx.reply(markdownToTelegramHtml(result.message), {
+    reply_markup: result.keyboard,
     parse_mode: 'HTML',
     reply_parameters: {
       message_id: ctx.message.message_id,
     },
   });
+}
+
+export async function handleTrailCallback(ctx: Context) {
+  if (!ctx.from || !ctx.callbackQuery?.data) return;
+  const data = ctx.callbackQuery.data;
+  const trailMatch = /^trail:(\d+):(\d+)$/.exec(data);
+  const marketMatch = /^trailmarket:(\d+):(\d+)$/.exec(data);
+  if (!trailMatch && !marketMatch) return;
+
+  const result = trailMatch
+    ? await gameService.resolveTrail(
+        ctx.from.id,
+        Number(trailMatch[1]),
+        Number(trailMatch[2])
+      )
+    : await gameService.resolveTrailMarket(
+        ctx.from.id,
+        Number(marketMatch![1]),
+        Number(marketMatch![2])
+      );
+
+  await ctx.answerCallbackQuery(result.message.slice(0, 190));
+  if (ctx.callbackQuery.message) {
+    await ctx.editMessageText(markdownToTelegramHtml(result.message), {
+      parse_mode: 'HTML',
+      reply_markup: result.keyboard,
+    });
+  }
 }
 
 export async function handleStatus(ctx: Context) {

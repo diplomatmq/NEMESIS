@@ -1,6 +1,7 @@
 import { Context } from 'grammy';
 import { paymentService } from '../../payment/PaymentService';
 import { gameService } from '../../game/GameService';
+import { markdownToTelegramHtml } from '../../game/HealthBar';
 
 export async function handleSuccessfulPayment(ctx: Context) {
   if (!ctx.message?.successful_payment || !ctx.from || !ctx.chat) {
@@ -61,9 +62,10 @@ export async function handleSuccessfulPayment(ctx: Context) {
     // Send success message to the original chat where the action was initiated
     await ctx.api.sendMessage(
       pendingPayment.chat_id,
-      `✅ Оплата успешна! КД пропущен.\n\n` +
-      actionResult.message,
-      { parse_mode: 'Markdown' }
+      markdownToTelegramHtml(
+        `✅ Оплата успешна! КД пропущен.\n\n${actionResult.message}`
+      ),
+      { parse_mode: 'HTML' }
     );
 
   } catch (error) {

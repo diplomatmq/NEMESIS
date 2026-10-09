@@ -57,7 +57,129 @@ const HEALTH_EMOJI_BY_SEGMENT = [
   ],
 ] as const;
 
-export function formatHealthBar(currentHp: number, maxHp: number): string {
+const MOB_HEALTH_EMOJI_BY_SEGMENT = [
+  [
+    '5352812526914545838',
+    '5352693315802276747',
+    '5352928327822779788',
+    '5353060595635626193',
+    '5352597761369875344',
+    '5352644327405298088',
+  ],
+  [
+    '5352812526914545838',
+    '5352693315802276747',
+    '5352928327822779788',
+    '5353060595635626193',
+    '5352597761369875344',
+    '5352861798779366269',
+  ],
+  [
+    '5352812526914545838',
+    '5352693315802276747',
+    '5352928327822779788',
+    '5353060595635626193',
+    '5352790863099508956',
+    '5352861798779366269',
+  ],
+  [
+    '5352812526914545838',
+    '5352693315802276747',
+    '5352928327822779788',
+    '5350282082507599465',
+    '5352790863099508956',
+    '5352861798779366269',
+  ],
+  [
+    '5352812526914545838',
+    '5352693315802276747',
+    '5352929629197869561',
+    '5350282082507599465',
+    '5352790863099508956',
+    '5352861798779366269',
+  ],
+  [
+    '5352812526914545838',
+    '5350669020406264874',
+    '5352929629197869561',
+    '5350282082507599465',
+    '5352790863099508956',
+    '5352861798779366269',
+  ],
+  [
+    '5352829513510203000',
+    '5350669020406264874',
+    '5352929629197869561',
+    '5350282082507599465',
+    '5352790863099508956',
+    '5352861798779366269',
+  ],
+] as const;
+
+const BOSS_HEALTH_EMOJI_BY_SEGMENT = [
+  [
+    '5352905792129377392',
+    '5352875104588048826',
+    '5352846826523370229',
+    '5352729805844425477',
+    '5350366869456986169',
+    '5352784455008295587',
+  ],
+  [
+    '5352905792129377392',
+    '5352875104588048826',
+    '5352846826523370229',
+    '5352729805844425477',
+    '5350366869456986169',
+    '5350306696965174999',
+  ],
+  [
+    '5352905792129377392',
+    '5352875104588048826',
+    '5352846826523370229',
+    '5352729805844425477',
+    '5350510703616764508',
+    '5350306696965174999',
+  ],
+  [
+    '5352905792129377392',
+    '5352875104588048826',
+    '5352846826523370229',
+    '5352531335405677536',
+    '5350510703616764508',
+    '5350306696965174999',
+  ],
+  [
+    '5352905792129377392',
+    '5352875104588048826',
+    '5350454001458524859',
+    '5352531335405677536',
+    '5350510703616764508',
+    '5350306696965174999',
+  ],
+  [
+    '5352905792129377392',
+    '5350654937208499234',
+    '5350454001458524859',
+    '5352531335405677536',
+    '5350510703616764508',
+    '5350306696965174999',
+  ],
+  [
+    '5352540135793665255',
+    '5350654937208499234',
+    '5350454001458524859',
+    '5352531335405677536',
+    '5350510703616764508',
+    '5350306696965174999',
+  ],
+] as const;
+
+function formatHealthBarWithEmojis(
+  currentHp: number,
+  maxHp: number,
+  emojiBySegment: readonly (readonly string[])[]
+): string {
   const safeMaxHp = Number.isFinite(maxHp) && maxHp > 0 ? maxHp : 1;
   const safeCurrentHp = Number.isFinite(currentHp)
     ? Math.max(0, Math.min(currentHp, safeMaxHp))
@@ -68,11 +190,23 @@ export function formatHealthBar(currentHp: number, maxHp: number): string {
     ? 0
     : Math.min(5, Math.ceil((safeCurrentHp / safeMaxHp) * 6));
   // The supplied configurations are ordered from full (6/6) to empty (0/6).
-  const emojis = HEALTH_EMOJI_BY_SEGMENT[6 - segments];
+  const emojis = emojiBySegment[6 - segments];
 
   return `${emojis
     .map((id) => `<tg-emoji emoji-id="${id}">❤️</tg-emoji>`)
     .join('')} (${segments}/6) (${Math.floor(safeCurrentHp)}/${Math.floor(safeMaxHp)})`;
+}
+
+export function formatHealthBar(currentHp: number, maxHp: number): string {
+  return formatHealthBarWithEmojis(currentHp, maxHp, HEALTH_EMOJI_BY_SEGMENT);
+}
+
+export function formatMobHealthBar(currentHp: number, maxHp: number): string {
+  return formatHealthBarWithEmojis(currentHp, maxHp, MOB_HEALTH_EMOJI_BY_SEGMENT);
+}
+
+export function formatBossHealthBar(currentHp: number, maxHp: number): string {
+  return formatHealthBarWithEmojis(currentHp, maxHp, BOSS_HEALTH_EMOJI_BY_SEGMENT);
 }
 
 export function markdownToTelegramHtml(message: string): string {

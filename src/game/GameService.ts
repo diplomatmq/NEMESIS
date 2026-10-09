@@ -21,7 +21,9 @@ import { achievementService } from './AchievementService';
 import { potionService } from './PotionService';
 import { ActionType, CombatResult } from '../types/game.types';
 import { db } from '../database/db';
-import { formatHealthBar } from './HealthBar';
+import { formatBossHealthBar, formatHealthBar, formatMobHealthBar } from './HealthBar';
+import { InlineKeyboard } from 'grammy';
+import { trailService } from './TrailService';
 
 export interface GameContext {
   telegramUserId: number;
@@ -40,6 +42,7 @@ export interface ActionResult {
   cooldownInfo?: CooldownInfo;
   needsPayment?: boolean;
   combatResult?: CombatResult;
+  keyboard?: InlineKeyboard;
 }
 
 export class GameService {
@@ -127,6 +130,7 @@ export class GameService {
       message: actionResult.message,
       cooldownSet: !isCooldownExempt,
       combatResult: actionResult.combatResult,
+      keyboard: actionResult.keyboard,
     };
   }
 
@@ -138,9 +142,13 @@ export class GameService {
     seasonId: number,
     userId: number,
     isCooldownExempt: boolean
-  ): Promise<{ message: string; combatResult?: CombatResult }> {
+  ): Promise<{ message: string; combatResult?: CombatResult; keyboard?: InlineKeyboard }> {
     
     const actionLower = action.toLowerCase().trim();
+
+    if (await trailService.getEvent(userId, seasonId)) {
+      return { message: '🧭 Сначала выберите вариант найденного следа на кнопках выше.' };
+    }
 
     // Check if player wants to use a potion
     if (actionLower.includes('зель') || actionLower.includes('лечен') || actionLower === 'p') {
@@ -190,7 +198,18 @@ export class GameService {
     } else {
       // Start new combat - generate enemy for current chat floor
       currentFloor = chatProgress.current_floor;
-      enemy = combatEngine.generateEnemyS1(currentFloor, seasonId);
+      enemy = combatEngine.generateEnemyS1(
+        currentFloor,
+        seasonId,
+        progress.trail_modifier || 1,
+        progress.trail_modifier !== undefined && progress.trail_modifier !== 1
+      );
+      if (progress.trail_modifier && progress.trail_modifier !== 1) {
+        await db.query(
+          'UPDATE player_progress SET trail_modifier = 1, updated_at = NOW() WHERE id = $1',
+          [progress.id]
+        );
+      }
       
       // Save combat state
       combatState = await CombatStateModel.create({
@@ -330,6 +349,17 @@ export class GameService {
       combatResult.message += `\n🏆 **Этаж ${currentFloor} пройден!**\n`;
       combatResult.message += `⬆️ Переход на этаж ${newChatFloor} (в этом чате).\n`;
       combatResult.message += `🌍 Глобальный прогресс: этаж ${newGlobalFloor}\n`;
+
+      if (!enemy.isBoss && Math.random() < 0.35) {
+        const trail = await trailService.createEvent(
+          userId,
+          seasonId,
+          chatId,
+          newChatFloor
+        );
+        combatResult.message += `\n${trail.message}`;
+        return { message: combatResult.message, combatResult, keyboard: trail.keyboard };
+      }
     } else {
       // Combat continues - update combat state with new enemy HP
       enemy.hp = combatResult.enemyHp;
@@ -407,8 +437,11 @@ export class GameService {
     let combatInfo = '';
     if (combatState) {
       const enemy = combatState.enemy_data;
+      const enemyHealthBar = enemy.isBoss
+        ? formatBossHealthBar(enemy.hp, enemy.maxHp)
+        : formatMobHealthBar(enemy.hp, enemy.maxHp);
       combatInfo = `\n⚔️ **В бою:** ${enemy.name}\n` +
-                   `🩸 HP противника: ${formatHealthBar(enemy.hp, enemy.maxHp)}\n`;
+                   `🩸 HP противника: ${enemyHealthBar}\n`;
     }
 
     // Get class info
@@ -536,6 +569,46 @@ export class GameService {
     }
 
     return msg;
+  }
+
+  async resolveTrail(
+    telegramUserId: number,
+    eventId: number,
+    optionIndex: number
+  ): Promise<ActionResult> {
+    const user = await UserModel.findByTelegramId(telegramUserId);
+    if (!user) return { success: false, message: 'Пользователь не найден.' };
+    const season = await SeasonModel.getCurrentSeason();
+    if (!season) return { success: false, message: 'Сезон не найден.' };
+    const progress = await PlayerProgressModel.find(user.id, season.id);
+    if (!progress) return { success: false, message: 'Прогресс не найден.' };
+
+    const result = await trailService.resolveEvent(
+      user.id,
+      season.id,
+      progress.id,
+      eventId,
+      optionIndex
+    );
+    return { success: true, message: result.message, keyboard: result.keyboard };
+  }
+
+  async resolveTrailMarket(
+    telegramUserId: number,
+    marketId: number,
+    offerIndex: number
+  ): Promise<ActionResult> {
+    const user = await UserModel.findByTelegramId(telegramUserId);
+    if (!user) return { success: false, message: 'Пользователь не найден.' };
+    const season = await SeasonModel.getCurrentSeason();
+    if (!season) return { success: false, message: 'Сезон не найден.' };
+    const progress = await PlayerProgressModel.find(user.id, season.id);
+    if (!progress) return { success: false, message: 'Прогресс не найден.' };
+
+    return {
+      success: true,
+      message: await trailService.resolveMarket(user.id, progress.id, marketId, offerIndex),
+    };
   }
 
   private getRarityEmoji(rarity: string): string {

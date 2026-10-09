@@ -3,7 +3,7 @@ import { ActionType, CombatResult } from '../types/game.types';
 import { classService } from './ClassService';
 import { bossSystem, BossConfig } from './BossSystem';
 import { SeededRandom } from './SeededRandom';
-import { formatHealthBar } from './HealthBar';
+import { formatBossHealthBar, formatHealthBar, formatMobHealthBar } from './HealthBar';
 
 export interface Enemy {
   id?: number;
@@ -235,6 +235,7 @@ export class CombatEngine {
       enemy.name,
       newEnemyHp,
       enemy.maxHp,
+      enemy.isBoss || false,
       newPlayerHp,
       player.max_hp,
       enemyDefeated,
@@ -268,6 +269,7 @@ export class CombatEngine {
     enemyName: string,
     enemyHp: number,
     enemyMaxHp: number,
+    enemyIsBoss: boolean,
     playerHp: number,
     playerMaxHp: number,
     enemyDefeated: boolean,
@@ -279,7 +281,7 @@ export class CombatEngine {
 
     // Player action
     if (playerAction === ActionType.ATTACK) {
-      msg += `⚔️ Вы атакуете!\n`;
+      msg += `<tg-emoji emoji-id="5408935401442267103">⚔️</tg-emoji> Вы атакуете!\n`;
       if (isCrit) {
         msg += `💥 КРИТИЧЕСКИЙ УДАР!\n`;
       }
@@ -314,7 +316,10 @@ export class CombatEngine {
     if (enemyDefeated) {
       msg += `✅ ${enemyName} повержен!\n\n`;
     } else {
-      msg += `👹 HP противника: ${formatHealthBar(enemyHp, enemyMaxHp)}\n`;
+      const enemyHealthBar = enemyIsBoss
+        ? formatBossHealthBar(enemyHp, enemyMaxHp)
+        : formatMobHealthBar(enemyHp, enemyMaxHp);
+      msg += `👹 HP противника: ${enemyHealthBar}\n`;
     }
 
     if (playerDefeated) {
@@ -326,7 +331,12 @@ export class CombatEngine {
     return msg;
   }
 
-  generateEnemyS1(floor: number, seasonId: number): Enemy {
+  generateEnemyS1(
+    floor: number,
+    seasonId: number,
+    difficultyModifier = 1,
+    randomizeName = false
+  ): Enemy {
     const level = Math.floor(floor / 10) + 1;
     const isBoss = floor % 10 === 0;
     
@@ -345,7 +355,10 @@ export class CombatEngine {
     // Each ten-floor zone has its own three regular mobs. Floor 1-9 uses
     // zone 0; floors 11-19 use zone 1, and so on up to floors 491-499.
     const zoneIndex = Math.min(MOB_ZONES.length - 1, Math.floor((floor - 1) / 10));
-    const randomName = rng.choose(MOB_ZONES[zoneIndex]);
+    const zone = MOB_ZONES[zoneIndex];
+    const randomName = randomizeName
+      ? zone[Math.floor(Math.random() * zone.length)]
+      : rng.choose(zone);
     const name = `${randomName} ${level} ур.`;
 
     // Add some variance to stats (±10%) using seeded random
@@ -355,17 +368,17 @@ export class CombatEngine {
 
     return {
       name,
-      hp: Math.floor(baseHp * hpVariance),
-      maxHp: Math.floor(baseHp * hpVariance),
-      attack: Math.floor(baseAttack * attackVariance),
-      defense: Math.floor(baseDefense * defenseVariance),
+      hp: Math.max(1, Math.floor(baseHp * hpVariance * difficultyModifier)),
+      maxHp: Math.max(1, Math.floor(baseHp * hpVariance * difficultyModifier)),
+      attack: Math.max(1, Math.floor(baseAttack * attackVariance * difficultyModifier)),
+      defense: Math.max(1, Math.floor(baseDefense * defenseVariance * difficultyModifier)),
       level,
       isBoss: false,
     };
   }
 
-  generateEnemy(floor: number, seasonId: number): Enemy {
-    return this.generateEnemyS1(floor, seasonId);
+  generateEnemy(floor: number, seasonId: number, difficultyModifier = 1): Enemy {
+    return this.generateEnemyS1(floor, seasonId, difficultyModifier);
   }
 }
 

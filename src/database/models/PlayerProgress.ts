@@ -18,6 +18,7 @@ export interface PlayerProgress {
   xp: number;
   level: number;
   checkpoint_floor: number;
+  trail_modifier: number;
   created_at: Date;
   updated_at: Date;
 }
