@@ -42,17 +42,25 @@ export async function handleSuccessfulPayment(ctx: Context) {
     // Execute the saved action automatically
     // IMPORTANT: Use chat_id from pendingPayment, not from payment context
     // because payment notification comes to PM, but action should be executed in original chat
-    const actionResult = await gameService.executeAction(
-      {
-        telegramUserId: ctx.from.id,
-        telegramChatId: pendingPayment.chat_id, // Use original chat ID from pending payment
-        username: ctx.from.username,
-        firstName: ctx.from.first_name,
-        lastName: ctx.from.last_name,
-      },
-      pendingPayment.command,
-      true // bypass cooldown
-    );
+    const sacrificeMatch = /^sacrifice_skip:(mobs|boss)(?::(\d+))?$/.exec(pendingPayment.command);
+    const actionResult = sacrificeMatch
+      ? { message: await gameService.sacrifice(
+          ctx.from.id,
+          sacrificeMatch[1] as 'mobs' | 'boss',
+          sacrificeMatch[2] ? Number(sacrificeMatch[2]) : undefined,
+          true
+        ) }
+      : await gameService.executeAction(
+          {
+            telegramUserId: ctx.from.id,
+            telegramChatId: pendingPayment.chat_id,
+            username: ctx.from.username,
+            firstName: ctx.from.first_name,
+            lastName: ctx.from.last_name,
+          },
+          pendingPayment.command,
+          true
+        );
 
     // Mark payment as completed
     await paymentService.markPaymentCompleted(pendingPayment.id);

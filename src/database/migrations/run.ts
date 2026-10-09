@@ -85,6 +85,19 @@ async function runMigrations() {
     await db.query(trailEventsSql);
     console.log('✅ Trail events created');
 
+    const secureTrailMarketsFile = path.join(__dirname, '010_secure_trail_markets.sql');
+    const secureTrailMarketsSql = fs.readFileSync(secureTrailMarketsFile, 'utf8');
+    await db.query(secureTrailMarketsSql);
+    console.log('✅ Trail market ownership secured');
+
+    const necromancerFile = path.join(__dirname, '011_necromancer_souls.sql');
+    const necromancerSql = fs.readFileSync(necromancerFile, 'utf8');
+    await db.query(necromancerSql);
+    console.log('✅ Necromancer souls created');
+    const necromancerEffectsFile = path.join(__dirname, '012_necromancer_effects.sql');
+    await db.query(fs.readFileSync(necromancerEffectsFile, 'utf8'));
+    console.log('✅ Necromancer effects created');
+
     const requiredTables = await db.query(`
       SELECT
         current_database() AS database_name,

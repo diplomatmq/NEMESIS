@@ -12,7 +12,9 @@ export class InvoiceService {
   async createSkipCooldownInvoice(
     telegramUserId: number,
     chatId: number,
-    command: string
+    command: string,
+    amount = config.game.starsPrice,
+    title = 'Пропуск КД'
   ): Promise<{ invoiceUrl: string; payload: string; keyboard: InlineKeyboard }> {
     
     // Create pending payment record
@@ -24,15 +26,15 @@ export class InvoiceService {
 
     // Create invoice link using Telegram Stars (XTR)
     const invoiceUrl = await this.bot.api.createInvoiceLink(
-      'Пропуск КД',
-      'Мгновенно выполнить следующее действие',
+      title,
+      'Мгновенно выполнить действие',
       pendingPayment.payload,
       '', // provider_token (empty for Telegram Stars)
       'XTR', // currency for Telegram Stars
       [
         {
-          label: 'Пропуск КД',
-          amount: config.game.starsPrice, // 1 Star
+          label: title,
+          amount,
         },
       ]
     );
@@ -42,7 +44,7 @@ export class InvoiceService {
 
     // Create inline keyboard with payment button
     const keyboard = new InlineKeyboard().url(
-      '⭐ Оплатить 1 Telegram Star',
+      `⭐ Оплатить ${amount} Telegram Stars`,
       invoiceUrl
     );
 

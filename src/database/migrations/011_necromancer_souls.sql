@@ -1,0 +1,5 @@
+ALTER TABLE player_progress
+  ADD COLUMN IF NOT EXISTS necro_mob_souls INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS necro_boss_souls JSONB NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS necro_sacrifice_available_at TIMESTAMP NULL,
+  ADD COLUMN IF NOT EXISTS necro_debuff_games INTEGER NOT NULL DEFAULT 0;

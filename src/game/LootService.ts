@@ -228,6 +228,24 @@ export class LootService {
     const item = await this.getItem(itemId);
     if (!item) return false;
 
+    const owned = await db.query(
+      `SELECT 1 FROM player_inventory
+       WHERE player_progress_id = $1 AND item_id = $2 AND quantity > 0`,
+      [playerProgressId, itemId]
+    );
+    if (!owned.rows[0] ||
+        !['weapon', 'shield', 'helmet', 'armor', 'boots', 'accessory'].includes(item.slot)) {
+      return false;
+    }
+
+    const progress = await db.query(
+      'SELECT level FROM player_progress WHERE id = $1',
+      [playerProgressId]
+    );
+    if (!progress.rows[0] || Number(progress.rows[0].level) < item.level_required) {
+      return false;
+    }
+
     if (item.item_type === ItemType.CLASS_EXCLUSIVE) {
       const player = await db.query(
         `SELECT c.id FROM player_progress pp

@@ -16,6 +16,8 @@ export interface Enemy {
   isBoss?: boolean;
   boss_config?: BossConfig;
   turnCount?: number;
+  summonedSupport?: 'mobs' | 'boss';
+  summonedSupportName?: string;
 }
 
 const MOB_ZONES: Array<[string, string, string]> = [
@@ -87,6 +89,26 @@ export class CombatEngine {
     let lifestealHealing = 0;
     let bossHealing = 0;
     let bossAbilityMessage = '';
+    let classAbilityMessage = '';
+    let assassinBackstab = false;
+    const necromancerPenalty = player.necro_debuff_games > 0;
+    const effectiveAttack = Math.max(
+      1,
+      player.attack + (player.necro_bonus_games > 0 ? player.necro_attack_bonus : 0) -
+        (necromancerPenalty ? Math.floor(player.attack * 0.2) : 0)
+    );
+    const effectiveDefense = Math.max(
+      0,
+      player.defense + (player.necro_bonus_games > 0 ? player.necro_defense_bonus : 0) -
+        (necromancerPenalty ? Math.floor(player.defense * 0.1) : 0)
+    );
+    if (enemy.summonedSupport) {
+      if (enemy.summonedSupport === 'mobs') {
+        classAbilityMessage += '💀 Некромант: три мертвеца прикрыли вас — входящий урон снижен!\n';
+      } else {
+        classAbilityMessage += `☠️ ${enemy.summonedSupportName || 'Призванный босс'} вмешался и атакует!\n`;
+      }
+    }
 
     // Increment turn count for bosses
     if (enemy.isBoss && enemy.boss_config) {
@@ -121,16 +143,37 @@ export class CombatEngine {
 
     // Calculate player damage
     if (playerAction === ActionType.ATTACK) {
-      playerDamage = Math.max(1, player.attack - Math.floor(enemy.defense / 2));
+      playerDamage = Math.max(1, effectiveAttack - Math.floor(enemy.defense / 2));
+
+      if (playerClassCode === 'assassin') {
+        const hpPercent = (player.hp / player.max_hp) * 100;
+        const backstabChance = hpPercent < 25 ? 0.65 : 0.4;
+        assassinBackstab = Math.random() < backstabChance;
+        if (assassinBackstab) {
+          playerDamage = Math.max(1, effectiveAttack);
+          classAbilityMessage +=
+            '🗡 Ассасин: зашёл за спину — ответный удар сорван, защита пробита!\n';
+        }
+      }
       
       // Apply class passive bonus
       if (playerClassCode) {
+        const damageBeforePassive = playerDamage;
         playerDamage = classService.applyClassPassive(
           playerClassCode,
           playerDamage,
           player.hp,
           player.max_hp
         );
+        if (playerClassCode === 'berserker' && playerDamage > damageBeforePassive) {
+          classAbilityMessage += '🔥 Берсерк: ярость усилила ваш удар!\n';
+        } else if (playerClassCode === 'arcanist' && playerDamage > damageBeforePassive) {
+          classAbilityMessage += '✨ Арканист: магия пробила защиту!\n';
+        } else if (playerClassCode === 'jester' && playerDamage !== damageBeforePassive) {
+          classAbilityMessage += '🎲 Шут: сработал случайный эффект!\n';
+        } else if (playerClassCode === 'necromancer' && playerDamage > damageBeforePassive) {
+          classAbilityMessage += '☠️ Некромант: мёртвые усилили удар!\n';
+        }
       }
 
       // Check boss weakness
@@ -151,13 +194,16 @@ export class CombatEngine {
       if (Math.random() < critChance) {
         playerDamage = Math.floor(playerDamage * 1.5);
         isCrit = true;
+        if (playerClassCode === 'assassin') {
+          classAbilityMessage += '💥 Ассасин: смертельный критический удар!\n';
+        }
       }
 
       // Lifesteal (for Vampire class)
       if (playerClassCode) {
         const lifestealRate = (player.lifesteal || 0) / 100 +
           classService.getClassLifesteal(playerClassCode);
-        if (lifestealRate > 0) {
+        if (lifestealRate > 0 && Math.random() < 0.65) {
           lifestealHealing = Math.floor(playerDamage * lifestealRate);
         }
       }
@@ -179,16 +225,27 @@ export class CombatEngine {
         baseEnemyDefense = modifiers.defense;
       }
 
-      if (playerAction === ActionType.DEFEND) {
+      if (assassinBackstab) {
+        enemyDamage = 0;
+      } else if (playerAction === ActionType.DEFEND) {
         // Player is defending, reduce damage
-        enemyDamage = Math.max(1, Math.floor((baseEnemyAttack - player.defense) * 0.5));
+        enemyDamage = Math.max(1, Math.floor((baseEnemyAttack - effectiveDefense) * 0.5));
       } else {
-        enemyDamage = Math.max(1, baseEnemyAttack - Math.floor(player.defense / 2));
+        enemyDamage = Math.max(1, baseEnemyAttack - Math.floor(effectiveDefense / 2));
+      }
+      if (enemy.summonedSupport === 'mobs') {
+        enemyDamage = Math.floor(enemyDamage * 0.7);
+      } else if (enemy.summonedSupport === 'boss') {
+        enemyDamage += Math.max(1, Math.floor(enemy.attack * 0.25));
       }
 
       // Apply class defensive passive (Guardian)
       if (playerClassCode) {
+        const damageBeforePassive = enemyDamage;
         enemyDamage = classService.calculateClassDefenseBonus(playerClassCode, enemyDamage);
+        if (playerClassCode === 'guardian' && enemyDamage < damageBeforePassive) {
+          classAbilityMessage += '🛡 Страж: защита снизила урон!\n';
+        }
       }
 
       // Equipment and class dodge are percentage values.
@@ -214,6 +271,9 @@ export class CombatEngine {
     // Apply lifesteal healing
     if (lifestealHealing > 0) {
       newPlayerHp = Math.min(player.max_hp, newPlayerHp + lifestealHealing);
+      if (playerClassCode === 'vampire') {
+        classAbilityMessage += `🩸 Вампир: восстановлено ${lifestealHealing} HP!\n`;
+      }
     }
 
     // Apply boss healing
@@ -225,7 +285,7 @@ export class CombatEngine {
     const playerDefeated = newPlayerHp <= 0;
 
     // Generate combat message
-    let message = bossAbilityMessage + this.generateCombatMessage(
+    let message = bossAbilityMessage + classAbilityMessage + this.generateCombatMessage(
       playerAction,
       enemyAction,
       playerDamage,

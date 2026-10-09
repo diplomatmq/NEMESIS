@@ -19,6 +19,14 @@ export interface PlayerProgress {
   level: number;
   checkpoint_floor: number;
   trail_modifier: number;
+  necro_mob_souls: number;
+  necro_boss_souls: Array<{ name: string; floor: number; boss_config?: unknown }>;
+  necro_sacrifice_available_at?: Date;
+  necro_debuff_games: number;
+  necro_attack_bonus: number;
+  necro_defense_bonus: number;
+  necro_bonus_games: number;
+  necro_summon_effect?: { type: 'mobs' | 'boss'; name?: string; ability?: string } | null;
   created_at: Date;
   updated_at: Date;
 }

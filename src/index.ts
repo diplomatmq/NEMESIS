@@ -3,11 +3,12 @@ import { config } from './config';
 import { db } from './database/db';
 import { redis } from './database/redis';
 import { handleStart } from './bot/handlers/start';
-import { handleGameAction, handleStatus, handleInventory, handleUsePotion, handleTrailCallback } from './bot/handlers/game';
+import { handleGameAction, handleStatus, handleInventory, handleUsePotion, handleTrailCallback, handleEquip, handleEquipCallback, handleEquipmentMenu, handleSacrificeCallback, handleSacrificeCallbackWithPayment, handleThroneCallback } from './bot/handlers/game';
 import { handleSuccessfulPayment, handlePreCheckoutQuery } from './bot/handlers/payment';
 import { handleClassSelection, handleClassCallback } from './bot/handlers/class';
 import { handleAchievements } from './bot/handlers/achievements';
 import { InvoiceService } from './payment/InvoiceService';
+import { gameService } from './game/GameService';
 
 // Validate configuration
 if (!config.bot.token) {
@@ -31,6 +32,23 @@ bot.command('статус', handleStatus);
 
 bot.command('inventory', handleInventory);
 bot.command('инвентарь', handleInventory);
+bot.command('equip', handleEquip);
+bot.command('экипировать', handleEquip);
+bot.command('equipment', async (ctx) => {
+  if (!ctx.from) return;
+  const menu = await gameService.getEquipmentMenu(ctx.from.id);
+  await ctx.reply(menu.message, { reply_markup: menu.keyboard, parse_mode: 'Markdown' });
+});
+bot.command('экипировка', async (ctx) => {
+  if (!ctx.from) return;
+  const menu = await gameService.getEquipmentMenu(ctx.from.id);
+  await ctx.reply(menu.message, { reply_markup: menu.keyboard, parse_mode: 'Markdown' });
+});
+bot.command(['sacrifice', 'жертвоприношение'], async (ctx) => {
+  if (!ctx.from) return;
+  const menu = await gameService.getNecromancerMenu(ctx.from.id);
+  await ctx.reply(menu.message, { reply_markup: menu.keyboard, parse_mode: 'Markdown' });
+});
 
 bot.command('potion', handleUsePotion);
 bot.command('зелье', handleUsePotion);
@@ -45,6 +63,11 @@ bot.command('достижения', handleAchievements);
 bot.on('callback_query:data', async (ctx) => {
   await handleClassCallback(ctx);
   await handleTrailCallback(ctx);
+  await handleEquipCallback(ctx);
+  await handleEquipmentMenu(ctx);
+  await handleSacrificeCallbackWithPayment(ctx, invoiceService);
+  await handleSacrificeCallback(ctx);
+  await handleThroneCallback(ctx);
 });
 
 // Game action handlers

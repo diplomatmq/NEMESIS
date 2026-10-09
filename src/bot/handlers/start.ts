@@ -1,5 +1,8 @@
 import { Context } from 'grammy';
 import { UserModel } from '../../database/models/User';
+import { SeasonModel } from '../../database/models/Season';
+import { PlayerProgressModel } from '../../database/models/PlayerProgress';
+import { getClassPage } from './class';
 
 export async function handleStart(ctx: Context) {
   if (!ctx.from) {
@@ -43,30 +46,21 @@ export async function handleStart(ctx: Context) {
     );
   } else {
     // New user, create record
-    await UserModel.create({
+    user = await UserModel.create({
       telegram_id: telegramId,
       username,
       first_name: firstName,
       last_name: lastName,
     });
 
+    const season = await SeasonModel.getOrCreateCurrentSeason();
+    await PlayerProgressModel.findOrCreate(user.id, season.id);
+    const page = await getClassPage(0);
     await ctx.reply(
       `🎉 Добро пожаловать в NEMESIS!\n\n` +
-      `🏰 Башня Забвения ждёт вас...\n\n` +
-      `📜 О игре:\n` +
-      `Вы начинаете восхождение по башне из 500 этажей.\n` +
-      `Каждый этаж - новое испытание.\n` +
-      `Каждый 10-й этаж - босс.\n\n` +
-      `⚔️ Основные команды:\n` +
-      `• атака - атаковать противника\n` +
-      `• защита - защититься от атаки\n` +
-      `• /status - посмотреть прогресс\n` +
-      `• /inventory - открыть инвентарь\n` +
-      `• /class - выбрать класс\n` +
-      `• /achievements - достижения\n\n` +
-      `⏳ Между действиями есть КД 10 минут.\n` +
-      `⭐ КД можно пропустить за 1 Telegram Star.\n\n` +
-      `🚀 Добавьте бота в групповой чат и начните игру!`
+      `Вы начинаете восхождение по башне из 500 этажей.\n\n` +
+      page.text,
+      { reply_markup: page.keyboard, parse_mode: 'Markdown' }
     );
   }
 }

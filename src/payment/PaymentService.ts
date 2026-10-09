@@ -68,7 +68,10 @@ export class PaymentService {
       };
     }
 
-    if (amount !== 1) {
+    const expectedAmount = pendingPayment.command.startsWith('sacrifice_skip:')
+      ? 5
+      : 1;
+    if (amount !== expectedAmount) {
       return {
         valid: false,
         error: 'Invalid amount',

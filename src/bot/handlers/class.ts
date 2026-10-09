@@ -1,9 +1,33 @@
-import { Context } from 'grammy';
+import { Context, InlineKeyboard } from 'grammy';
 import { classService } from '../../game/ClassService';
 import { UserModel } from '../../database/models/User';
 import { ChatModel } from '../../database/models/Chat';
 import { SeasonModel } from '../../database/models/Season';
 import { PlayerProgressModel } from '../../database/models/PlayerProgress';
+
+export async function getClassPage(page: number): Promise<{
+  text: string;
+  keyboard: InlineKeyboard;
+}> {
+  const classes = await classService.getAllClasses();
+  const safePage = Math.max(0, Math.min(page, classes.length - 1));
+  const gameClass = classes[safePage];
+  const keyboard = new InlineKeyboard()
+    .text('✅ Выбрать', `class:${gameClass.code}`)
+    .text('⬅️', `classpage:${Math.max(0, safePage - 1)}`)
+    .text('➡️', `classpage:${Math.min(classes.length - 1, safePage + 1)}`);
+  return {
+    text:
+      `🎭 **Класс ${safePage + 1}/${classes.length}**\n\n` +
+      `${gameClass.icon} **${gameClass.name}**\n` +
+      `${gameClass.description}\n\n` +
+      `💪 HP: ${gameClass.base_hp}\n` +
+      `⚔️ Атака: ${gameClass.base_attack}\n` +
+      `🛡️ Защита: ${gameClass.base_defense}\n` +
+      `✨ Способность: ${gameClass.passive_ability}`,
+    keyboard,
+  };
+}
 
 export async function handleClassSelection(ctx: Context) {
   if (!ctx.from || !ctx.chat) {
@@ -39,11 +63,10 @@ export async function handleClassSelection(ctx: Context) {
   }
 
   // Show class selection
-  const description = classService.generateClassDescription();
-  const keyboard = classService.generateClassSelectionKeyboard();
+  const page = await getClassPage(0);
 
-  await ctx.reply(description, {
-    reply_markup: keyboard,
+  await ctx.reply(page.text, {
+    reply_markup: page.keyboard,
     parse_mode: 'Markdown',
   });
 }
@@ -55,6 +78,16 @@ export async function handleClassCallback(ctx: Context) {
 
   const data = ctx.callbackQuery.data;
   
+  if (data.startsWith('classpage:')) {
+    const page = await getClassPage(Number(data.slice('classpage:'.length)));
+    await ctx.answerCallbackQuery();
+    await ctx.editMessageText(page.text, {
+      reply_markup: page.keyboard,
+      parse_mode: 'Markdown',
+    });
+    return;
+  }
+
   if (!data.startsWith('class:')) {
     return;
   }
