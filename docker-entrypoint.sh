@@ -21,10 +21,10 @@ echo "✅ Redis is ready!"
 
 # Create database if it doesn't exist
 echo "🗄️ Checking database..."
-export PGPASSWORD="$POSTGRES_PASSWORD"
-if ! psql -h postgres -U "$POSTGRES_USER" -lqt | cut -d \| -f 1 | grep -qw "$POSTGRES_DB"; then
-    echo "📝 Creating database $POSTGRES_DB..."
-    psql -h postgres -U "$POSTGRES_USER" -c "CREATE DATABASE $POSTGRES_DB;"
+export PGPASSWORD="$DB_PASSWORD"
+if ! psql -h postgres -U "$DB_USER" -d postgres -lqt | cut -d \| -f 1 | grep -qw "$DB_NAME"; then
+    echo "📝 Creating database $DB_NAME..."
+    psql -h postgres -U "$DB_USER" -d postgres -c "CREATE DATABASE $DB_NAME;"
     echo "✅ Database created!"
 else
     echo "✅ Database already exists!"
