@@ -42,8 +42,8 @@ export class BehaviorTracker {
   ): Promise<BehaviorProfile | null> {
     const result = await db.query(
       `SELECT * FROM behavior_profiles 
-       WHERE user_id = $1 AND chat_id = $2 AND season_id = $3`,
-      [userId, chatId, seasonId]
+       WHERE user_id = $1 AND season_id = $2`,
+      [userId, seasonId]
     );
     
     if (result.rows[0]) {
@@ -63,12 +63,23 @@ export class BehaviorTracker {
     chatId: number,
     seasonId: number
   ): Promise<BehaviorProfile> {
+    // Use ON CONFLICT to handle race conditions in group chats
     const result = await db.query(
       `INSERT INTO behavior_profiles (user_id, chat_id, season_id)
        VALUES ($1, $2, $3)
+       ON CONFLICT (user_id, season_id) DO NOTHING
        RETURNING *`,
       [userId, chatId, seasonId]
     );
+    
+    // If conflict occurred (RETURNING is empty), fetch the existing profile
+    if (result.rows.length === 0) {
+      const existing = await this.findProfile(userId, chatId, seasonId);
+      if (existing) {
+        return existing;
+      }
+      throw new Error('Failed to create or find behavior profile');
+    }
     
     return {
       ...result.rows[0],
@@ -126,7 +137,7 @@ export class BehaviorTracker {
            after_big_damage = $9,
            common_sequences = $10,
            updated_at = NOW()
-       WHERE user_id = $11 AND chat_id = $12 AND season_id = $13`,
+       WHERE user_id = $11 AND season_id = $12`,
       [
         attackCount,
         defendCount,
@@ -139,7 +150,6 @@ export class BehaviorTracker {
         afterBigDamage,
         JSON.stringify(commonSequences),
         userId,
-        chatId,
         seasonId,
       ]
     );

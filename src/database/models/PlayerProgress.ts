@@ -73,9 +73,20 @@ export class PlayerProgressModel {
     const result = await db.query(
       `INSERT INTO player_progress (user_id, season_id, class_id)
        VALUES ($1, $2, $3)
+       ON CONFLICT (user_id, season_id) DO NOTHING
        RETURNING *`,
       [data.user_id, data.season_id, data.class_id]
     );
+    
+    // If conflict occurred, fetch the existing record
+    if (result.rows.length === 0) {
+      const existing = await this.find(data.user_id, data.season_id);
+      if (existing) {
+        return existing;
+      }
+      throw new Error('Failed to create or find player progress');
+    }
+    
     return result.rows[0];
   }
 
@@ -174,10 +185,17 @@ export class ChatProgressModel {
       const result = await db.query(
         `INSERT INTO chat_progress (user_id, chat_id, season_id, is_primary_chat)
          VALUES ($1, $2, $3, $4)
+         ON CONFLICT (user_id, chat_id, season_id) DO NOTHING
          RETURNING *`,
         [userId, chatId, seasonId, isPrimary]
       );
-      chatProgress = result.rows[0];
+      
+      // If conflict occurred, fetch the existing record
+      if (result.rows.length === 0) {
+        chatProgress = await this.find(userId, chatId, seasonId);
+      } else {
+        chatProgress = result.rows[0];
+      }
     }
 
     if (!chatProgress) {

@@ -283,12 +283,12 @@ export class GameService {
     // Predict player action using AI (if floor > 10)
     let enemyAction: ActionType = ActionType.ATTACK;
     let tacticianAbilityUsed = false;
-    let tacticianPrediction: ActionType | undefined;
+    let predictedEnemyAction: ActionType | undefined;
     
+    // AI всегда предсказывает действия игрока для всех классов
     if (currentFloor > 10 && behaviorProfile.total_actions >= 3) {
       tacticianAbilityUsed = playerClass?.code === 'tactician';
-      const predictedAction = behaviorTracker.predictNextAction(behaviorProfile);
-      tacticianPrediction = predictedAction;
+      const predictedPlayerAction = behaviorTracker.predictNextAction(behaviorProfile);
       const aiAccuracy = behaviorTracker.calculateAIAccuracy(
         currentFloor,
         progress.ai_resist || 0
@@ -297,7 +297,7 @@ export class GameService {
       // AI uses prediction with accuracy rate
       if (Math.random() < aiAccuracy) {
         // AI successfully predicted - counter it
-        if (predictedAction === ActionType.ATTACK) {
+        if (predictedPlayerAction === ActionType.ATTACK) {
           enemyAction = ActionType.DEFEND; // Defend against predicted attack
         } else {
           enemyAction = ActionType.ATTACK; // Attack if player predicted to defend
@@ -306,6 +306,12 @@ export class GameService {
         // AI failed prediction - random action
         enemyAction = Math.random() > 0.6 ? ActionType.ATTACK : ActionType.DEFEND;
       }
+      
+      // Запоминаем что будет делать враг (для тактика)
+      predictedEnemyAction = enemyAction;
+    } else {
+      // Для низких этажей - простая случайная логика
+      enemyAction = Math.random() > 0.5 ? ActionType.ATTACK : ActionType.DEFEND;
     }
 
     // Execute combat
@@ -316,9 +322,12 @@ export class GameService {
       enemyAction,
       playerClass?.code
     );
-    if (tacticianAbilityUsed) {
+    
+    // Тактик видит что будет делать враг
+    if (tacticianAbilityUsed && predictedEnemyAction) {
+      const actionText = predictedEnemyAction === ActionType.ATTACK ? '⚔️ атакует' : '🛡️ защищается';
       combatResult.message =
-        '🧠 Тактик: вы просчитали поведение противника!\n' + combatResult.message;
+        `🧠 Тактик: враг ${actionText}!\n` + combatResult.message;
     }
 
     // Record action for behavior tracking
@@ -521,11 +530,6 @@ export class GameService {
     return {
       message: combatResult.message,
       combatResult,
-      privateMessage: tacticianPrediction
-        ? `🧠 Тактик, анализ завершён.\nСледующий ход бота может быть: ${
-            tacticianPrediction === ActionType.ATTACK ? 'атака ⚔️' : 'защита 🛡️'
-          }.\nЭто прогноз, а не гарантия.`
-        : undefined,
       keyboard: rewardKeyboard,
     };
   }

@@ -287,8 +287,8 @@ export class CombatEngine {
       }
     }
 
-    // Apply boss healing
-    if (bossHealing > 0) {
+    // Apply boss healing (only if boss is still alive)
+    if (bossHealing > 0 && newEnemyHp > 0) {
       newEnemyHp = Math.min(enemy.maxHp, newEnemyHp + bossHealing);
     }
 
@@ -419,9 +419,9 @@ export class CombatEngine {
     // Regular enemy with deterministic generation
     const rng = SeededRandom.forFloor(floor, seasonId);
     
-    const baseHp = 50 + (level * 20);
+    const baseHp = 50 + (level * 25);
     const baseAttack = 8 + (level * 3);
-    const baseDefense = 3 + (level * 2);
+    const baseDefense = 2 + (level * 1.5);
     
     // Each ten-floor zone has its own three regular mobs. Floor 1-9 uses
     // zone 0; floors 11-19 use zone 1, and so on up to floors 491-499.
