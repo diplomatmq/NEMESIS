@@ -46,8 +46,12 @@ bot.command('экипировка', async (ctx) => {
 });
 bot.command(['sacrifice', 'жертвоприношение'], async (ctx) => {
   if (!ctx.from) return;
-  const menu = await gameService.getNecromancerMenu(ctx.from.id);
-  await ctx.reply(menu.message, { reply_markup: menu.keyboard, parse_mode: 'Markdown' });
+  try {
+    const menu = await gameService.getNecromancerMenu(ctx.from.id);
+    await ctx.reply(menu.message, { reply_markup: menu.keyboard, parse_mode: 'Markdown' });
+  } catch (error: any) {
+    await ctx.reply(error.message || '❌ Произошла ошибка.');
+  }
 });
 
 bot.command('potion', handleUsePotion);

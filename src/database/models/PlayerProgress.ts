@@ -21,6 +21,7 @@ export interface PlayerProgress {
   trail_modifier: number;
   necro_mob_souls: number;
   necro_boss_souls: Array<{ name: string; floor: number; boss_config?: unknown }>;
+  necro_pending_soul?: { name: string; floor: number; boss_config?: unknown } | null;
   necro_sacrifice_available_at?: Date;
   necro_debuff_games: number;
   necro_attack_bonus: number;

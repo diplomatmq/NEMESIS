@@ -103,9 +103,9 @@ export class CombatEngine {
         (necromancerPenalty ? Math.floor(player.defense * 0.1) : 0)
     );
     if (enemy.summonedSupport) {
-      if (enemy.summonedSupport === 'mobs') {
+      if (enemy.summonedSupport === 'mobs' && Math.random() < 0.85) {
         classAbilityMessage += '💀 Некромант: три мертвеца прикрыли вас — входящий урон снижен!\n';
-      } else {
+      } else if (enemy.summonedSupport === 'boss' && Math.random() < 0.85) {
         classAbilityMessage += `☠️ ${enemy.summonedSupportName || 'Призванный босс'} вмешался и атакует!\n`;
       }
     }
@@ -172,7 +172,9 @@ export class CombatEngine {
         } else if (playerClassCode === 'jester' && playerDamage !== damageBeforePassive) {
           classAbilityMessage += '🎲 Шут: сработал случайный эффект!\n';
         } else if (playerClassCode === 'necromancer' && playerDamage > damageBeforePassive) {
-          classAbilityMessage += '☠️ Некромант: мёртвые усилили удар!\n';
+          if (Math.random() < 0.85) {
+            classAbilityMessage += '☠️ Некромант: мёртвые усилили удар!\n';
+          }
         }
       }
 

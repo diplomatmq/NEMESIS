@@ -166,8 +166,27 @@ export async function handleSacrificeCallback(ctx: Context) {
   if (!ctx.from || !ctx.callbackQuery?.data) return;
   const data = ctx.callbackQuery.data;
   if (!data.startsWith('sacrifice:') || data.startsWith('sacrifice:skip:')) return;
+  
   if (data === 'sacrifice:close') {
     await ctx.answerCallbackQuery();
+    await ctx.editMessageText('Меню жертвоприношения закрыто.');
+    return;
+  }
+  
+  // Handle soul replacement
+  const replaceMatch = /^sacrifice:replace:(\d+)$/.exec(data);
+  if (replaceMatch) {
+    const message = await gameService.replaceBossSoul(ctx.from.id, Number(replaceMatch[1]));
+    await ctx.answerCallbackQuery(message.slice(0, 190));
+    await ctx.editMessageText(message);
+    return;
+  }
+  
+  // Handle decline
+  if (data === 'sacrifice:decline') {
+    await gameService.declineBossSoul(ctx.from.id);
+    await ctx.answerCallbackQuery('Душа отвергнута');
+    await ctx.editMessageText('❌ Вы отказались от поглощения души.');
     return;
   }
 

@@ -230,11 +230,24 @@ export class GameService {
       const playerClassCode = progress.class_id
         ? (await classService.getClassById(progress.class_id))?.code
         : undefined;
-      if (playerClassCode === 'necromancer' && Math.random() < 0.15) {
-        enemy.summonedSupport = Math.random() < 0.7 ? 'mobs' : 'boss';
-        enemy.summonedSupportName = enemy.summonedSupport === 'mobs'
-          ? 'Три призванных мертвеца'
-          : 'Призванный страж-босс';
+      // Necromancer ability: summon minions if they have souls
+      if (playerClassCode === 'necromancer' && Math.random() < 0.85) {
+        const hasBossSouls = Array.isArray(progress.necro_boss_souls) && progress.necro_boss_souls.length > 0;
+        const hasMobSouls = progress.necro_mob_souls > 0;
+        
+        if (hasBossSouls || hasMobSouls) {
+          // If has boss souls, 70% chance to summon boss, otherwise summon mobs
+          const summonBoss = hasBossSouls && Math.random() < 0.7;
+          
+          if (summonBoss && hasBossSouls) {
+            enemy.summonedSupport = 'boss';
+            const bossSoul = progress.necro_boss_souls[0];
+            enemy.summonedSupportName = bossSoul.name;
+          } else if (hasMobSouls && progress.necro_mob_souls >= 3) {
+            enemy.summonedSupport = 'mobs';
+            enemy.summonedSupportName = 'Три призванных мертвеца';
+          }
+        }
       }
       if (progress.trail_modifier && progress.trail_modifier !== 1) {
         await db.query(
@@ -324,23 +337,52 @@ export class GameService {
     if (combatResult.enemyDefeated) {
       const playerClass = progress.class_id ? await classService.getClassById(progress.class_id) : null;
       if (playerClass?.name === 'Некромант') {
-        const chance = enemy.isBoss ? 0.6 : 0.8;
+        const dropChance = enemy.isBoss ? 0.6 : 0.8;
         const souls = Array.isArray(progress.necro_boss_souls) ? progress.necro_boss_souls : [];
-        const canAbsorb = enemy.isBoss ? souls.length < 2 : progress.necro_mob_souls < 15;
-        if (canAbsorb && Math.random() < chance) {
+        
+        // Check if soul drops
+        const soulDropped = Math.random() < dropChance;
+        
+        if (soulDropped) {
           if (enemy.isBoss) {
             const soul = { name: enemy.name, floor: currentFloor, boss_config: enemy.boss_config };
-            await db.query(
-              'UPDATE player_progress SET necro_boss_souls = necro_boss_souls || $2::jsonb WHERE id = $1',
-              [progress.id, JSON.stringify([soul])]
-            );
-            combatResult.message += `\n☠️ **Некромант поглотил душу босса ${enemy.name}!** (${souls.length + 1}/2)`;
+            
+            // If both boss soul slots are full, force sacrifice choice
+            if (souls.length >= 2) {
+              rewardKeyboard = new InlineKeyboard();
+              souls.forEach((existingSoul, index) => {
+                rewardKeyboard!.text(
+                  `☠️ Заменить ${existingSoul.name}`,
+                  `sacrifice:replace:${index}`
+                ).row();
+              });
+              rewardKeyboard.text('❌ Отказаться', 'sacrifice:decline');
+              
+              // Store the new soul temporarily for the callback
+              await db.query(
+                'UPDATE player_progress SET necro_pending_soul = $2 WHERE id = $1',
+                [progress.id, JSON.stringify(soul)]
+              );
+              
+              combatResult.message += `\n\n☠️ **Душа босса ${enemy.name} готова к поглощению!**\n` +
+                `Но оба слота заняты. Выберите какую душу заменить или откажитесь:`;
+            } else {
+              // Add boss soul directly
+              await db.query(
+                'UPDATE player_progress SET necro_boss_souls = necro_boss_souls || $2::jsonb WHERE id = $1',
+                [progress.id, JSON.stringify([soul])]
+              );
+              combatResult.message += `\n☠️ **Некромант поглотил душу босса ${enemy.name}!** (${souls.length + 1}/2)`;
+            }
           } else {
-            await db.query(
-              'UPDATE player_progress SET necro_mob_souls = LEAST(necro_mob_souls + 1, 15) WHERE id = $1',
-              [progress.id]
-            );
-            combatResult.message += `\n☠️ **Душа моба поглощена.** (${progress.necro_mob_souls + 1}/15)`;
+            // Mob soul - always absorbed if under limit
+            if (progress.necro_mob_souls < 15) {
+              await db.query(
+                'UPDATE player_progress SET necro_mob_souls = LEAST(necro_mob_souls + 1, 15) WHERE id = $1',
+                [progress.id]
+              );
+              combatResult.message += `\n☠️ **Душа моба поглощена.** (${progress.necro_mob_souls + 1}/15)`;
+            }
           }
         }
       }
@@ -398,14 +440,15 @@ export class GameService {
         for (const ach of bossAchievements) {
           combatResult.message += `\n${achievementService.generateAchievementMessage(ach)}`;
         }
-        if (playerClass?.code === 'necromancer' && Math.random() < 0.15) {
+        // Necromancer: Throne of the Dead event
+        if (playerClass?.code === 'necromancer') {
           const storedSouls = Array.isArray(progress.necro_boss_souls)
             ? [...progress.necro_boss_souls]
             : [];
           if (enemy.isBoss && storedSouls.length < 2) {
             storedSouls.push({ name: enemy.name, floor: currentFloor });
           }
-          if (storedSouls.length > 0) {
+          if (storedSouls.length > 0 && Math.random() < 0.15) {
             rewardKeyboard = new InlineKeyboard();
             storedSouls.slice(0, 2).forEach((soul, index) => {
               rewardKeyboard!.text(
@@ -533,10 +576,37 @@ export class GameService {
 
     // Get class info
     let className = 'Не выбран';
+    let necromancerInfo = '';
     if (progress.class_id) {
       const playerClass = await classService.getClassById(progress.class_id);
       if (playerClass) {
         className = `${playerClass.icon} ${playerClass.name}`;
+        
+        // Add necromancer-specific info
+        if (playerClass.code === 'necromancer') {
+          const bossSouls = Array.isArray(progress.necro_boss_souls) ? progress.necro_boss_souls : [];
+          const mobSouls = progress.necro_mob_souls || 0;
+          
+          necromancerInfo = `\n\n☠️ **Подчиненные души:**\n`;
+          necromancerInfo += `💀 Души мобов: ${mobSouls}/15\n`;
+          
+          if (bossSouls.length > 0) {
+            necromancerInfo += `👹 Души боссов: ${bossSouls.length}/2\n`;
+            bossSouls.forEach((soul, idx) => {
+              necromancerInfo += `  ${idx + 1}. ${soul.name} (этаж ${soul.floor})\n`;
+            });
+          } else {
+            necromancerInfo += `👹 Души боссов: 0/2\n`;
+          }
+          
+          // Show active effects
+          if (progress.necro_bonus_games > 0) {
+            necromancerInfo += `\n✨ Бонус активен: +${progress.necro_attack_bonus} ATK, +${progress.necro_defense_bonus} DEF (${progress.necro_bonus_games} игр)\n`;
+          }
+          if (progress.necro_debuff_games > 0) {
+            necromancerInfo += `\n💀 Дебафф активен: -20% ATK, -10% DEF (${progress.necro_debuff_games} игр)\n`;
+          }
+        }
       }
     }
 
@@ -580,6 +650,7 @@ export class GameService {
       `🛡️ Защита: ${progress.defense}\n` +
       `⭐ Уровень: ${progress.level}\n` +
       `💰 Золото: ${progress.gold}\n` +
+      necromancerInfo +
       chatInfo +
       combatInfo +
       healthWarning +
@@ -844,6 +915,48 @@ export class GameService {
     const progress = await PlayerProgressModel.find(user.id, season.id);
     if (!progress) throw new Error('Прогресс не найден.');
     return progress;
+  }
+
+  async replaceBossSoul(telegramUserId: number, bossIndex: number): Promise<string> {
+    const progress = await this.getProgressForTelegramUser(telegramUserId);
+    const playerClass = progress.class_id ? await classService.getClassById(progress.class_id) : null;
+    if (playerClass?.name !== 'Некромант') return '❌ Доступно только Некроманту.';
+    
+    const pendingSoul = progress.necro_pending_soul;
+    if (!pendingSoul) return '❌ Нет души для замены.';
+    
+    const souls = Array.isArray(progress.necro_boss_souls) ? progress.necro_boss_souls : [];
+    if (bossIndex < 0 || bossIndex >= souls.length) return '❌ Неверный индекс души.';
+    
+    const replacedSoul = souls[bossIndex];
+    
+    // Replace the soul at the specified index
+    await db.query(
+      `UPDATE player_progress
+       SET necro_boss_souls = (
+         SELECT jsonb_agg(
+           CASE 
+             WHEN ord = $2 THEN $3::jsonb
+             ELSE value
+           END
+         )
+         FROM jsonb_array_elements(necro_boss_souls) WITH ORDINALITY t(value, ord)
+       ),
+       necro_pending_soul = NULL,
+       updated_at = NOW()
+       WHERE id = $1`,
+      [progress.id, bossIndex + 1, JSON.stringify(pendingSoul)]
+    );
+    
+    return `☠️ Душа ${replacedSoul.name} принесена в жертву.\n✨ Душа ${pendingSoul.name} поглощена!`;
+  }
+
+  async declineBossSoul(telegramUserId: number): Promise<void> {
+    const progress = await this.getProgressForTelegramUser(telegramUserId);
+    await db.query(
+      'UPDATE player_progress SET necro_pending_soul = NULL WHERE id = $1',
+      [progress.id]
+    );
   }
 
   async resolveTrail(
