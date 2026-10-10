@@ -199,14 +199,14 @@ export class PotionService {
         return {
           name: 'Зелье здоровья',
           description: 'Восстанавливает 50% HP',
-          heal_amount: 0.5,
+          heal_amount: 50, // Целое число (процент)
           rarity: 'uncommon',
         };
       case 'large':
         return {
           name: 'Большое зелье здоровья',
           description: 'Полностью восстанавливает HP',
-          heal_amount: 1.0,
+          heal_amount: 100, // Целое число (процент)
           rarity: 'rare',
         };
     }

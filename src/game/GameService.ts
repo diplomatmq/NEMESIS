@@ -336,54 +336,56 @@ export class GameService {
     // If enemy defeated, handle loot and floor progression
     if (combatResult.enemyDefeated) {
       const playerClass = progress.class_id ? await classService.getClassById(progress.class_id) : null;
-      if (playerClass?.name === 'Некромант') {
-        const dropChance = enemy.isBoss ? 0.6 : 0.8;
+      
+      // Necromancer soul absorption
+      if (playerClass?.name === 'Некромант' && enemy.isBoss) {
+        const dropChance = 0.6; // 60% шанс дропа души босса
         const souls = Array.isArray(progress.necro_boss_souls) ? progress.necro_boss_souls : [];
-        
-        // Check if soul drops
         const soulDropped = Math.random() < dropChance;
         
         if (soulDropped) {
-          if (enemy.isBoss) {
-            const soul = { name: enemy.name, floor: currentFloor, boss_config: enemy.boss_config };
+          const soul = { name: enemy.name, floor: currentFloor, boss_config: enemy.boss_config };
+          
+          // If both boss soul slots are full, force sacrifice choice
+          if (souls.length >= 2) {
+            rewardKeyboard = new InlineKeyboard();
+            souls.forEach((existingSoul, index) => {
+              rewardKeyboard!.text(
+                `☠️ Заменить ${existingSoul.name}`,
+                `sacrifice:replace:${index}`
+              ).row();
+            });
+            rewardKeyboard.text('❌ Отказаться', 'sacrifice:decline');
             
-            // If both boss soul slots are full, force sacrifice choice
-            if (souls.length >= 2) {
-              rewardKeyboard = new InlineKeyboard();
-              souls.forEach((existingSoul, index) => {
-                rewardKeyboard!.text(
-                  `☠️ Заменить ${existingSoul.name}`,
-                  `sacrifice:replace:${index}`
-                ).row();
-              });
-              rewardKeyboard.text('❌ Отказаться', 'sacrifice:decline');
-              
-              // Store the new soul temporarily for the callback
-              await db.query(
-                'UPDATE player_progress SET necro_pending_soul = $2 WHERE id = $1',
-                [progress.id, JSON.stringify(soul)]
-              );
-              
-              combatResult.message += `\n\n☠️ **Душа босса ${enemy.name} готова к поглощению!**\n` +
-                `Но оба слота заняты. Выберите какую душу заменить или откажитесь:`;
-            } else {
-              // Add boss soul directly
+            // Store the new soul temporarily for the callback
+            await db.query(
+              'UPDATE player_progress SET necro_pending_soul = $2 WHERE id = $1',
+              [progress.id, JSON.stringify(soul)]
+            );
+            
+            combatResult.message += `\n\n☠️ **Душа босса ${enemy.name} готова к поглощению!**\n` +
+              `Но оба слота заняты. Выберите какую душу заменить или откажитесь:`;
+          } else {
+            // Add boss soul directly - проверяем что его еще нет
+            const hasDuplicate = souls.some(s => s.name === soul.name && s.floor === soul.floor);
+            if (!hasDuplicate) {
               await db.query(
                 'UPDATE player_progress SET necro_boss_souls = necro_boss_souls || $2::jsonb WHERE id = $1',
                 [progress.id, JSON.stringify([soul])]
               );
               combatResult.message += `\n☠️ **Некромант поглотил душу босса ${enemy.name}!** (${souls.length + 1}/2)`;
             }
-          } else {
-            // Mob soul - always absorbed if under limit
-            if (progress.necro_mob_souls < 15) {
-              await db.query(
-                'UPDATE player_progress SET necro_mob_souls = LEAST(necro_mob_souls + 1, 15) WHERE id = $1',
-                [progress.id]
-              );
-              combatResult.message += `\n☠️ **Душа моба поглощена.** (${progress.necro_mob_souls + 1}/15)`;
-            }
           }
+        }
+      } else if (playerClass?.name === 'Некромант' && !enemy.isBoss) {
+        // Mob soul absorption
+        const dropChance = 0.8; // 80% шанс дропа души моба
+        if (Math.random() < dropChance && progress.necro_mob_souls < 15) {
+          await db.query(
+            'UPDATE player_progress SET necro_mob_souls = LEAST(necro_mob_souls + 1, 15) WHERE id = $1',
+            [progress.id]
+          );
+          combatResult.message += `\n☠️ **Душа моба поглощена.** (${progress.necro_mob_souls + 1}/15)`;
         }
       }
       // Calculate reward multiplier (50% reduction for non-primary chats)

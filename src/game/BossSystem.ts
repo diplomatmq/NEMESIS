@@ -66,8 +66,8 @@ export class BossSystem {
     },
     'heal': {
       name: 'Исцеление',
-      description: 'Восстанавливает 5% текущего HP',
-      heal_amount: 0.05, // 5% от текущего HP
+      description: 'Восстанавливает 5-10% текущего HP',
+      heal_amount: 0.05, // Базовое значение, будет умножаться на random(1-2)
       cooldown: 3,
       icon: '💚',
     },
@@ -567,9 +567,9 @@ export class BossSystem {
       // Life drain - процент от урона
       return Math.floor(damageDealt * ability.heal_amount);
     } else {
-      // Обычное исцеление - процент от ТЕКУЩЕГО HP (не максимального)
-      // Это делает хил слабее когда босс на низком HP
-      return Math.floor(boss.hp * ability.heal_amount);
+      // Обычное исцеление - 5-10% от ТЕКУЩЕГО HP
+      const healPercent = ability.heal_amount * (1 + Math.random()); // 0.05 * (1 to 2) = 5-10%
+      return Math.max(1, Math.floor(boss.hp * healPercent));
     }
   }
 }

@@ -6,9 +6,9 @@ const COOLDOWN_EXEMPT_TELEGRAM_IDS = new Set<number>([
   678418106, //шут
   1391860862, //ассасин
   8687764486, //берсерк
-  6335911487, //страж    еще есть арканист,тактик
+  6335911487, //страж    еще есть арканист
   6758055954, //вампир
-  
+  1444740093, //тактик
 ]);
 
 export function isCooldownExemptTelegramUser(telegramUserId: number): boolean {

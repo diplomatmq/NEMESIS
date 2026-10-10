@@ -10,50 +10,55 @@ export async function handleGameAction(ctx: Context, invoiceService: InvoiceServ
 
   const action = ctx.message.text.trim();
 
-  // Execute action
-  const result = await gameService.executeAction(
-    {
-      telegramUserId: ctx.from.id,
-      telegramChatId: ctx.chat.id,
-      username: ctx.from.username,
-      firstName: ctx.from.first_name,
-      lastName: ctx.from.last_name,
-      chatType: ctx.chat.type,
-      chatTitle: 'title' in ctx.chat ? ctx.chat.title : undefined,
-    },
-    action,
-    false // not bypassing cooldown
-  );
-
-  // If cooldown is active and payment needed
-  if (result.needsPayment && result.cooldownInfo) {
-    // Create invoice
-    const { keyboard } = await invoiceService.createSkipCooldownInvoice(
-      ctx.from.id,
-      ctx.chat.id,
-      action
+  try {
+    // Execute action
+    const result = await gameService.executeAction(
+      {
+        telegramUserId: ctx.from.id,
+        telegramChatId: ctx.chat.id,
+        username: ctx.from.username,
+        firstName: ctx.from.first_name,
+        lastName: ctx.from.last_name,
+        chatType: ctx.chat.type,
+        chatTitle: 'title' in ctx.chat ? ctx.chat.title : undefined,
+      },
+      action,
+      false // not bypassing cooldown
     );
 
+    // If cooldown is active and payment needed
+    if (result.needsPayment && result.cooldownInfo) {
+      // Create invoice
+      const { keyboard } = await invoiceService.createSkipCooldownInvoice(
+        ctx.from.id,
+        ctx.chat.id,
+        action
+      );
+
+      await ctx.reply(markdownToTelegramHtml(result.message), {
+        reply_markup: keyboard,
+        parse_mode: 'HTML',
+        reply_parameters: {
+          message_id: ctx.message.message_id,
+        },
+      });
+      return;
+    }
+
+    // Send result message
     await ctx.reply(markdownToTelegramHtml(result.message), {
-      reply_markup: keyboard,
+      reply_markup: result.keyboard,
       parse_mode: 'HTML',
       reply_parameters: {
         message_id: ctx.message.message_id,
       },
     });
-    return;
-  }
-
-  // Send result message
-  await ctx.reply(markdownToTelegramHtml(result.message), {
-    reply_markup: result.keyboard,
-    parse_mode: 'HTML',
-    reply_parameters: {
-      message_id: ctx.message.message_id,
-    },
-  });
-  if (result.privateMessage) {
-    await ctx.api.sendMessage(ctx.from.id, result.privateMessage);
+    if (result.privateMessage) {
+      await ctx.api.sendMessage(ctx.from.id, result.privateMessage);
+    }
+  } catch (error: any) {
+    console.error('Error in handleGameAction:', error);
+    await ctx.reply(`❌ Ошибка: ${error.message || 'Неизвестная ошибка'}`).catch(() => {});
   }
 }
 
