@@ -239,10 +239,13 @@ export class CombatEngine {
       if (assassinBackstab) {
         enemyDamage = 0;
       } else if (playerAction === ActionType.DEFEND) {
-        // Player is defending, reduce damage
-        enemyDamage = Math.max(1, Math.floor((baseEnemyAttack - effectiveDefense) * 0.5));
+        // Player is defending, reduce damage (боссы теперь пробивают защиту лучше)
+        const defenseReduction = enemy.isBoss ? 0.7 : 0.5; // Боссы игнорируют больше защиты
+        enemyDamage = Math.max(1, Math.floor((baseEnemyAttack - effectiveDefense) * defenseReduction));
       } else {
-        enemyDamage = Math.max(1, baseEnemyAttack - Math.floor(effectiveDefense / 2));
+        // Боссы теперь пробивают защиту лучше (игнорируют 75% защиты вместо 50%)
+        const armorPenetration = enemy.isBoss ? 0.75 : 0.5;
+        enemyDamage = Math.max(1, baseEnemyAttack - Math.floor(effectiveDefense * (1 - armorPenetration)));
       }
       if (enemy.summonedSupport === 'mobs') {
         enemyDamage = Math.floor(enemyDamage * 0.7);

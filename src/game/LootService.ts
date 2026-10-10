@@ -263,12 +263,13 @@ export class LootService {
 
     if (item.item_type === ItemType.CLASS_EXCLUSIVE) {
       const player = await db.query(
-        `SELECT c.id FROM player_progress pp
+        `SELECT c.id AS class_id FROM player_progress pp
          LEFT JOIN classes c ON c.id = pp.class_id
          WHERE pp.id = $1`,
         [playerProgressId]
       );
-      if (player.rows[0]?.id !== item.class_id) {
+      // Check if player has the right class for this item
+      if (!player.rows[0]?.class_id || Number(player.rows[0].class_id) !== Number(item.class_id)) {
         return false;
       }
     }

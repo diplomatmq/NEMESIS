@@ -397,8 +397,10 @@ export class GameService {
           combatResult.message += `\n☠️ **Душа моба поглощена.** (${progress.necro_mob_souls + 1}/15)`;
         }
       }
-      // Calculate reward multiplier (50% reduction for non-primary chats)
-      const rewardMultiplier = chatProgress.is_primary_chat ? 1.0 : 0.5;
+      // Calculate reward multiplier based on highest floor across all chats
+      // If current floor is lower than player's max floor, reduce rewards by 50%
+      const isAtMaxFloor = currentFloor >= progress.floor;
+      const rewardMultiplier = isAtMaxFloor ? 1.0 : 0.5;
       
       // Generate loot with reward multiplier
       const loot = await lootService.generateLootS1(

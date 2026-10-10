@@ -190,9 +190,9 @@ export class BossSystem {
           description,
           floor,
           level,
-          base_hp: 180 + level * 100,
-          base_attack: 12 + level * 5,
-          base_defense: 4 + level * 2, // Снижена защита для лучшего баланса
+          base_hp: 300 + level * 150,
+          base_attack: 20 + level * 7, // Увеличено для пробития защиты
+          base_defense: 6 + level * 2,
           abilities: [
             ...abilityNames.map((ability) => this.BOSS_ABILITIES[ability]),
             signatureAbility,
@@ -236,9 +236,9 @@ export class BossSystem {
         description: 'Древний страж, охраняющий вход в башню',
         floor: 10,
         level: 1,
-        base_hp: 200,
-        base_attack: 15,
-        base_defense: 10,
+        base_hp: 300,
+        base_attack: 22, // Увеличено +10% от 20 (было 15)
+        base_defense: 8, // Вернули к 8
         abilities: [
           this.BOSS_ABILITIES['power_strike'],
           this.BOSS_ABILITIES['defensive_stance'],
@@ -255,9 +255,9 @@ export class BossSystem {
         description: 'Восставший из мёртвых дракон',
         floor: 20,
         level: 2,
-        base_hp: 350,
-        base_attack: 20,
-        base_defense: 15,
+        base_hp: 600,
+        base_attack: 28, // Увеличено +10% от 25 (было 20)
+        base_defense: 10,
         abilities: [
           this.BOSS_ABILITIES['power_strike'],
           this.BOSS_ABILITIES['elemental_blast'],
@@ -285,9 +285,9 @@ export class BossSystem {
         description: 'Тёмный маг, владеющий силами тени',
         floor: 30,
         level: 3,
-        base_hp: 500,
-        base_attack: 25,
-        base_defense: 18,
+        base_hp: 750,
+        base_attack: 36, // Увеличено +10% от 33 (было 25)
+        base_defense: 12,
         abilities: [
           this.BOSS_ABILITIES['adaptation'],
           this.BOSS_ABILITIES['counter_attack'],
@@ -306,9 +306,9 @@ export class BossSystem {
         description: 'Элементаль чистого огня',
         floor: 40,
         level: 4,
-        base_hp: 700,
-        base_attack: 30,
-        base_defense: 20,
+        base_hp: 900,
+        base_attack: 44, // Увеличено +10% от 40 (было 30)
+        base_defense: 14,
         abilities: [
           this.BOSS_ABILITIES['elemental_blast'],
           this.BOSS_ABILITIES['berserker_rage'],
@@ -343,9 +343,9 @@ export class BossSystem {
         description: 'Гигантское создание из льда',
         floor: 50,
         level: 5,
-        base_hp: 900,
-        base_attack: 28,
-        base_defense: 35,
+        base_hp: 1050,
+        base_attack: 42, // Увеличено +10% от 38 (было 28)
+        base_defense: 16,
         abilities: [
           this.BOSS_ABILITIES['defensive_stance'],
           this.BOSS_ABILITIES['heal'],
@@ -410,9 +410,9 @@ export class BossSystem {
       description: `Могущественный ${title.toLowerCase()} босс ${level} уровня`,
       floor,
       level,
-      base_hp: 150 + (level * 50),
-      base_attack: 15 + (level * 5),
-      base_defense: 10 + (level * 3),
+      base_hp: 300 + (level * 150),
+      base_attack: 20 + (level * 7), // Увеличено для пробития защиты
+      base_defense: 6 + (level * 2),
       abilities: selectedAbilities,
       ai_type: rng.choose(aiTypes),
       icon: '👑',
@@ -480,8 +480,8 @@ export class BossSystem {
         };
       }
       
-      // Heal ability at low HP
-      if (ability.heal_amount && hpPercent < 40 && turnCount % (ability.cooldown || 5) === 0) {
+      // Heal ability at low HP (only when < 30%)
+      if (ability.heal_amount && hpPercent < 30 && turnCount % (ability.cooldown || 5) === 0) {
         return {
           action: ActionType.DEFEND,
           ability,
@@ -509,11 +509,18 @@ export class BossSystem {
         };
       
       case 'adaptive':
-        // Контрит действие игрока
-        return {
-          action: playerAction === ActionType.ATTACK ? ActionType.DEFEND : ActionType.ATTACK,
-          message: `${config.icon} ${boss.name} адаптируется к вашей тактике!`,
-        };
+        // Контрит действие игрока, но не всегда (60% шанс на адаптацию)
+        if (Math.random() < 0.6) {
+          return {
+            action: playerAction === ActionType.ATTACK ? ActionType.DEFEND : ActionType.ATTACK,
+            message: `${config.icon} ${boss.name} адаптируется к вашей тактике!`,
+          };
+        } else {
+          return {
+            action: ActionType.ATTACK,
+            message: `${config.icon} ${boss.name} атакует!`,
+          };
+        }
       
       case 'chaotic':
         // Случайное
