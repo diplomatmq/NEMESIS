@@ -113,16 +113,6 @@ export async function handleInventory(ctx: Context) {
   await ctx.reply(inventory, { parse_mode: 'Markdown' });
 }
 
-export async function handleEquip(ctx: Context) {
-  if (!ctx.from || !ctx.message?.text) return;
-  const match = /^\/(?:equip|экипировать)\s+(\d+)$/i.exec(ctx.message.text.trim());
-  if (!match) {
-    await ctx.reply('Использование: /equip ID_предмета\nID можно посмотреть в инвентаре.');
-    return;
-  }
-  await ctx.reply(await gameService.equipItem(ctx.from.id, Number(match[1])));
-}
-
 export async function handleEquipCallback(ctx: Context) {
   if (!ctx.from || !ctx.callbackQuery?.data) return;
   const match = /^equip:(\d+)$/.exec(ctx.callbackQuery.data);
@@ -133,9 +123,20 @@ export async function handleEquipCallback(ctx: Context) {
 
 export async function handleEquipmentMenu(ctx: Context) {
   if (!ctx.from || !ctx.callbackQuery?.data) return;
-  const menu = /^equipmenu:(\w+):(\d+)$/.exec(ctx.callbackQuery.data);
-  const item = /^equipitem:(\d+):(\w+):(\d+)$/.exec(ctx.callbackQuery.data);
+  const menu = /^equipmenu:(\w+):(\d+):(\d+)$/.exec(ctx.callbackQuery.data);
+  const item = /^equipitem:(\d+):(\w+):(\d+):(\d+)$/.exec(ctx.callbackQuery.data);
   if (!menu && !item) return;
+  
+  // Check if user is authorized
+  if (menu && Number(menu[3]) !== ctx.from.id) {
+    await ctx.answerCallbackQuery('❌ Это не ваше меню!');
+    return;
+  }
+  if (item && Number(item[4]) !== ctx.from.id) {
+    await ctx.answerCallbackQuery('❌ Это не ваше меню!');
+    return;
+  }
+  
   if (menu) {
     const result = await gameService.getEquipmentMenu(ctx.from.id, menu[1], Number(menu[2]));
     await ctx.answerCallbackQuery();

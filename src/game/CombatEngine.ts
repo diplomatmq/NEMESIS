@@ -159,19 +159,28 @@ export class CombatEngine {
       // Apply class passive bonus
       if (playerClassCode) {
         const damageBeforePassive = playerDamage;
+        const hasSouls = playerClassCode === 'necromancer' 
+          ? (player.necro_mob_souls > 0 || (Array.isArray(player.necro_boss_souls) && player.necro_boss_souls.length > 0))
+          : false;
         playerDamage = classService.applyClassPassive(
           playerClassCode,
           playerDamage,
           player.hp,
-          player.max_hp
+          player.max_hp,
+          hasSouls
         );
         if (playerClassCode === 'berserker' && playerDamage > damageBeforePassive) {
           classAbilityMessage += '🔥 Берсерк: ярость усилила ваш удар!\n';
         } else if (playerClassCode === 'arcanist' && playerDamage > damageBeforePassive) {
           classAbilityMessage += '✨ Арканист: магия пробила защиту!\n';
         } else if (playerClassCode === 'jester' && playerDamage !== damageBeforePassive) {
-          classAbilityMessage += '🎲 Шут: сработал случайный эффект!\n';
-        } else if (playerClassCode === 'necromancer' && playerDamage > damageBeforePassive) {
+          const change = playerDamage - damageBeforePassive;
+          if (change > 0) {
+            classAbilityMessage += `🎲 Шут: удача! Урон увеличен на ${change}!\n`;
+          } else if (change < 0) {
+            classAbilityMessage += `🎲 Шут: неудача! Урон снижен на ${Math.abs(change)}!\n`;
+          }
+        } else if (playerClassCode === 'necromancer' && playerDamage > damageBeforePassive && hasSouls) {
           if (Math.random() < 0.85) {
             classAbilityMessage += '☠️ Некромант: мёртвые усилили удар!\n';
           }

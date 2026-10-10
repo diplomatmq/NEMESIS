@@ -192,7 +192,7 @@ export class BossSystem {
           level,
           base_hp: 180 + level * 90,
           base_attack: 12 + level * 5,
-          base_defense: 8 + level * 3,
+          base_defense: 5 + level * 2.5, // Снижена защита: было 8 + level * 3
           abilities: [
             ...abilityNames.map((ability) => this.BOSS_ABILITIES[ability]),
             signatureAbility,

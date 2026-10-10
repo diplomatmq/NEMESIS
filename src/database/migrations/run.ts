@@ -52,6 +52,7 @@ async function runMigrations() {
       { name: '011_necromancer_souls', file: '011_necromancer_souls.sql', order: 11 },
       { name: '012_necromancer_effects', file: '012_necromancer_effects.sql', order: 12 },
       { name: '013_necromancer_pending_soul', file: '013_necromancer_pending_soul.sql', order: 13 },
+      { name: '014_fix_zero_stat_items', file: '014_fix_zero_stat_items.sql', order: 14 },
     ];
 
     let appliedCount = 0;

@@ -759,7 +759,7 @@ export class GameService {
     const result = await db.query(
       `SELECT i.id, i.name, i.rarity, i.attack_bonus, i.defense_bonus,
               i.hp_bonus, i.crit_chance_bonus, i.dodge_bonus,
-              i.lifesteal_bonus, i.ai_resist_bonus, pi.quantity,
+              i.lifesteal_bonus, i.ai_resist_bonus, i.special_effect, pi.quantity,
               pe.weapon_id, pe.shield_id, pe.helmet_id, pe.armor_id,
               pe.boots_id, pe.accessory_id
        FROM player_inventory pi
@@ -769,12 +769,14 @@ export class GameService {
        ORDER BY i.rarity DESC, i.name`,
       [progress.id, selectedSlot]
     );
+    
     const pageSize = 5;
     const totalPages = Math.max(1, Math.ceil(result.rows.length / pageSize));
     const safePage = Math.max(0, Math.min(page, totalPages - 1));
     const currentColumn = `${selectedSlot}_id`;
     const currentId = result.rows[0]?.[currentColumn] ?? null;
     const rows = result.rows.slice(safePage * pageSize, (safePage + 1) * pageSize);
+    
     const keyboard = new InlineKeyboard();
     const slotNames: Record<string, string> = {
       weapon: 'Оружие',
@@ -784,34 +786,68 @@ export class GameService {
       boots: 'Сапоги',
       accessory: 'Аксессуары',
     };
+    
+    // Slot selection buttons
     keyboard
-      .text('⚔️ Оружие', 'equipmenu:weapon:0')
-      .text('🛡 Щиты', 'equipmenu:shield:0')
-      .text('🪖 Шлемы', 'equipmenu:helmet:0')
+      .text('⚔️', `equipmenu:weapon:0:${telegramUserId}`)
+      .text('🛡', `equipmenu:shield:0:${telegramUserId}`)
+      .text('🪖', `equipmenu:helmet:0:${telegramUserId}`)
       .row()
-      .text('🥋 Броня', 'equipmenu:armor:0')
-      .text('🥾 Сапоги', 'equipmenu:boots:0')
-      .text('💍 Аксессуары', 'equipmenu:accessory:0')
+      .text('🥋', `equipmenu:armor:0:${telegramUserId}`)
+      .text('🥾', `equipmenu:boots:0:${telegramUserId}`)
+      .text('💍', `equipmenu:accessory:0:${telegramUserId}`)
       .row();
-    for (const item of rows) {
-      const equipped = Number(item[currentColumn]) === Number(item.id);
-      const stats = `+${item.attack_bonus} ATK +${item.defense_bonus} DEF +${item.hp_bonus} HP`;
-      keyboard.text(
-        `${equipped ? '✅ ' : ''}${item.name} (${stats})`,
-        `equipitem:${item.id}:${selectedSlot}:${safePage}`
-      ).style(equipped ? 'success' : 'primary').row();
+    
+    // Build message with item details
+    let message = `🎒 **Экипировка — ${slotNames[selectedSlot]}**\n\n`;
+    
+    if (rows.length === 0) {
+      message += `У вас нет предметов в этой категории.\n`;
+    } else {
+      message += `📋 **Доступные предметы (стр. ${safePage + 1}/${totalPages}):**\n\n`;
+      
+      for (const item of rows) {
+        const equipped = Number(item[currentColumn]) === Number(item.id);
+        const rarityEmoji = this.getRarityEmoji(item.rarity);
+        
+        // Format stats
+        const statsParts = [];
+        if (item.attack_bonus > 0) statsParts.push(`+${item.attack_bonus} ATK`);
+        if (item.defense_bonus > 0) statsParts.push(`+${item.defense_bonus} DEF`);
+        if (item.hp_bonus > 0) statsParts.push(`+${item.hp_bonus} HP`);
+        if (item.crit_chance_bonus > 0) statsParts.push(`+${item.crit_chance_bonus}% CRIT`);
+        if (item.dodge_bonus > 0) statsParts.push(`+${item.dodge_bonus}% DODGE`);
+        if (item.lifesteal_bonus > 0) statsParts.push(`+${item.lifesteal_bonus}% LIFESTEAL`);
+        if (item.ai_resist_bonus > 0) statsParts.push(`+${item.ai_resist_bonus}% AI RES`);
+        
+        const stats = statsParts.length > 0 ? statsParts.join(', ') : 'нет базовых стат';
+        const special = item.special_effect ? `\n   🌟 *${item.special_effect}*` : '';
+        const equippedMark = equipped ? ' ✅' : '';
+        
+        message += `${rarityEmoji} **${item.name}**${equippedMark}\n`;
+        message += `   📊 ${stats}${special}\n\n`;
+        
+        // Add button for this item
+        keyboard.text(
+          `${equipped ? '✅ ' : ''}${item.name}`,
+          `equipitem:${item.id}:${selectedSlot}:${safePage}:${telegramUserId}`
+        ).style(equipped ? 'success' : 'primary').row();
+      }
     }
+    
+    // Pagination buttons
     if (totalPages > 1) {
       keyboard
-        .text('⬅️', `equipmenu:${selectedSlot}:${Math.max(0, safePage - 1)}`)
-        .text(`${safePage + 1}/${totalPages}`, `equipmenu:${selectedSlot}:${safePage}`)
-        .text('➡️', `equipmenu:${selectedSlot}:${Math.min(totalPages - 1, safePage + 1)}`)
+        .text('⬅️', `equipmenu:${selectedSlot}:${Math.max(0, safePage - 1)}:${telegramUserId}`)
+        .text(`${safePage + 1}/${totalPages}`, `equipmenu:${selectedSlot}:${safePage}:${telegramUserId}`)
+        .text('➡️', `equipmenu:${selectedSlot}:${Math.min(totalPages - 1, safePage + 1)}:${telegramUserId}`)
         .row();
     }
+    
+    message += `\n💡 Нажмите на предмет чтобы надеть/снять.`;
+    
     return {
-      message:
-        `🎒 **Экипировка — ${slotNames[selectedSlot]}**\n` +
-        'Выберите предмет. Повторное нажатие снимает его, а выбор другого заменяет текущий.',
+      message,
       keyboard,
     };
   }

@@ -124,7 +124,8 @@ export class ClassService {
     classCode: string,
     baseDamage: number,
     playerHp: number,
-    playerMaxHp: number
+    playerMaxHp: number,
+    hasSouls?: boolean
   ): number {
     let damage = baseDamage;
 
@@ -167,8 +168,10 @@ export class ClassService {
         break;
 
       case 'necromancer':
-        // Миньоны добавляют урон
-        damage = Math.floor(damage * 1.15);
+        // Миньоны добавляют урон только если есть души
+        if (hasSouls) {
+          damage = Math.floor(damage * 1.15);
+        }
         break;
 
       case 'guardian':

@@ -2,8 +2,13 @@ import { db } from '../database/db';
 import { config } from '../config';
 
 const COOLDOWN_EXEMPT_TELEGRAM_IDS = new Set<number>([
-  793216884,
-  678418106,
+  793216884, //некромант
+  678418106, //шут
+  1391860862, //ассасин
+  8687764486, //берсерк
+  6335911487, //страж    еще есть арканист,тактик
+  6758055954, //вампир
+  
 ]);
 
 export function isCooldownExemptTelegramUser(telegramUserId: number): boolean {

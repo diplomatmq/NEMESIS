@@ -3,7 +3,7 @@ import { config } from './config';
 import { db } from './database/db';
 import { redis } from './database/redis';
 import { handleStart } from './bot/handlers/start';
-import { handleGameAction, handleStatus, handleInventory, handleUsePotion, handleTrailCallback, handleEquip, handleEquipCallback, handleEquipmentMenu, handleSacrificeCallback, handleSacrificeCallbackWithPayment, handleThroneCallback } from './bot/handlers/game';
+import { handleGameAction, handleStatus, handleInventory, handleUsePotion, handleTrailCallback, handleEquipCallback, handleEquipmentMenu, handleSacrificeCallback, handleSacrificeCallbackWithPayment, handleThroneCallback } from './bot/handlers/game';
 import { handleSuccessfulPayment, handlePreCheckoutQuery } from './bot/handlers/payment';
 import { handleClassSelection, handleClassCallback } from './bot/handlers/class';
 import { handleAchievements } from './bot/handlers/achievements';
@@ -32,8 +32,6 @@ bot.command('статус', handleStatus);
 
 bot.command('inventory', handleInventory);
 bot.command('инвентарь', handleInventory);
-bot.command('equip', handleEquip);
-bot.command('экипировать', handleEquip);
 bot.command('equipment', async (ctx) => {
   if (!ctx.from) return;
   const menu = await gameService.getEquipmentMenu(ctx.from.id);
