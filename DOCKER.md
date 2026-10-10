@@ -146,12 +146,19 @@ docker-compose exec redis redis-cli
 # Базы данных внутри сети Docker
 DB_HOST=postgres
 REDIS_HOST=redis
+DB_USER=postgres
+DB_PASSWORD=postgres
+DB_NAME=nemesis_game
 
 # Остальное из вашего .env файла
 BOT_TOKEN=${BOT_TOKEN}
 BOT_USERNAME=${BOT_USERNAME}
 ...
 ```
+
+Для совместимости с уже созданным Docker volume Compose использует стабильные
+учетные данные PostgreSQL `postgres/postgres`. Изменение `DB_PASSWORD` в `.env`
+не меняет пароль в существующем volume PostgreSQL.
 
 ## 🐛 Troubleshooting
 
