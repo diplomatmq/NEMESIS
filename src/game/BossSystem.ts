@@ -66,8 +66,8 @@ export class BossSystem {
     },
     'heal': {
       name: 'Исцеление',
-      description: 'Восстанавливает 20% HP',
-      heal_amount: 0.2,
+      description: 'Восстанавливает 10% HP',
+      heal_amount: 0.1, // Снижено с 0.2 до 0.1
       cooldown: 3,
       icon: '💚',
     },
@@ -85,8 +85,8 @@ export class BossSystem {
     },
     'life_drain': {
       name: 'Похищение жизни',
-      description: 'Восстанавливает HP равное 30% нанесённого урона',
-      heal_amount: 0.3,
+      description: 'Восстанавливает HP равное 20% нанесённого урона',
+      heal_amount: 0.2, // Снижено с 0.3 до 0.2
       icon: '🩸',
     },
     'elemental_blast': {

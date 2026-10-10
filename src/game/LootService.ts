@@ -41,14 +41,13 @@ export class LootService {
     const drops: Item[] = [];
     let gold = 0;
 
-    // Use seeded random for deterministic loot (but different seed than enemy)
-    const lootSeed = SeededRandom.createSeed(floor * 2 + 1, seasonId);
-    const rng = new SeededRandom(lootSeed);
+    // Use TRUE random (not seeded) so everyone gets different loot
+    const rng = Math.random;
 
     if (isBoss) {
       // Босс всегда даёт предмет
       gold = Math.floor((50 + (floor * 5)) * rewardMultiplier);
-      const item = await this.generateRandomItemS1(floor, true, rng);
+      const item = await this.generateRandomItemS1(floor, true);
       if (item) {
         drops.push(item);
       }
@@ -60,15 +59,15 @@ export class LootService {
       gold = Math.floor((10 + (floor * 2)) * rewardMultiplier);
       
       // 30% шанс на дроп предмета
-      if (rng.next() < 0.3) {
-        const item = await this.generateRandomItemS1(floor, false, rng);
+      if (rng() < 0.3) {
+        const item = await this.generateRandomItemS1(floor, false);
         if (item) {
           drops.push(item);
         }
       }
 
       // 20% шанс на зелье
-      if (rng.next() < 0.2) {
+      if (rng() < 0.2) {
         await potionService.addPotionToInventory(playerProgressId, 'small', 1);
       }
     }
@@ -84,33 +83,50 @@ export class LootService {
 
   private async generateRandomItemS1(
     floor: number,
-    isBoss: boolean,
-    rng: SeededRandom
+    isBoss: boolean
   ): Promise<Item | null> {
-    // Bosses have the best loot table, while regular mobs can still drop
-    // epic, legendary, and (at high floors) mythic items.
+    // Все получают случайный лут с пониженными шансами на редкие вещи
     let rarity: ItemRarity;
-    const roll = rng.next();
+    const roll = Math.random();
 
-    if (isBoss && floor >= 100 && roll < 0.2) {
-      rarity = ItemRarity.MYTHIC;
-    } else if (isBoss && roll < 0.55) {
-      rarity = ItemRarity.LEGENDARY;
-    } else if (isBoss && roll < 0.85) {
-      rarity = ItemRarity.EPIC;
-    } else if (roll < (isBoss ? 0.98 : 0.12)) {
-      rarity = ItemRarity.RARE;
-    } else if (roll < (isBoss ? 1 : 0.42)) {
-      rarity = ItemRarity.UNCOMMON;
+    if (isBoss) {
+      // Шансы для босса
+      if (floor >= 100 && roll < 0.05) {
+        rarity = ItemRarity.MYTHIC; // 5% для мифика (только на 100+ этаже)
+      } else if (roll < 0.25) {
+        rarity = ItemRarity.LEGENDARY; // 20% на легендарку
+      } else if (roll < 0.50) {
+        rarity = ItemRarity.EPIC; // 25% на эпик
+      } else if (roll < 0.75) {
+        rarity = ItemRarity.RARE; // 25% на редкий
+      } else if (roll < 0.90) {
+        rarity = ItemRarity.UNCOMMON; // 15% на необычный
+      } else {
+        rarity = ItemRarity.COMMON; // 10% на обычный
+      }
     } else {
-      rarity = ItemRarity.COMMON;
+      // Шансы для обычных мобов (намного ниже)
+      if (floor >= 200 && roll < 0.01) {
+        rarity = ItemRarity.MYTHIC; // 1% мифик (только 200+ этаж)
+      } else if (floor >= 100 && roll < 0.03) {
+        rarity = ItemRarity.LEGENDARY; // 2% легендарка (100+ этаж)
+      } else if (floor >= 50 && roll < 0.08) {
+        rarity = ItemRarity.EPIC; // 5% эпик (50+ этаж)
+      } else if (roll < 0.20) {
+        rarity = ItemRarity.RARE; // 12% редкий
+      } else if (roll < 0.45) {
+        rarity = ItemRarity.UNCOMMON; // 25% необычный
+      } else {
+        rarity = ItemRarity.COMMON; // 55% обычный
+      }
     }
 
     // Get items from database
     const result = await db.query(
       `SELECT * FROM items 
        WHERE rarity = $1 AND level_required <= $2 AND slot != 'potion'
-       ORDER BY id`,
+       ORDER BY RANDOM()
+       LIMIT 1`,
       [rarity, Math.floor(floor / 10) + 1]
     );
 
@@ -118,9 +134,8 @@ export class LootService {
       return null;
     }
 
-    // Use seeded random to pick item
-    const itemIndex = rng.nextInt(0, result.rows.length - 1);
-    return result.rows[itemIndex];
+    // Return random item
+    return result.rows[0];
   }
 
   private generateLootMessage(items: Item[], gold: number, isBoss: boolean, rewardMultiplier: number): string {
