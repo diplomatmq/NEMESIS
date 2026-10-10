@@ -138,28 +138,41 @@ export async function handleEquipmentMenu(ctx: Context) {
   }
   
   if (menu) {
-    const result = await gameService.getEquipmentMenu(ctx.from.id, menu[1], Number(menu[2]));
-    await ctx.answerCallbackQuery();
-    if (ctx.callbackQuery.message) {
-      await ctx.editMessageText(result.message, {
-        reply_markup: result.keyboard,
-        parse_mode: 'Markdown',
-      });
+    try {
+      const result = await gameService.getEquipmentMenu(ctx.from.id, menu[1], Number(menu[2]));
+      await ctx.answerCallbackQuery();
+      if (ctx.callbackQuery.message) {
+        // Check if message content changed before editing
+        const currentText = ctx.callbackQuery.message.text || '';
+        if (currentText !== result.message) {
+          await ctx.editMessageText(result.message, {
+            reply_markup: result.keyboard,
+            parse_mode: 'Markdown',
+          });
+        }
+      }
+    } catch (error: any) {
+      await ctx.answerCallbackQuery(error.message || '❌ Ошибка');
     }
     return;
   }
-  const result = await gameService.toggleEquipment(
-    ctx.from.id,
-    Number(item![1]),
-    item![2]
-  );
-  await ctx.answerCallbackQuery(result.slice(0, 190));
-  if (ctx.callbackQuery.message) {
-    const refreshed = await gameService.getEquipmentMenu(ctx.from.id, item![2], Number(item![3]));
-    await ctx.editMessageText(refreshed.message, {
-      reply_markup: refreshed.keyboard,
-      parse_mode: 'Markdown',
-    });
+  
+  try {
+    const result = await gameService.toggleEquipment(
+      ctx.from.id,
+      Number(item![1]),
+      item![2]
+    );
+    await ctx.answerCallbackQuery(result.slice(0, 190));
+    if (ctx.callbackQuery.message) {
+      const refreshed = await gameService.getEquipmentMenu(ctx.from.id, item![2], Number(item![3]));
+      await ctx.editMessageText(refreshed.message, {
+        reply_markup: refreshed.keyboard,
+        parse_mode: 'Markdown',
+      });
+    }
+  } catch (error: any) {
+    await ctx.answerCallbackQuery(error.message || '❌ Ошибка');
   }
 }
 
