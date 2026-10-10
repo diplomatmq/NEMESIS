@@ -5,9 +5,9 @@ services:
     image: postgres:15-alpine
     container_name: nemesis_postgres
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: nemesis_game
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      POSTGRES_DB: ${DB_NAME:-nemesis_game}
     ports:
       - "5432:5432"
     volumes:
@@ -46,15 +46,12 @@ services:
       BOT_USERNAME: ${BOT_USERNAME}
       
       # Database configuration (both formats for compatibility)
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/nemesis_game
+      DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-nemesis_game}
       DB_HOST: postgres
       DB_PORT: 5432
-      DB_USER: postgres
-      DB_PASSWORD: postgres
-      DB_NAME: nemesis_game
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: nemesis_game
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      DB_NAME: ${DB_NAME:-nemesis_game}
       
       # Redis configuration
       REDIS_URL: redis://redis:6379

@@ -8,6 +8,8 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "migrate": "node -r dotenv/config dist/database/migrations/run.js",
+    "db:check": "tsx src/database/migrations/check_db_state.ts",
+    "db:migrate": "tsx src/database/migrations/run.ts",
     "lint": "eslint src/**/*.ts"
   },
   "keywords": [
