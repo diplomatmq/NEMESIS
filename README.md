@@ -36,17 +36,28 @@ Telegram RPG игра с адаптивным AI и системой оплат�
 git clone <repository-url>
 cd NEMESIS
 
-# 2. Настроить .env
-cp .env.example .env
-# Заполните BOT_TOKEN и BOT_USERNAME
+# 2. Настроить .env.local с реальными секретами
+cp .env.local.example .env.local
+nano .env.local
+# Заполните BOT_TOKEN (из @BotFather) и DB_PASSWORD (надёжный пароль!)
 
-# 3. Запустить всё (БД + Бот)
-docker-compose up -d --build
+# 3. Создать симлинк или переименовать для Docker Compose
+ln -sf .env.local .env
+
+# 4. Запустить всё (PostgreSQL + Redis + Bot)
+docker-compose up -d
+
+# 5. Проверить логи
+docker-compose logs -f bot
 ```
 
 Готово! Бот работает! 🎉
 
-Подробнее: [DOCKER.md](DOCKER.md)
+**База данных создаётся автоматически при первом запуске!**
+
+📚 Подробная документация:
+- [DATABASE_MANAGEMENT.md](DATABASE_MANAGEMENT.md) - управление базой данных, бэкапы, восстановление
+- [SECURITY.md](SECURITY.md) - безопасность, замена токенов, защита секретов
 
 ---
 
@@ -69,23 +80,26 @@ npm install
 
 ### 3. Настроить переменные окружения
 
-Создайте файл `.env` на основе `.env.example`:
+⚠️ **ВАЖНО:** Никогда не коммитьте `.env` или `.env.local` в Git!
+
+Создайте файл `.env.local` на основе `.env.example`:
 
 ```bash
-cp .env.example .env
+cp .env.example .env.local
 ```
 
 Заполните следующие переменные:
 
 ```env
-BOT_TOKEN=your_bot_token_from_@BotFather
+# Получите токен у @BotFather в Telegram
+BOT_TOKEN=YOUR_BOT_TOKEN_FROM_BOTFATHER
 BOT_USERNAME=your_bot_username
 
-DATABASE_URL=postgresql://user:password@localhost:5432/nemesis_game
+DATABASE_URL=postgresql://postgres:YOUR_SECURE_PASSWORD@localhost:5432/nemesis_game
 DB_HOST=localhost
 DB_PORT=5432
 DB_USER=postgres
-DB_PASSWORD=your_password
+DB_PASSWORD=YOUR_SECURE_PASSWORD
 DB_NAME=nemesis_game
 
 REDIS_URL=redis://localhost:6379
@@ -96,14 +110,24 @@ COOLDOWN_MINUTES=10
 STARS_PRICE=1
 ```
 
+**Генерация безопасного пароля:**
+```bash
+openssl rand -base64 32
+```
+
 ### 4. Создать базу данных
+
+База данных будет создана автоматически при первом запуске миграций.
+
+Или создайте вручную:
 
 ```bash
 # Подключитесь к PostgreSQL
 psql -U postgres
 
 # Создайте базу данных
-CREATE DATABASE nemesis_game;
+CREATE DATABASE nemesis_game OWNER postgres;
+\q
 ```
 
 ### 5. Запустить миграции
