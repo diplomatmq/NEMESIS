@@ -3,10 +3,12 @@ import { config } from './config';
 import { db } from './database/db';
 import { redis } from './database/redis';
 import { handleStart } from './bot/handlers/start';
-import { handleGameAction, handleStatus, handleInventory, handleUsePotion, handleTrailCallback, handleEquipCallback, handleEquipmentMenu, handleSacrificeCallback, handleSacrificeCallbackWithPayment, handleThroneCallback } from './bot/handlers/game';
+import { handleGameAction, handleStatus, handleInventory, handleUsePotion, handleTrailCallback, handleEquipCallback, handleEquipmentMenu, handleSacrificeCallback, handleSacrificeCallbackWithPayment, handleThroneCallback, handleStatusCallback, handleMarketCallback } from './bot/handlers/game';
 import { handleSuccessfulPayment, handlePreCheckoutQuery } from './bot/handlers/payment';
 import { handleClassSelection, handleClassCallback } from './bot/handlers/class';
 import { handleAchievements } from './bot/handlers/achievements';
+import { handleDbStats, handleTop } from './bot/handlers/admin';
+import { handleSlotSpinCount, handleDiceMessage, handleSlotPayment } from './bot/handlers/slots';
 import { InvoiceService } from './payment/InvoiceService';
 import { gameService } from './game/GameService';
 
@@ -61,6 +63,10 @@ bot.command('класс', handleClassSelection);
 bot.command('achievements', handleAchievements);
 bot.command('достижения', handleAchievements);
 
+// Admin commands
+bot.command('dbstats', handleDbStats);
+bot.command('top', handleTop);
+
 // Callback query handlers
 bot.on('callback_query:data', async (ctx) => {
   await handleClassCallback(ctx);
@@ -70,14 +76,41 @@ bot.on('callback_query:data', async (ctx) => {
   await handleSacrificeCallbackWithPayment(ctx, invoiceService);
   await handleSacrificeCallback(ctx);
   await handleThroneCallback(ctx);
+  await handleStatusCallback(ctx);
+  await handleMarketCallback(ctx);
 });
 
 // Game action handlers
 bot.hears(/^(атака|атаковать|удар|attack|a)$/i, (ctx) => handleGameAction(ctx, invoiceService));
 bot.hears(/^(защита|защититься|блок|defend|block|d)$/i, (ctx) => handleGameAction(ctx, invoiceService));
 
+// Slots system - handle text messages (spin count) in private chats
+bot.on('message:text', async (ctx) => {
+  if (ctx.chat.type === 'private' && ctx.message.text && !ctx.message.text.startsWith('/')) {
+    await handleSlotSpinCount(ctx);
+  }
+});
+
+// Slots system - handle dice messages in private chats
+bot.on('message:dice', async (ctx) => {
+  if (ctx.chat.type === 'private') {
+    await handleDiceMessage(ctx);
+  }
+});
+
 // Payment handlers
-bot.on('message:successful_payment', handleSuccessfulPayment);
+bot.on('message:successful_payment', async (ctx) => {
+  if (!ctx.message?.successful_payment) return;
+  
+  const payload = ctx.message.successful_payment.invoice_payload;
+  
+  // Check if it's a slot payment
+  if (payload.startsWith('slot:')) {
+    await handleSlotPayment(ctx, payload);
+  } else {
+    await handleSuccessfulPayment(ctx);
+  }
+});
 bot.on('pre_checkout_query', handlePreCheckoutQuery);
 
 // Error handler

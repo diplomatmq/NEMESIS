@@ -41,33 +41,32 @@ export class LootService {
     const drops: Item[] = [];
     let gold = 0;
 
-    // Use TRUE random (not seeded) so everyone gets different loot
-    const rng = Math.random;
-
     if (isBoss) {
-      // Босс всегда даёт предмет
+      // Boss gold
       gold = Math.floor((50 + (floor * 5)) * rewardMultiplier);
-      const item = await this.generateRandomItemS1(floor, true);
-      if (item) {
-        drops.push(item);
+      
+      // Boss ALWAYS drops 1 guaranteed item
+      const guaranteedItem = await this.rollBossItem(floor);
+      if (guaranteedItem) {
+        drops.push(guaranteedItem);
       }
       
-      // Босс всегда даёт зелье
-      await potionService.addPotionToInventory(playerProgressId, 'medium', 1);
-    } else {
-      // Обычный враг
-      gold = Math.floor((10 + (floor * 2)) * rewardMultiplier);
-      
-      // 30% шанс на дроп предмета
-      if (rng() < 0.3) {
-        const item = await this.generateRandomItemS1(floor, false);
-        if (item) {
-          drops.push(item);
+      // 10% chance for additional item
+      if (Math.random() < 0.1) {
+        const bonusItem = await this.rollBossItem(floor);
+        if (bonusItem && bonusItem.id !== guaranteedItem?.id) {
+          drops.push(bonusItem);
         }
       }
-
-      // 20% шанс на зелье
-      if (rng() < 0.2) {
+      
+      // Boss always gives a potion
+      await potionService.addPotionToInventory(playerProgressId, 'medium', 1);
+    } else {
+      // Regular mob - only gold, NO ITEMS
+      gold = Math.floor((10 + (floor * 2)) * rewardMultiplier);
+      
+      // 20% chance for small potion
+      if (Math.random() < 0.2) {
         await potionService.addPotionToInventory(playerProgressId, 'small', 1);
       }
     }
@@ -81,62 +80,48 @@ export class LootService {
     };
   }
 
-  private async generateRandomItemS1(
-    floor: number,
-    isBoss: boolean
-  ): Promise<Item | null> {
-    // Все получают случайный лут с пониженными шансами на редкие вещи
-    let rarity: ItemRarity;
-    const roll = Math.random();
+  /**
+   * Roll for boss item drop with rarity-based chances
+   * Mythic: 0.01%, Legendary: 0.1%, Epic: 5%, Rare: 15%, Uncommon: 35%, Common: 44.99%
+   */
+  private async rollBossItem(floor: number): Promise<Item | null> {
+    const level = Math.floor(floor / 10) + 1;
+    
+    // Rarity drop chances (lower = rarer)
+    const rarityChances: Array<{ rarity: ItemRarity; chance: number }> = [
+      { rarity: ItemRarity.MYTHIC, chance: 0.0001 },      // 0.01%
+      { rarity: ItemRarity.LEGENDARY, chance: 0.001 },    // 0.1%
+      { rarity: ItemRarity.EPIC, chance: 0.05 },          // 5%
+      { rarity: ItemRarity.RARE, chance: 0.15 },          // 15%
+      { rarity: ItemRarity.UNCOMMON, chance: 0.35 },      // 35%
+      { rarity: ItemRarity.COMMON, chance: 0.4499 },      // 44.99%
+    ];
 
-    if (isBoss) {
-      // Шансы для босса
-      if (floor >= 100 && roll < 0.05) {
-        rarity = ItemRarity.MYTHIC; // 5% для мифика (только на 100+ этаже)
-      } else if (roll < 0.25) {
-        rarity = ItemRarity.LEGENDARY; // 20% на легендарку
-      } else if (roll < 0.50) {
-        rarity = ItemRarity.EPIC; // 25% на эпик
-      } else if (roll < 0.75) {
-        rarity = ItemRarity.RARE; // 25% на редкий
-      } else if (roll < 0.90) {
-        rarity = ItemRarity.UNCOMMON; // 15% на необычный
-      } else {
-        rarity = ItemRarity.COMMON; // 10% на обычный
-      }
-    } else {
-      // Шансы для обычных мобов (намного ниже)
-      if (floor >= 200 && roll < 0.01) {
-        rarity = ItemRarity.MYTHIC; // 1% мифик (только 200+ этаж)
-      } else if (floor >= 100 && roll < 0.03) {
-        rarity = ItemRarity.LEGENDARY; // 2% легендарка (100+ этаж)
-      } else if (floor >= 50 && roll < 0.08) {
-        rarity = ItemRarity.EPIC; // 5% эпик (50+ этаж)
-      } else if (roll < 0.20) {
-        rarity = ItemRarity.RARE; // 12% редкий
-      } else if (roll < 0.45) {
-        rarity = ItemRarity.UNCOMMON; // 25% необычный
-      } else {
-        rarity = ItemRarity.COMMON; // 55% обычный
+    // Roll for rarity
+    const roll = Math.random();
+    let cumulativeChance = 0;
+    let selectedRarity: ItemRarity = ItemRarity.COMMON;
+    
+    for (const { rarity, chance } of rarityChances) {
+      cumulativeChance += chance;
+      if (roll < cumulativeChance) {
+        selectedRarity = rarity;
+        break;
       }
     }
 
-    // Get items from database
+    // Get random item of selected rarity
     const result = await db.query(
       `SELECT * FROM items 
        WHERE rarity = $1 AND level_required <= $2 AND slot != 'potion'
-       ORDER BY RANDOM()
+       ORDER BY RANDOM() 
        LIMIT 1`,
-      [rarity, Math.floor(floor / 10) + 1]
+      [selectedRarity, level]
     );
 
-    if (result.rows.length === 0) {
-      return null;
-    }
-
-    // Return random item
-    return result.rows[0];
+    return result.rows[0] || null;
   }
+
 
   private generateLootMessage(items: Item[], gold: number, isBoss: boolean, rewardMultiplier: number): string {
     let msg = '';

@@ -24,6 +24,7 @@ import { db } from '../database/db';
 import { formatBossHealthBar, formatHealthBar, formatMobHealthBar } from './HealthBar';
 import { InlineKeyboard } from 'grammy';
 import { trailService } from './TrailService';
+import { dailyMarketService } from './DailyMarketService';
 
 export interface GameContext {
   telegramUserId: number;
@@ -200,21 +201,15 @@ export class GameService {
       actionType = ActionType.ATTACK; // Default to attack
     }
 
-    // Check if player has existing combat state
-    let combatState = await CombatStateModel.find(userId, seasonId);
+    // Check if player has existing combat state FOR THIS CHAT
+    let combatState = await CombatStateModel.find(userId, seasonId, chatId);
     let enemy: Enemy;
     let currentFloor = chatProgress.current_floor;
 
     if (combatState) {
-      // Continue existing combat
+      // Continue existing combat IN THIS CHAT
       enemy = combatState.enemy_data;
       currentFloor = combatState.floor;
-      
-      // Check if player switched chat during combat
-      if (currentFloor !== chatProgress.current_floor) {
-        // Player is fighting from a different floor in another chat
-        // They continue with the same enemy
-      }
     } else {
       // Start new combat - generate enemy for current chat floor
       currentFloor = chatProgress.current_floor;
@@ -256,10 +251,11 @@ export class GameService {
         );
       }
       
-      // Save combat state
+      // Save combat state FOR THIS CHAT
       combatState = await CombatStateModel.create({
         user_id: userId,
         season_id: seasonId,
+        chat_id: chatId,
         floor: currentFloor,
         enemy_data: enemy,
         player_hp_before: progress.hp
@@ -397,10 +393,16 @@ export class GameService {
           combatResult.message += `\n☠️ **Душа моба поглощена.** (${progress.necro_mob_souls + 1}/15)`;
         }
       }
-      // Calculate reward multiplier based on highest floor across all chats
-      // If current floor is lower than player's max floor, reduce rewards by 50%
-      const isAtMaxFloor = currentFloor >= progress.floor;
-      const rewardMultiplier = isAtMaxFloor ? 1.0 : 0.5;
+      // Calculate reward multiplier based on global highest floor
+      // If current chat floor is <= highest floor reached across ALL chats, reduce rewards by 50%
+      // Rewards are normal only when: current_floor > highest_floor_reached (globally)
+      const globalHighestFloor = progress.floor;
+      const isExploringNewFloor = currentFloor > globalHighestFloor;
+      const rewardMultiplier = isExploringNewFloor ? 1.0 : 0.5;
+      
+      if (!isExploringNewFloor) {
+        combatResult.message += `\n⚠️ Этаж уже пройден ранее: дроп -50%\n`;
+      }
       
       // Generate loot with reward multiplier
       const loot = await lootService.generateLootS1(
@@ -421,19 +423,21 @@ export class GameService {
       
       combatResult.message += loot.message;
 
-      // Advance floor in GLOBAL progress
-      const newGlobalFloor = progress.floor + 1;
-      await PlayerProgressModel.updateFloor(progress.id, newGlobalFloor);
-
-      // Also advance floor in chat progress
+      // Advance floor in chat progress first
       const newChatFloor = currentFloor + 1;
       await ChatProgressModel.updateFloor(chatProgress.id, newChatFloor);
+
+      // Update GLOBAL floor ONLY if this chat reached a new maximum
+      const newGlobalFloor = Math.max(progress.floor, newChatFloor);
+      if (newGlobalFloor > progress.floor) {
+        await PlayerProgressModel.updateFloor(progress.id, newGlobalFloor);
+      }
 
       // Full HP restore on floor completion
       await potionService.healOnFloorCompletion(progress.id, progress.max_hp);
       combatResult.message += `\n💚 **HP полностью восстановлено!**\n`;
 
-      // Check achievements
+      // Check achievements (use global floor for achievements)
       const floorAchievements = await achievementService.checkAndUnlockAchievements(
         progress.id,
         { type: 'floor_reached', value: newGlobalFloor }
@@ -475,17 +479,21 @@ export class GameService {
         }
       }
 
-      // Update checkpoint every 10 floors
-      if (newGlobalFloor % 10 === 0) {
+      // Update checkpoint every 10 floors (use global floor)
+      if (newGlobalFloor % 10 === 0 && newGlobalFloor > progress.checkpoint_floor) {
         await PlayerProgressModel.updateCheckpoint(progress.id, newGlobalFloor);
       }
 
-      // Clear combat state
-      await CombatStateModel.delete(userId, seasonId);
+      // Clear combat state FOR THIS CHAT
+      await CombatStateModel.delete(userId, seasonId, chatId);
 
       combatResult.message += `\n🏆 **Этаж ${currentFloor} пройден!**\n`;
       combatResult.message += `⬆️ Переход на этаж ${newChatFloor} (в этом чате).\n`;
-      combatResult.message += `🌍 Глобальный прогресс: этаж ${newGlobalFloor}\n`;
+      if (newGlobalFloor > progress.floor) {
+        combatResult.message += `🌍 Новый глобальный рекорд: этаж ${newGlobalFloor}!\n`;
+      } else {
+        combatResult.message += `🌍 Глобальный максимум: этаж ${progress.floor}\n`;
+      }
 
       if (!enemy.isBoss && Math.random() < 0.1) {
         const trail = await trailService.createEvent(
@@ -517,8 +525,8 @@ export class GameService {
       // Full HP restore on respawn
       await potionService.healOnFloorCompletion(progress.id, progress.max_hp);
       
-      // Clear combat state
-      await CombatStateModel.delete(userId, seasonId);
+      // Clear combat state FOR THIS CHAT
+      await CombatStateModel.delete(userId, seasonId, chatId);
       
       combatResult.message += `\n💀 **Вы пали в бою...**\n`;
       combatResult.message += `⚰️ Возрождение на этаже ${progress.checkpoint_floor}.\n`;
@@ -544,34 +552,47 @@ export class GameService {
 
   async getPlayerStatus(
     telegramUserId: number,
-    telegramChatId: number
-  ): Promise<string> {
+    telegramChatId: number,
+    isPrivateChat: boolean = false
+  ): Promise<{ message: string; keyboard: InlineKeyboard }> {
     const user = await UserModel.findByTelegramId(telegramUserId);
     if (!user) {
-      return 'Пользователь не найден. Отправьте /start в личном чате с ботом.';
+      return { 
+        message: 'Пользователь не найден. Отправьте /start в личном чате с ботом.',
+        keyboard: new InlineKeyboard()
+      };
     }
 
     const chat = await ChatModel.findByTelegramChatId(telegramChatId);
     if (!chat) {
-      return 'Чат не найден.';
+      return { 
+        message: 'Чат не найден.',
+        keyboard: new InlineKeyboard()
+      };
     }
 
     const season = await SeasonModel.getCurrentSeason();
     if (!season) {
-      return 'Сезон не найден.';
+      return { 
+        message: 'Сезон не найден.',
+        keyboard: new InlineKeyboard()
+      };
     }
 
     // Get GLOBAL progress
     const progress = await PlayerProgressModel.find(user.id, season.id);
     if (!progress) {
-      return 'Прогресс не найден. Начните игру!';
+      return { 
+        message: 'Прогресс не найден. Начните игру!',
+        keyboard: new InlineKeyboard()
+      };
     }
 
     // Get chat-specific progress
     const chatProgress = await ChatProgressModel.find(user.id, chat.id, season.id);
 
     // Check if in combat
-    const combatState = await CombatStateModel.find(user.id, season.id);
+    const combatState = await CombatStateModel.find(user.id, season.id, chat.id);
     let combatInfo = '';
     if (combatState) {
       const enemy = combatState.enemy_data;
@@ -646,7 +667,7 @@ export class GameService {
                  `🏆 Макс. этаж в чате: ${chatProgress.highest_floor_reached}`;
     }
 
-    return `📊 **Статус игрока**\n\n` +
+    const message = `📊 **Статус игрока**\n\n` +
       `👤 ${user.first_name}\n` +
       `🎭 Класс: ${className}\n` +
       `🏆 Сезон: ${season.season_number}\n\n` +
@@ -663,6 +684,20 @@ export class GameService {
       combatInfo +
       healthWarning +
       `\n⏱️ Следующее действие: ${cooldownText}`;
+
+    // Create keyboard with action buttons
+    const keyboard = new InlineKeyboard()
+      .text('🏪 Маркет', `status:market:${telegramUserId}`)
+      .text('🎒 Инвентарь', `status:inventory:${telegramUserId}`)
+      .row()
+      .text('⚔️ Экипировка', `status:equipment:${telegramUserId}`);
+
+    // Add slots button only in private chats
+    if (isPrivateChat) {
+      keyboard.row().text('🎰 Лоты', `status:slots:${telegramUserId}`);
+    }
+
+    return { message, keyboard };
   }
 
   async getInventory(
@@ -1061,7 +1096,8 @@ export class GameService {
     telegramUserId: number,
     telegramChatId: number,
     marketId: number,
-    action: 'buy' | 'sell' | 'exchange'
+    action: 'buy' | 'sell' | 'exchange',
+    itemIndex?: any
   ): Promise<ActionResult> {
     const user = await UserModel.findByTelegramId(telegramUserId);
     if (!user) return { success: false, message: 'Пользователь не найден.' };
@@ -1075,9 +1111,56 @@ export class GameService {
       progress.id,
       chat.id,
       marketId,
-      action
+      action,
+      itemIndex
     );
     return { success: true, message: result.message, keyboard: result.keyboard };
+  }
+
+  /**
+   * Get daily market with pagination
+   */
+  async getDailyMarket(
+    telegramUserId: number,
+    page: number = 0
+  ): Promise<{ message: string; keyboard: InlineKeyboard }> {
+    const user = await UserModel.findByTelegramId(telegramUserId);
+    if (!user) throw new Error('Пользователь не найден.');
+    
+    const season = await SeasonModel.getCurrentSeason();
+    if (!season) throw new Error('Сезон не найден.');
+    
+    const progress = await PlayerProgressModel.find(user.id, season.id);
+    if (!progress) throw new Error('Прогресс не найден.');
+    
+    const items = await dailyMarketService.getTodayMarket();
+    const { message, totalPages } = dailyMarketService.generateMarketMessage(
+      items,
+      progress.gold,
+      page
+    );
+    const keyboard = dailyMarketService.generateMarketKeyboard(items, page, telegramUserId);
+    
+    return { message, keyboard };
+  }
+
+  /**
+   * Buy item from daily market
+   */
+  async buyFromDailyMarket(
+    telegramUserId: number,
+    itemIndex: number
+  ): Promise<{ success: boolean; message: string }> {
+    const user = await UserModel.findByTelegramId(telegramUserId);
+    if (!user) return { success: false, message: 'Пользователь не найден.' };
+    
+    const season = await SeasonModel.getCurrentSeason();
+    if (!season) return { success: false, message: 'Сезон не найден.' };
+    
+    const progress = await PlayerProgressModel.find(user.id, season.id);
+    if (!progress) return { success: false, message: 'Прогресс не найден.' };
+    
+    return await dailyMarketService.buyItem(progress.id, itemIndex);
   }
 
   private getRarityEmoji(rarity: string): string {

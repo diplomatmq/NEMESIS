@@ -1,5 +1,10 @@
 import { Context } from 'grammy';
 import { gameService } from '../../game/GameService';
+import { trailService } from '../../game/TrailService';
+import { UserModel } from '../../database/models/User';
+import { ChatModel } from '../../database/models/Chat';
+import { SeasonModel } from '../../database/models/Season';
+import { PlayerProgressModel } from '../../database/models/PlayerProgress';
 import { InvoiceService } from '../../payment/InvoiceService';
 import { markdownToTelegramHtml } from '../../game/HealthBar';
 
@@ -65,38 +70,152 @@ export async function handleGameAction(ctx: Context, invoiceService: InvoiceServ
 export async function handleTrailCallback(ctx: Context) {
   if (!ctx.from || !ctx.chat || !ctx.callbackQuery?.data) return;
   const data = ctx.callbackQuery.data;
+  
+  // Trail choice callback
   const trailMatch = /^trail:(\d+):(\d+)$/.exec(data);
-  const marketMatch = /^trailmarket:(\d+):(\d+)$/.exec(data);
+  
+  // Market callbacks - updated patterns
+  const marketModeMatch = /^trailmarket:(\d+):mode:(buy|sell|exchange|main)$/.exec(data);
+  const marketBuyMatch = /^trailmarket:(\d+):buy:(\d+)$/.exec(data);
+  const marketSellMatch = /^trailmarket:(\d+):sell:(\d+)$/.exec(data);
+  const marketSellPageMatch = /^trailmarket:(\d+):sellpage:(\d+)$/.exec(data);
+  const marketExch1Match = /^trailmarket:(\d+):exch1:(\d+)$/.exec(data);
+  const marketExch2Match = /^trailmarket:(\d+):exch2:(\d+):(\d+)$/.exec(data);
+  const marketExchPageMatch = /^trailmarket:(\d+):exchpage:(\d+):(\d+)$/.exec(data);
+  
+  // Old market action match for backwards compatibility
   const marketActionMatch = /^marketaction:(\d+):(buy|sell|exchange)$/.exec(data);
-  if (!trailMatch && !marketMatch && !marketActionMatch) return;
+  
+  if (!trailMatch && !marketModeMatch && !marketBuyMatch && !marketSellMatch && 
+      !marketSellPageMatch && !marketExch1Match && !marketExch2Match && 
+      !marketExchPageMatch && !marketActionMatch) return;
 
-  const result = marketActionMatch
-    ? await gameService.resolveTrailMarketAction(
+  try {
+    let result;
+    
+    if (trailMatch) {
+      // Trail choice
+      result = await gameService.resolveTrail(
+        ctx.from.id,
+        ctx.chat.id,
+        Number(trailMatch[1]),
+        Number(trailMatch[2])
+      );
+    } else if (marketModeMatch) {
+      // Mode selection or back to main
+      const [, marketId, mode] = marketModeMatch;
+      
+      if (mode === 'main') {
+        // Show main market menu again
+        const user = await UserModel.findByTelegramId(ctx.from.id);
+        const season = await SeasonModel.getCurrentSeason();
+        const progress = await PlayerProgressModel.find(user!.id, season!.id);
+        const chat = await ChatModel.findByTelegramChatId(ctx.chat.id);
+        
+        result = await trailService.resolveMarketAction(
+          user!.id,
+          progress!.id,
+          chat!.id,
+          Number(marketId),
+          'buy' as any, // Will show main menu
+          undefined
+        );
+      } else {
+        result = await gameService.resolveTrailMarketAction(
+          ctx.from.id,
+          ctx.chat.id,
+          Number(marketId),
+          mode as any
+        );
+      }
+    } else if (marketBuyMatch) {
+      // Execute buy
+      result = await gameService.resolveTrailMarketAction(
+        ctx.from.id,
+        ctx.chat.id,
+        Number(marketBuyMatch[1]),
+        'buy',
+        Number(marketBuyMatch[2])
+      );
+    } else if (marketSellMatch) {
+      // Execute sell
+      result = await gameService.resolveTrailMarketAction(
+        ctx.from.id,
+        ctx.chat.id,
+        Number(marketSellMatch[1]),
+        'sell',
+        Number(marketSellMatch[2])
+      );
+    } else if (marketSellPageMatch) {
+      // Sell pagination
+      const user = await UserModel.findByTelegramId(ctx.from.id);
+      const season = await SeasonModel.getCurrentSeason();
+      const progress = await PlayerProgressModel.find(user!.id, season!.id);
+      const chat = await ChatModel.findByTelegramChatId(ctx.chat.id);
+      
+      result = await trailService.showSellMode(
+        progress!.id,
+        Number(marketSellPageMatch[1]),
+        Number(marketSellPageMatch[2])
+      );
+    } else if (marketExch1Match) {
+      // Exchange step 1 - selected market item, show player inventory
+      const user = await UserModel.findByTelegramId(ctx.from.id);
+      const season = await SeasonModel.getCurrentSeason();
+      const progress = await PlayerProgressModel.find(user!.id, season!.id);
+      
+      result = await trailService.showExchangeSelectPlayerItem(
+        progress!.id,
+        Number(marketExch1Match[1]),
+        Number(marketExch1Match[2]),
+        0
+      );
+    } else if (marketExch2Match) {
+      // Execute exchange
+      const marketItemIdx = Number(marketExch2Match[2]);
+      const playerItemIdx = Number(marketExch2Match[3]);
+      
+      result = await gameService.resolveTrailMarketAction(
+        ctx.from.id,
+        ctx.chat.id,
+        Number(marketExch2Match[1]),
+        'exchange',
+        `${marketItemIdx}_${playerItemIdx}` as any
+      );
+    } else if (marketExchPageMatch) {
+      // Exchange pagination
+      const user = await UserModel.findByTelegramId(ctx.from.id);
+      const season = await SeasonModel.getCurrentSeason();
+      const progress = await PlayerProgressModel.find(user!.id, season!.id);
+      
+      result = await trailService.showExchangeSelectPlayerItem(
+        progress!.id,
+        Number(marketExchPageMatch[1]),
+        Number(marketExchPageMatch[2]),
+        Number(marketExchPageMatch[3])
+      );
+    } else if (marketActionMatch) {
+      // Old action format
+      result = await gameService.resolveTrailMarketAction(
         ctx.from.id,
         ctx.chat.id,
         Number(marketActionMatch[1]),
-        marketActionMatch[2] as 'buy' | 'sell' | 'exchange'
-      )
-    : trailMatch
-    ? await gameService.resolveTrail(
-        ctx.from.id,
-      ctx.chat.id,
-      Number(trailMatch[1]),
-      Number(trailMatch[2])
-    )
-    : await gameService.resolveTrailMarket(
-      ctx.from.id,
-      ctx.chat.id,
-      Number(marketMatch![1]),
-      Number(marketMatch![2])
-    );
+        marketActionMatch[2] as any
+      );
+    }
 
-  await ctx.answerCallbackQuery(result.message.slice(0, 190));
-  if (ctx.callbackQuery.message) {
-    await ctx.editMessageText(markdownToTelegramHtml(result.message), {
-      parse_mode: 'HTML',
-      reply_markup: result.keyboard,
-    });
+    if (result) {
+      await ctx.answerCallbackQuery(result.message.slice(0, 190));
+      if (ctx.callbackQuery.message) {
+        await ctx.editMessageText(markdownToTelegramHtml(result.message), {
+          parse_mode: 'HTML',
+          reply_markup: result.keyboard,
+        });
+      }
+    }
+  } catch (error: any) {
+    console.error('Error in handleTrailCallback:', error);
+    await ctx.answerCallbackQuery(error.message || '❌ Ошибка');
   }
 }
 
@@ -105,8 +224,12 @@ export async function handleStatus(ctx: Context) {
     return;
   }
 
-  const status = await gameService.getPlayerStatus(ctx.from.id, ctx.chat.id);
-  await ctx.reply(markdownToTelegramHtml(status), { parse_mode: 'HTML' });
+  const isPrivateChat = ctx.chat.type === 'private';
+  const result = await gameService.getPlayerStatus(ctx.from.id, ctx.chat.id, isPrivateChat);
+  await ctx.reply(markdownToTelegramHtml(result.message), { 
+    parse_mode: 'HTML',
+    reply_markup: result.keyboard
+  });
 }
 
 export async function handleInventory(ctx: Context) {
@@ -273,4 +396,118 @@ export async function handleUsePotion(ctx: Context) {
   );
 
   await ctx.reply(markdownToTelegramHtml(result.message), { parse_mode: 'HTML' });
+}
+
+/**
+ * Handle status menu callbacks (market, inventory, equipment, slots)
+ */
+export async function handleStatusCallback(ctx: Context) {
+  if (!ctx.from || !ctx.callbackQuery?.data) return;
+  const data = ctx.callbackQuery.data;
+  
+  // Parse status menu callbacks
+  const statusMatch = /^status:(market|inventory|equipment|slots):(\d+)$/.exec(data);
+  if (!statusMatch) return;
+  
+  const [, action, userId] = statusMatch;
+  
+  // Check authorization
+  if (Number(userId) !== ctx.from.id) {
+    await ctx.answerCallbackQuery('❌ Это не ваше меню!');
+    return;
+  }
+  
+  try {
+    if (action === 'market') {
+      const result = await gameService.getDailyMarket(ctx.from.id, 0);
+      await ctx.answerCallbackQuery();
+      await ctx.reply(result.message, {
+        reply_markup: result.keyboard,
+        parse_mode: 'Markdown',
+      });
+    } else if (action === 'inventory') {
+      const inventory = await gameService.getInventory(ctx.from.id, ctx.chat!.id);
+      await ctx.answerCallbackQuery();
+      await ctx.reply(inventory, { parse_mode: 'Markdown' });
+    } else if (action === 'equipment') {
+      const result = await gameService.getEquipmentMenu(ctx.from.id);
+      await ctx.answerCallbackQuery();
+      await ctx.reply(result.message, {
+        reply_markup: result.keyboard,
+        parse_mode: 'Markdown',
+      });
+    } else if (action === 'slots') {
+      // Import slots handler dynamically to avoid circular dependencies
+      const { handleSlotsButton } = await import('./slots');
+      await ctx.answerCallbackQuery();
+      await handleSlotsButton(ctx);
+    }
+  } catch (error: any) {
+    await ctx.answerCallbackQuery(error.message || '❌ Ошибка');
+  }
+}
+
+/**
+ * Handle daily market callbacks (pagination, buy, close)
+ */
+export async function handleMarketCallback(ctx: Context) {
+  if (!ctx.from || !ctx.callbackQuery?.data) return;
+  const data = ctx.callbackQuery.data;
+  
+  if (!data.startsWith('market:')) return;
+  
+  // Parse market callbacks
+  const pageMatch = /^market:page:(\d+):(\d+)$/.exec(data);
+  const buyMatch = /^market:buy:(\d+):(\d+)$/.exec(data);
+  const closeMatch = /^market:close:(\d+)$/.exec(data);
+  
+  if (!pageMatch && !buyMatch && !closeMatch) return;
+  
+  // Check authorization
+  const userId = pageMatch?.[2] || buyMatch?.[2] || closeMatch?.[1];
+  if (Number(userId) !== ctx.from.id) {
+    await ctx.answerCallbackQuery('❌ Это не ваше меню!');
+    return;
+  }
+  
+  try {
+    if (pageMatch) {
+      // Pagination
+      const page = Number(pageMatch[1]);
+      const result = await gameService.getDailyMarket(ctx.from.id, page);
+      await ctx.answerCallbackQuery();
+      if (ctx.callbackQuery.message) {
+        await ctx.editMessageText(result.message, {
+          reply_markup: result.keyboard,
+          parse_mode: 'Markdown',
+        });
+      }
+    } else if (buyMatch) {
+      // Buy item
+      const itemIndex = Number(buyMatch[1]);
+      const result = await gameService.buyFromDailyMarket(ctx.from.id, itemIndex);
+      
+      if (result.success) {
+        await ctx.answerCallbackQuery(result.message.slice(0, 190));
+        // Refresh market to show updated gold
+        const market = await gameService.getDailyMarket(ctx.from.id, 0);
+        if (ctx.callbackQuery.message) {
+          await ctx.editMessageText(market.message, {
+            reply_markup: market.keyboard,
+            parse_mode: 'Markdown',
+          });
+        }
+      } else {
+        await ctx.answerCallbackQuery(result.message.slice(0, 190));
+      }
+    } else if (closeMatch) {
+      // Close market
+      await ctx.answerCallbackQuery();
+      if (ctx.callbackQuery.message) {
+        await ctx.editMessageText('🏪 Маркет закрыт. Возвращайтесь завтра!');
+      }
+    }
+  } catch (error: any) {
+    await ctx.answerCallbackQuery(error.message || '❌ Ошибка');
+  }
 }

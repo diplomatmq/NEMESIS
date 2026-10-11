@@ -48,6 +48,7 @@ export interface CombatState {
   id: number;
   user_id: number;
   season_id: number;
+  chat_id: number;
   floor: number;
   enemy_data: any; // JSON data for enemy
   player_hp_before: number;
@@ -245,10 +246,10 @@ export class ChatProgressModel {
 
 // Combat State Model
 export class CombatStateModel {
-  static async find(userId: number, seasonId: number): Promise<CombatState | null> {
+  static async find(userId: number, seasonId: number, chatId: number): Promise<CombatState | null> {
     const result = await db.query(
-      'SELECT * FROM combat_state WHERE user_id = $1 AND season_id = $2',
-      [userId, seasonId]
+      'SELECT * FROM combat_state WHERE user_id = $1 AND season_id = $2 AND chat_id = $3',
+      [userId, seasonId, chatId]
     );
     return result.rows[0] || null;
   }
@@ -256,15 +257,16 @@ export class CombatStateModel {
   static async create(data: {
     user_id: number;
     season_id: number;
+    chat_id: number;
     floor: number;
     enemy_data: any;
     player_hp_before: number;
   }): Promise<CombatState> {
     const result = await db.query(
-      `INSERT INTO combat_state (user_id, season_id, floor, enemy_data, player_hp_before)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO combat_state (user_id, season_id, chat_id, floor, enemy_data, player_hp_before)
+       VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING *`,
-      [data.user_id, data.season_id, data.floor, JSON.stringify(data.enemy_data), data.player_hp_before]
+      [data.user_id, data.season_id, data.chat_id, data.floor, JSON.stringify(data.enemy_data), data.player_hp_before]
     );
     return result.rows[0];
   }
@@ -297,25 +299,27 @@ export class CombatStateModel {
     }
   }
 
-  static async delete(userId: number, seasonId: number): Promise<void> {
+  static async delete(userId: number, seasonId: number, chatId: number): Promise<void> {
     await db.query(
-      'DELETE FROM combat_state WHERE user_id = $1 AND season_id = $2',
-      [userId, seasonId]
+      'DELETE FROM combat_state WHERE user_id = $1 AND season_id = $2 AND chat_id = $3',
+      [userId, seasonId, chatId]
     );
   }
 
   static async findOrCreate(
     userId: number,
     seasonId: number,
+    chatId: number,
     floor: number,
     enemyData: any,
     playerHpBefore: number
   ): Promise<CombatState> {
-    let state = await this.find(userId, seasonId);
+    let state = await this.find(userId, seasonId, chatId);
     if (!state) {
       state = await this.create({
         user_id: userId,
         season_id: seasonId,
+        chat_id: chatId,
         floor,
         enemy_data: enemyData,
         player_hp_before: playerHpBefore

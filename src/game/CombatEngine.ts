@@ -239,9 +239,133 @@ export class CombatEngine {
       if (assassinBackstab) {
         enemyDamage = 0;
       } else if (playerAction === ActionType.DEFEND) {
-        // Player is defending, reduce damage (боссы теперь пробивают защиту лучше)
-        const defenseReduction = enemy.isBoss ? 0.7 : 0.5; // Боссы игнорируют больше защиты
-        enemyDamage = Math.max(1, Math.floor((baseEnemyAttack - effectiveDefense) * defenseReduction));
+        // NEW DEFENSE MECHANICS
+        let damageReduction = 0;
+        let reflectedDamage = 0;
+        let defenseHealing = 0;
+        let storedEnergyBonus = 0;
+        let attackBonus = 0;
+        
+        switch (playerClassCode) {
+          case 'berserker': {
+            // Ярость боли: снижает урон на 35% (45% при HP < 30%), 30% предотвращённого → бонус к атаке
+            const hpPercent = (player.hp / player.max_hp) * 100;
+            const reduction = hpPercent < 30 ? 0.45 : 0.35;
+            const prevented = Math.floor(baseEnemyAttack * reduction);
+            damageReduction = reduction;
+            attackBonus = Math.floor(prevented * 0.3);
+            classAbilityMessage += `⚔️ Берсерк: ярость боли поглотила ${Math.floor(reduction * 100)}% урона!`;
+            if (attackBonus > 0) {
+              classAbilityMessage += ` +${attackBonus} урона к следующей атаке!\n`;
+            } else {
+              classAbilityMessage += '\n';
+            }
+            break;
+          }
+          
+          case 'guardian': {
+            // Неприступная крепость: снижает урон на 55%, восстанавливает 5% макс. HP
+            damageReduction = 0.55;
+            defenseHealing = Math.floor(player.max_hp * 0.05);
+            classAbilityMessage += `🛡 Страж: крепость поглотила 55% урона! Восстановлено ${defenseHealing} HP!\n`;
+            break;
+          }
+          
+          case 'assassin': {
+            // Теневой рефлекс: 40% шанс полного уклонения + контратака (50% урона)
+            if (Math.random() < 0.40) {
+              damageReduction = 1.0; // Полное уклонение
+              reflectedDamage = Math.floor(effectiveAttack * 0.5);
+              classAbilityMessage += `🗡 Ассасин: теневое уклонение! Контратака ${reflectedDamage} урона!\n`;
+            } else {
+              // Уклонение не сработало - нет дополнительной защиты
+              damageReduction = 0;
+              classAbilityMessage += `🗡 Ассасин: уклонение не сработало!\n`;
+            }
+            break;
+          }
+          
+          case 'vampire': {
+            // Кровавое возмездие: снижает урон на 25%, отражает 25% полученного, лечит 15% от отражённого
+            damageReduction = 0.25;
+            const actualDamage = Math.floor(baseEnemyAttack * (1 - damageReduction));
+            reflectedDamage = Math.floor(actualDamage * 0.25);
+            defenseHealing = Math.floor(reflectedDamage * 0.15);
+            classAbilityMessage += `🩸 Вампир: кровавое возмездие! Отражено ${reflectedDamage} урона, восстановлено ${defenseHealing} HP!\n`;
+            break;
+          }
+          
+          case 'arcanist': {
+            // Магический барьер: поглощает 40% урона, получает энергию (20% от предотвращённого), усиливает атаку до +10%
+            damageReduction = 0.40;
+            const prevented = Math.floor(baseEnemyAttack * damageReduction);
+            storedEnergyBonus = Math.min(10, Math.floor(prevented * 0.20));
+            attackBonus = Math.floor(effectiveAttack * (storedEnergyBonus / 100));
+            classAbilityMessage += `🧙 Арканист: магический барьер поглотил 40% урона! Получено ${storedEnergyBonus}% энергии`;
+            if (attackBonus > 0) {
+              classAbilityMessage += `, +${attackBonus} к следующей атаке!\n`;
+            } else {
+              classAbilityMessage += '!\n';
+            }
+            break;
+          }
+          
+          case 'tactician': {
+            // Предугадывание: снижает урон на 45% при верном прогнозе, +10% урона к атаке
+            // Тактик всегда знает действие врага (это его способность)
+            damageReduction = 0.45;
+            attackBonus = Math.floor(effectiveAttack * 0.10);
+            classAbilityMessage += `🧠 Тактик: предугадал действие! Урон снижен на 45%, +${attackBonus} к следующей атаке!\n`;
+            break;
+          }
+          
+          case 'jester': {
+            // Роковая случайность: Фокус (20%: уклонение), Зеркало (30%: -35% + 20% отражение), Подмена (50%: -40%)
+            const roll = Math.random();
+            if (roll < 0.20) {
+              // Фокус - полное уклонение
+              damageReduction = 1.0;
+              classAbilityMessage += `🃏 Шут: фокус! Полное уклонение!\n`;
+            } else if (roll < 0.50) {
+              // Зеркало - снижение + отражение
+              damageReduction = 0.35;
+              const actualDamage = Math.floor(baseEnemyAttack * (1 - damageReduction));
+              reflectedDamage = Math.floor(actualDamage * 0.20);
+              classAbilityMessage += `🃏 Шут: зеркало! Урон снижен на 35%, отражено ${reflectedDamage}!\n`;
+            } else {
+              // Подмена - просто снижение
+              damageReduction = 0.40;
+              classAbilityMessage += `🃏 Шут: подмена! Урон снижен на 40%!\n`;
+            }
+            break;
+          }
+          
+          case 'necromancer': {
+            // Душа вместо плоти: миньон поглощает 50% (без миньона: 30% призрачный щит)
+            const hasMinion = enemy.summonedSupport === 'mobs' || enemy.summonedSupport === 'boss';
+            damageReduction = hasMinion ? 0.50 : 0.30;
+            if (hasMinion) {
+              classAbilityMessage += `☠️ Некромант: миньон поглотил 50% урона!\n`;
+            } else {
+              classAbilityMessage += `☠️ Некромант: призрачный щит поглотил 30% урона!\n`;
+            }
+            break;
+          }
+          
+          default: {
+            // Default defense for classes without special mechanics
+            const defenseReductionRate = enemy.isBoss ? 0.7 : 0.5;
+            damageReduction = defenseReductionRate;
+            break;
+          }
+        }
+        
+        // Apply damage reduction
+        enemyDamage = Math.max(1, Math.floor(baseEnemyAttack * (1 - damageReduction)));
+        
+        // Store reflected damage and healing to apply later
+        // (we'll apply these after main damage calculation)
+        
       } else {
         // Боссы теперь пробивают защиту лучше (игнорируют 75% защиты вместо 50%)
         const armorPenetration = enemy.isBoss ? 0.75 : 0.5;
@@ -251,15 +375,6 @@ export class CombatEngine {
         enemyDamage = Math.floor(enemyDamage * 0.7);
       } else if (enemy.summonedSupport === 'boss') {
         enemyDamage += Math.max(1, Math.floor(enemy.attack * 0.25));
-      }
-
-      // Apply class defensive passive (Guardian)
-      if (playerClassCode) {
-        const damageBeforePassive = enemyDamage;
-        enemyDamage = classService.calculateClassDefenseBonus(playerClassCode, enemyDamage);
-        if (playerClassCode === 'guardian' && enemyDamage < damageBeforePassive) {
-          classAbilityMessage += '🛡 Страж: защита снизила урон!\n';
-        }
       }
 
       // Equipment and class dodge are percentage values.
@@ -281,12 +396,51 @@ export class CombatEngine {
     // Apply damage
     let newEnemyHp = Math.max(0, enemy.hp - playerDamage);
     let newPlayerHp = Math.max(0, player.hp - enemyDamage);
+    
+    // Apply reflected damage (from defense mechanics)
+    let reflectedDamage = 0;
+    let defenseHealing = 0;
+    
+    if (playerAction === ActionType.DEFEND && playerClassCode) {
+      // Calculate reflected damage and healing based on class
+      switch (playerClassCode) {
+        case 'vampire': {
+          const actualDamage = enemyDamage;
+          reflectedDamage = Math.floor(actualDamage * 0.25);
+          defenseHealing = Math.floor(reflectedDamage * 0.15);
+          newEnemyHp = Math.max(0, newEnemyHp - reflectedDamage);
+          newPlayerHp = Math.min(player.max_hp, newPlayerHp + defenseHealing);
+          break;
+        }
+        case 'guardian': {
+          defenseHealing = Math.floor(player.max_hp * 0.05);
+          newPlayerHp = Math.min(player.max_hp, newPlayerHp + defenseHealing);
+          break;
+        }
+        case 'assassin': {
+          if (Math.random() < 0.40) {
+            reflectedDamage = Math.floor(effectiveAttack * 0.5);
+            newEnemyHp = Math.max(0, newEnemyHp - reflectedDamage);
+          }
+          break;
+        }
+        case 'jester': {
+          const roll = Math.random();
+          if (roll >= 0.20 && roll < 0.50) {
+            // Зеркало - отражение
+            reflectedDamage = Math.floor(enemyDamage * 0.20);
+            newEnemyHp = Math.max(0, newEnemyHp - reflectedDamage);
+          }
+          break;
+        }
+      }
+    }
 
     // Apply lifesteal healing
     if (lifestealHealing > 0) {
       newPlayerHp = Math.min(player.max_hp, newPlayerHp + lifestealHealing);
       if (playerClassCode === 'vampire') {
-        classAbilityMessage += `🩸 Вампир: восстановлено ${lifestealHealing} HP!\n`;
+        classAbilityMessage += `🩸 Вампир: lifesteal восстановил ${lifestealHealing} HP!\n`;
       }
     }
 

@@ -65,6 +65,15 @@ export async function handleSuccessfulPayment(ctx: Context) {
     // Mark payment as completed
     await paymentService.markPaymentCompleted(pendingPayment.id);
 
+    // Record payment stats
+    await paymentService.recordPaymentStats({
+      telegram_user_id: ctx.from.id,
+      username: ctx.from.username,
+      first_name: ctx.from.first_name,
+      stars_amount: totalAmount,
+      telegram_payment_charge_id: telegramPaymentChargeId
+    });
+
     console.log(`✅ Payment processed successfully for user ${ctx.from.id}`);
 
     // Send success message to the original chat where the action was initiated
