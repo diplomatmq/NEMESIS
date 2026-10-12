@@ -54,7 +54,23 @@ async function runMigrations() {
       { name: '013_necromancer_pending_soul', file: '013_necromancer_pending_soul.sql', order: 13 },
       { name: '014_fix_zero_stat_items', file: '014_fix_zero_stat_items.sql', order: 14 },
       { name: '015_translate_effects', file: '015_translate_effects.sql', order: 15 },
+      { name: '016_rebalance_items', file: '016_rebalance_items.sql', order: 16 },
+      { name: '017_rebalance_items_v2', file: '017_rebalance_items_v2.sql', order: 17 },
+      { name: '018_combat_state_per_chat', file: '018_combat_state_per_chat.sql', order: 18 },
+      { name: '019_daily_market', file: '019_daily_market.sql', order: 19 },
+      { name: '020_vampire_buff', file: '020_vampire_buff.sql', order: 20 },
+      { name: '021_update_class_abilities', file: '021_update_class_abilities.sql', order: 21 },
+      { name: '022_new_items_and_boss_buff', file: '022_new_items_and_boss_buff.sql', order: 22 },
+      { name: '023_payment_stats', file: '023_payment_stats.sql', order: 23 },
+      { name: '024_slot_sessions', file: '024_slot_sessions.sql', order: 24 },
     ];
+
+    const EXPECTED_MIGRATION_COUNT = 25;
+    if (migrations.length !== EXPECTED_MIGRATION_COUNT) {
+      console.error(`❌ ERROR: Expected ${EXPECTED_MIGRATION_COUNT} migrations, but found ${migrations.length}`);
+      console.error(`   This means migrations are missing from the array!`);
+      process.exit(1);
+    }
 
     let appliedCount = 0;
     let skippedCount = 0;

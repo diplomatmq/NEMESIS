@@ -95,16 +95,7 @@ cp .env.example .env.local
 BOT_TOKEN=YOUR_BOT_TOKEN_FROM_BOTFATHER
 BOT_USERNAME=your_bot_username
 
-DATABASE_URL=postgresql://postgres:YOUR_SECURE_PASSWORD@localhost:5432/nemesis_game
-DB_HOST=localhost
-DB_PORT=5432
-DB_USER=postgres
-DB_PASSWORD=YOUR_SECURE_PASSWORD
-DB_NAME=nemesis_game
 
-REDIS_URL=redis://localhost:6379
-REDIS_HOST=localhost
-REDIS_PORT=6379
 
 COOLDOWN_MINUTES=10
 STARS_PRICE=1

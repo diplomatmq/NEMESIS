@@ -46,3 +46,12 @@ coverage/
 # Temporary files
 tmp/
 temp/
+
+# Deployment scripts with sensitive data (DO NOT COMMIT)
+deploy-to-server.ps1
+server-config.txt
+backup.ps1
+restore-db.ps1
+# Deployment scripts with sensitive data
+deploy-to-server.ps1
+server-config.txt
