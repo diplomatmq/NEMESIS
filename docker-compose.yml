@@ -8,8 +8,11 @@ services:
       POSTGRES_USER: ${DB_USER:-postgres}
       POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env or .env.local}
       POSTGRES_DB: ${DB_NAME:-nemesis_game}
-    ports:
-      - "5432:5432"
+    # SECURITY: Port 5432 is NOT exposed to host - only accessible within Docker network
+    # Bot container connects via internal network using hostname "postgres"
+    # This prevents unauthorized external access to the database
+    # ports:
+    #   - "5432:5432"  # COMMENTED OUT FOR SECURITY
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -25,8 +28,10 @@ services:
   redis:
     image: redis:7-alpine
     container_name: nemesis_redis
-    ports:
-      - "6379:6379"
+    # SECURITY: Port 6379 is NOT exposed to host - only accessible within Docker network
+    # Bot container connects via internal network using hostname "redis"
+    # ports:
+    #   - "6379:6379"  # COMMENTED OUT FOR SECURITY
     volumes:
       - redis_data:/data
     healthcheck:
