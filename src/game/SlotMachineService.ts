@@ -12,6 +12,7 @@ interface SlotSession {
   created_at: Date;
   expires_at: Date;
   status: 'active' | 'completed' | 'expired';
+  is_paid: boolean;
 }
 
 export class SlotMachineService {
@@ -34,8 +35,8 @@ export class SlotMachineService {
     const expiresAt = new Date(Date.now() + this.SESSION_DURATION_MINUTES * 60 * 1000);
 
     const result = await db.query(
-      `INSERT INTO slot_sessions (telegram_user_id, spins_paid, spins_remaining, stars_paid, expires_at)
-       VALUES ($1, $2, $2, $3, $4)
+      `INSERT INTO slot_sessions (telegram_user_id, spins_paid, spins_remaining, stars_paid, expires_at, is_paid)
+       VALUES ($1, $2, $2, $3, $4, FALSE)
        RETURNING id`,
       [telegramUserId, spins, starsRequired, expiresAt]
     );
@@ -51,6 +52,7 @@ export class SlotMachineService {
       `SELECT * FROM slot_sessions 
        WHERE telegram_user_id = $1 
          AND status = 'active' 
+         AND is_paid = TRUE
          AND expires_at > NOW()
        ORDER BY created_at DESC
        LIMIT 1`,
@@ -260,9 +262,12 @@ export class SlotMachineService {
   }
 
   async confirmPayment(telegramUserId: number, sessionId: number): Promise<boolean> {
+    // Mark session as paid
     const result = await db.query(
-      `SELECT id FROM slot_sessions 
-       WHERE id = $1 AND telegram_user_id = $2 AND status = 'active'`,
+      `UPDATE slot_sessions 
+       SET is_paid = TRUE 
+       WHERE id = $1 AND telegram_user_id = $2 AND status = 'active' AND is_paid = FALSE
+       RETURNING id`,
       [sessionId, telegramUserId]
     );
     return result.rows.length > 0;

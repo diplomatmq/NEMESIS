@@ -14,14 +14,14 @@ export async function handleSlotsButton(ctx: Context) {
     return;
   }
 
-  // Check for active session
+  // Check for active PAID session
   const existingSession = await slotMachineService.getActiveSession(ctx.from.id);
   if (existingSession) {
     await ctx.reply(
       `🎰 **У вас уже есть активная сессия!**\n\n` +
       `⏳ Осталось попыток: **${existingSession.spins_remaining}**\n` +
       `⏰ Истекает: <code>${existingSession.expires_at.toLocaleString('ru-RU')}</code>\n\n` +
-      `🎲 Отправьте игровой автомат (🎰 в меню emoji → 🎲 Dice) для прокрутки!`,
+      `🎲 Отправьте игровой автомат 🎰 для прокрутки!`,
       { parse_mode: 'HTML' }
     );
     return;
@@ -38,13 +38,6 @@ export async function handleSlotsButton(ctx: Context) {
     `2️⃣ Оплатите инвойс (2⭐ за прокрутку)\n` +
     `3️⃣ Отправьте игровые автоматы 🎰\n` +
     `4️⃣ Если выпадет **777** (значение 64) - получите предмет!\n\n` +
-    `🎁 **Шансы на редкость:**\n` +
-    `🔴 Mythic: 0.001%\n` +
-    `🟠 Legendary: 0.1%\n` +
-    `🟣 Epic: 5%\n` +
-    `🔵 Rare: 15%\n` +
-    `🟢 Uncommon: 35%\n` +
-    `⚪ Common: 44.99%\n\n` +
     `⚠️ **Внимание:** Пересылка сообщений = **-2 попытки**\n\n` +
     `✏️ Отправьте количество прокруток:`,
     { parse_mode: 'Markdown' }
@@ -164,8 +157,6 @@ export async function handleSlotPayment(ctx: Context, payload: string) {
   await ctx.reply(
     `✅ **Оплата принята!**\n\n` +
     `🎰 У вас есть **${sessionInfo.spins} попыток**\n\n` +
-    `🎲 Отправьте игровые автоматы!\n` +
-    `(🎰 в меню emoji → 🎲 Dice)\n\n` +
     `⏰ Сессия активна 30 минут\n` +
     `🎯 Цель: выбить **777** (значение 64)`,
     { parse_mode: 'Markdown' }

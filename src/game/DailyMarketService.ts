@@ -143,7 +143,8 @@ export class DailyMarketService {
    * Parse stored market items from JSON
    */
   private async parseMarketItems(itemsJson: any): Promise<MarketItem[]> {
-    const stored = JSON.parse(itemsJson);
+    // Handle both string and object cases
+    const stored = typeof itemsJson === 'string' ? JSON.parse(itemsJson) : itemsJson;
     const items: MarketItem[] = [];
     
     for (const stored_item of stored) {
