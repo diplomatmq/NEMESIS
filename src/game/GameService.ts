@@ -121,17 +121,21 @@ export class GameService {
       user!.id,
       isCooldownExempt
     );
-    if (progress.necro_debuff_games > 0) {
-      await db.query(
-        'UPDATE player_progress SET necro_debuff_games = GREATEST(necro_debuff_games - 1, 0) WHERE id = $1',
-        [progress.id]
-      );
-    }
-    if (progress.necro_bonus_games > 0) {
-      await db.query(
-        'UPDATE player_progress SET necro_bonus_games = GREATEST(necro_bonus_games - 1, 0) WHERE id = $1',
-        [progress.id]
-      );
+    
+    // Decrement necromancer effect counters ONLY for combat actions (not potions)
+    if (action === ActionType.ATTACK || action === ActionType.DEFEND) {
+      if (progress.necro_debuff_games > 0) {
+        await db.query(
+          'UPDATE player_progress SET necro_debuff_games = GREATEST(necro_debuff_games - 1, 0) WHERE id = $1',
+          [progress.id]
+        );
+      }
+      if (progress.necro_bonus_games > 0) {
+        await db.query(
+          'UPDATE player_progress SET necro_bonus_games = GREATEST(necro_bonus_games - 1, 0) WHERE id = $1',
+          [progress.id]
+        );
+      }
     }
 
     // Set new cooldown (user-global, not per chat)
@@ -951,18 +955,50 @@ export class GameService {
     const progress = await this.getProgressForTelegramUser(telegramUserId);
     const playerClass = progress.class_id ? await classService.getClassById(progress.class_id) : null;
     if (playerClass?.name !== 'Некромант') return '❌ Ритуал доступен только Некроманту.';
+    
     const now = new Date();
     if (!bypassCooldown && progress.necro_sacrifice_available_at && progress.necro_sacrifice_available_at > now) {
       const minutes = Math.ceil((progress.necro_sacrifice_available_at.getTime() - now.getTime()) / 60000);
       return `⏳ Следующий ритуал будет доступен через ${minutes} мин.`;
     }
+    
     const bosses = Array.isArray(progress.necro_boss_souls) ? progress.necro_boss_souls : [];
     if (target === 'mobs' && progress.necro_mob_souls < 3) return '❌ Нужно минимум 3 души обычных мобов.';
     if (target === 'boss' && (bossIndex === undefined || !bosses[bossIndex])) return '❌ Эта душа босса недоступна.';
-    const good = Math.random() < 0.5;
-    const scale = target === 'boss' ? Math.max(1, bosses[bossIndex!].floor / 10) : 1;
-    const attack = Math.max(1, Math.round(3 * scale));
-    const defense = Math.max(1, Math.round(2 * scale));
+    
+    // NEW RITUAL SYSTEM: Guaranteed percentage bonuses, no random failure
+    let attackBonusPercent = 0;
+    let defenseBonusPercent = 0;
+    let duration = 3; // combat actions
+    let sacrificeName = '';
+    
+    if (target === 'mobs') {
+      // 3 mob souls: small guaranteed bonus
+      attackBonusPercent = 8;
+      defenseBonusPercent = 8;
+      sacrificeName = '3 души мобов';
+    } else {
+      // Boss soul: bonus scales with floor
+      const floor = bosses[bossIndex!].floor;
+      sacrificeName = `${bosses[bossIndex!].name} (этаж ${floor})`;
+      
+      if (floor <= 100) {
+        attackBonusPercent = 12;
+        defenseBonusPercent = 10;
+      } else if (floor <= 300) {
+        attackBonusPercent = 18;
+        defenseBonusPercent = 14;
+      } else {
+        attackBonusPercent = 22;
+        defenseBonusPercent = 16;
+      }
+    }
+    
+    // Calculate actual bonuses from current stats (with equipment)
+    const attackBonus = Math.floor(progress.attack * (attackBonusPercent / 100));
+    const defenseBonus = Math.floor(progress.defense * (defenseBonusPercent / 100));
+    
+    // Clear any existing debuff and apply new bonus
     await db.query(
       `UPDATE player_progress
        SET necro_mob_souls = CASE WHEN $2 = 'mobs' THEN necro_mob_souls - 3 ELSE necro_mob_souls END,
@@ -971,19 +1007,20 @@ export class GameService {
              WHERE ord <> $3
            ) ELSE necro_boss_souls END,
            necro_sacrifice_available_at = NOW() + INTERVAL '2 hours',
-           necro_debuff_games = CASE WHEN $4 THEN necro_debuff_games ELSE GREATEST(necro_debuff_games, 3) END,
-           necro_attack_bonus = CASE WHEN $4 THEN $5 ELSE 0 END,
-           necro_defense_bonus = CASE WHEN $4 THEN $6 ELSE 0 END,
-           necro_bonus_games = CASE WHEN $4 THEN 3 ELSE 0 END
+           necro_debuff_games = 0,
+           necro_attack_bonus = $4,
+           necro_defense_bonus = $5,
+           necro_bonus_games = $6
        WHERE id = $1`,
-      [progress.id, target, (bossIndex ?? -1) + 1, good, attack, defense]
+      [progress.id, target, (bossIndex ?? -1) + 1, attackBonus, defenseBonus, duration]
     );
-    if (good) {
-      return `✨ Ритуал удался! Поглощённая сила дала +${attack} атаки и +${defense} защиты.`;
-    }
-    return target === 'boss'
-      ? '💀 Ритуал обернулся против вас: Некромант ослаблен на 3 следующие игры.'
-      : '💀 Ритуал обернулся против вас: Некромант ослаблен на 3 следующие игры.';
+    
+    return `✨ **Жертвоприношение успешно!**\n\n` +
+      `🔮 Принесено в жертву: ${sacrificeName}\n` +
+      `⚔️ Получено: +${attackBonus} атаки (+${attackBonusPercent}%)\n` +
+      `🛡️ Получено: +${defenseBonus} защиты (+${defenseBonusPercent}%)\n` +
+      `⏳ Действует: ${duration} боевых действия\n\n` +
+      `💀 Сила мёртвых течёт в ваших венах!`;
   }
 
   private async getProgressForTelegramUser(telegramUserId: number): Promise<PlayerProgress> {

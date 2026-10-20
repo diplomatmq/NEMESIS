@@ -127,11 +127,12 @@ export class CombatEngine {
       enemy.storedDefenseBonus = 0;
     }
     
-    if (enemy.summonedSupport) {
+    // Necromancer minion support notifications (defensive)
+    if (enemy.summonedSupport && enemyAction === ActionType.ATTACK) {
       if (enemy.summonedSupport === 'mobs' && Math.random() < 0.85) {
         classAbilityMessage += '💀 Некромант: три мертвеца прикрыли вас — входящий урон снижен!\n';
       } else if (enemy.summonedSupport === 'boss' && Math.random() < 0.85) {
-        classAbilityMessage += `☠️ ${enemy.summonedSupportName || 'Призванный босс'} вмешался и атакует!\n`;
+        classAbilityMessage += `☠️ ${enemy.summonedSupportName || 'Призванный босс'} прикрывает вас от атаки!\n`;
       }
     }
 
@@ -245,6 +246,13 @@ export class CombatEngine {
         if (lifestealRate > 0 && Math.random() < 0.65) {
           lifestealHealing = Math.floor(playerDamage * lifestealRate);
         }
+      }
+      
+      // Necromancer summoned boss adds damage to player's attack
+      if (playerClassCode === 'necromancer' && enemy.summonedSupport === 'boss') {
+        const summonedBossDamage = Math.max(1, Math.floor(effectiveAttack * 0.20));
+        playerDamage += summonedBossDamage;
+        classAbilityMessage += `☠️ Призванный босс: +${summonedBossDamage} урона!\n`;
       }
     }
 
@@ -390,11 +398,15 @@ export class CombatEngine {
         enemyDamage = Math.max(1, baseEnemyAttack - Math.floor(effectiveDefense * (1 - armorPenetration)));
       }
       
-      // Necromancer minion support modifies damage
+      // Necromancer minion support effects
       if (enemy.summonedSupport === 'mobs') {
-        enemyDamage = Math.floor(enemyDamage * 0.7);
+        // Three risen corpses reduce incoming damage by 30%
+        enemyDamage = Math.floor(enemyDamage * 0.70);
       } else if (enemy.summonedSupport === 'boss') {
-        enemyDamage += Math.max(1, Math.floor(enemy.attack * 0.25));
+        // Summoned boss HELPS player - reduces incoming damage by 15%
+        enemyDamage = Math.floor(enemyDamage * 0.85);
+        // AND adds damage to the enemy (will be applied later)
+        // This is tracked separately to avoid double-application
       }
 
       // Dodge chance (equipment-based, capped at 95%)
