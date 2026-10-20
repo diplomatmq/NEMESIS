@@ -10,13 +10,18 @@ const pendingSlotRequests = new Map<number, { timestamp: number }>();
 const activeSlotSessions = new Map<number, { sessionId: number; spins: number; timestamp: number }>();
 
 export async function handleSlotsButton(ctx: Context) {
+  console.log(`[SLOTS] handleSlotsButton called for user ${ctx.from?.id}, chat type: ${ctx.chat?.type}`);
+  
   if (!ctx.from || ctx.chat?.type !== 'private') {
+    console.log(`[SLOTS] Rejected: not from user or not private chat`);
     return;
   }
 
+  console.log(`[SLOTS] Checking for existing session...`);
   // Check for active PAID session
   const existingSession = await slotMachineService.getActiveSession(ctx.from.id);
   if (existingSession) {
+    console.log(`[SLOTS] Found existing session for user ${ctx.from.id}`);
     await ctx.reply(
       `🎰 **У вас уже есть активная сессия!**\n\n` +
       `⏳ Осталось попыток: **${existingSession.spins_remaining}**\n` +
@@ -27,6 +32,7 @@ export async function handleSlotsButton(ctx: Context) {
     return;
   }
 
+  console.log(`[SLOTS] No existing session, showing welcome message...`);
   // Mark user as pending slot request
   pendingSlotRequests.set(ctx.from.id, { timestamp: Date.now() });
 
@@ -42,6 +48,7 @@ export async function handleSlotsButton(ctx: Context) {
     `✏️ Отправьте количество прокруток:`,
     { parse_mode: 'Markdown' }
   );
+  console.log(`[SLOTS] Welcome message sent to user ${ctx.from.id}`);
 }
 
 export async function handleSlotSpinCount(ctx: Context) {

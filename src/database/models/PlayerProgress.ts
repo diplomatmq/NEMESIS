@@ -53,6 +53,9 @@ export interface CombatState {
   enemy_data: any; // JSON data for enemy
   player_hp_before: number;
   rounds_completed: number;
+  stored_defense_bonus: number;
+  total_boss_healing: number;
+  last_heal_turn: number;
   created_at: Date;
   updated_at: Date;
 }

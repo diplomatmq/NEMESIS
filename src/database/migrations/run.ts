@@ -63,9 +63,11 @@ async function runMigrations() {
       { name: '022_new_items_and_boss_buff', file: '022_new_items_and_boss_buff.sql', order: 22 },
       { name: '023_payment_stats', file: '023_payment_stats.sql', order: 23 },
       { name: '024_slot_sessions', file: '024_slot_sessions.sql', order: 24 },
+      { name: '025_slot_payment_check', file: '025_slot_payment_check.sql', order: 25 },
+      { name: '026_defense_bonus_tracking', file: '026_defense_bonus_tracking.sql', order: 26 },
     ];
 
-    const EXPECTED_MIGRATION_COUNT = 25;
+    const EXPECTED_MIGRATION_COUNT = 27;
     if (migrations.length !== EXPECTED_MIGRATION_COUNT) {
       console.error(`❌ ERROR: Expected ${EXPECTED_MIGRATION_COUNT} migrations, but found ${migrations.length}`);
       console.error(`   This means migrations are missing from the array!`);

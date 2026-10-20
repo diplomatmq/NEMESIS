@@ -438,9 +438,15 @@ export async function handleStatusCallback(ctx: Context) {
       });
     } else if (action === 'slots') {
       // Import slots handler dynamically to avoid circular dependencies
-      const { handleSlotsButton } = await import('./slots');
-      await ctx.answerCallbackQuery();
-      await handleSlotsButton(ctx);
+      try {
+        const { handleSlotsButton } = await import('./slots');
+        await ctx.answerCallbackQuery();
+        console.log(`[SLOTS] Button clicked by user ${ctx.from.id}`);
+        await handleSlotsButton(ctx);
+      } catch (error: any) {
+        console.error('[SLOTS] Error handling slots button:', error);
+        await ctx.answerCallbackQuery(`❌ Ошибка: ${error.message}`);
+      }
     }
   } catch (error: any) {
     await ctx.answerCallbackQuery(error.message || '❌ Ошибка');

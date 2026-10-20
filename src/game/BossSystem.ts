@@ -119,6 +119,13 @@ export class BossSystem {
     /**
      * Every tenth floor has its own named boss. The data is generated from a
      * fixed catalogue so floors 10..500 are deterministic and fully described.
+     * 
+     * Boss stat formula changes (NEW BALANCE):
+     * - HP: 300 + level * 150 (unchanged - bosses should be tanky)
+     * - ATK: 20 + level * 7 (up to L=10), then 90 + (level - 10) * 2.7 (slower growth)
+     * - DEF: 6 + level * 2 (up to L=10), then 26 + (level - 10) * 0.9 (slower growth)
+     * 
+     * Individual boss multipliers applied on top of base stats.
      */
     private getExpandedBossConfigs(): BossConfig[] {
       const bosses: Array<[string, string, string, string, string]> = [
@@ -184,15 +191,81 @@ export class BossSystem {
           index % 4 === 0 ? 'heal' : index % 4 === 1 ? 'counter_attack' : 'adaptation',
         ];
         const signatureAbility = this.createSignatureAbility(index, name);
+        
+        // NEW BALANCE: Adjusted stat scaling after level 10
+        const baseHp = 300 + level * 150;
+        const baseAttack = level <= 10 
+          ? 20 + level * 7 
+          : Math.round(90 + (level - 10) * 2.7);
+        const baseDefense = level <= 10 
+          ? 6 + level * 2 
+          : Math.round(26 + (level - 10) * 0.9);
+        
+        // Apply boss-specific multipliers
+        let atkMultiplier = 1.0;
+        let defMultiplier = 1.0;
+        
+        // Specific boss adjustments (from balance spec)
+        switch (floor) {
+          case 20: // Костяной Дракон - reduce burst damage
+            atkMultiplier = 0.95;
+            break;
+          case 30: // Владыка Теней - allow more counterplay
+            atkMultiplier = 0.95;
+            defMultiplier = 0.95;
+            break;
+          case 40: // Повелитель Пламени - weaken enhanced fire strikes
+            atkMultiplier = 0.85;
+            defMultiplier = 0.90;
+            break;
+          case 50: // Ледяной Колосс - keep base difficulty
+            break;
+          case 60: // Королева Пауков - reduce control and multi-attack frequency
+            atkMultiplier = 0.90;
+            defMultiplier = 0.90;
+            break;
+          case 70: // Гниющий Друид - limit healing
+            atkMultiplier = 0.90;
+            defMultiplier = 0.95;
+            break;
+          case 80: // Железный Голем - weaken defense, not HP pool
+            atkMultiplier = 0.90;
+            defMultiplier = 0.85;
+            break;
+          case 90: // Громовой Виверн - limit strongest attack chain
+            atkMultiplier = 0.80;
+            defMultiplier = 0.90;
+            break;
+          case 100: // Архимаг Предела - limit enhanced magic strikes
+            atkMultiplier = 0.90;
+            defMultiplier = 0.95;
+            break;
+          default:
+            // For floors 110-500: gradual weakening
+            if (floor >= 110 && floor <= 190) {
+              atkMultiplier = 0.92;
+              defMultiplier = 0.95;
+            } else if (floor >= 200 && floor <= 300) {
+              atkMultiplier = 0.87;
+              defMultiplier = 0.92;
+            } else if (floor >= 310 && floor <= 400) {
+              atkMultiplier = 0.85;
+              defMultiplier = 0.90;
+            } else if (floor >= 410) {
+              atkMultiplier = 0.85;
+              defMultiplier = 0.90;
+            }
+        }
+        
         return {
           name,
           title,
           description,
           floor,
           level,
-          base_hp: 300 + level * 150,
-          base_attack: 20 + level * 7, // Увеличено для пробития защиты
-          base_defense: 6 + level * 2,
+          base_hp: baseHp,
+          base_attack: Math.round(baseAttack * atkMultiplier),
+          base_defense: Math.round(baseDefense * defMultiplier),
           abilities: [
             ...abilityNames.map((ability) => this.BOSS_ABILITIES[ability]),
             signatureAbility,
@@ -206,7 +279,8 @@ export class BossSystem {
     }
 
   private createSignatureAbility(index: number, bossName: string): BossAbility {
-    const damageMultiplier = 1.15 + (index % 6) * 0.1;
+    // Limit signature damage multiplier to prevent excessive burst
+    const damageMultiplier = Math.min(1.30, 1.15 + (index % 6) * 0.1);
     const abilityVariants = [
       ['Разлом брони', 'Временно снижает защиту игрока', '🪓'],
       ['Кровавая метка', 'Усиливает следующий удар босса', '🩸'],
@@ -404,15 +478,42 @@ export class BossSystem {
       selectedAbilities.push(this.BOSS_ABILITIES[shuffledKeys[i]]);
     }
     
+    // NEW BALANCE: Updated scaling formulas
+    const baseHp = 300 + (level * 150);
+    const baseAttack = level <= 10 
+      ? 20 + (level * 7) 
+      : Math.round(90 + (level - 10) * 2.7);
+    const baseDefense = level <= 10 
+      ? 6 + (level * 2) 
+      : Math.round(26 + (level - 10) * 0.9);
+    
+    // Apply floor-range multipliers for procedural bosses
+    let atkMultiplier = 1.0;
+    let defMultiplier = 1.0;
+    
+    if (floor >= 110 && floor <= 190) {
+      atkMultiplier = 0.92;
+      defMultiplier = 0.95;
+    } else if (floor >= 200 && floor <= 300) {
+      atkMultiplier = 0.87;
+      defMultiplier = 0.92;
+    } else if (floor >= 310 && floor <= 400) {
+      atkMultiplier = 0.85;
+      defMultiplier = 0.90;
+    } else if (floor >= 410) {
+      atkMultiplier = 0.85;
+      defMultiplier = 0.90;
+    }
+    
     return {
       name,
       title,
       description: `Могущественный ${title.toLowerCase()} босс ${level} уровня`,
       floor,
       level,
-      base_hp: 300 + (level * 150),
-      base_attack: 20 + (level * 7), // Увеличено для пробития защиты
-      base_defense: 6 + (level * 2),
+      base_hp: baseHp,
+      base_attack: Math.round(baseAttack * atkMultiplier),
+      base_defense: Math.round(baseDefense * defMultiplier),
       abilities: selectedAbilities,
       ai_type: rng.choose(aiTypes),
       icon: '👑',
@@ -570,14 +671,27 @@ export class BossSystem {
   calculateBossHealing(boss: Enemy & { boss_config: BossConfig }, ability?: BossAbility, damageDealt?: number): number {
     if (!ability || !ability.heal_amount) return 0;
     
+    // NEW BALANCE: Healing restrictions
+    // - Max healing per turn: 8% of max HP
+    // - Healing cooldown: 4 turns
+    // - Total healing per fight: 20% of max HP
+    
+    let healAmount = 0;
+    
     if (damageDealt !== undefined) {
       // Life drain - процент от урона
-      return Math.floor(damageDealt * ability.heal_amount);
+      healAmount = Math.floor(damageDealt * ability.heal_amount);
     } else {
-      // Обычное исцеление - 5-10% от ТЕКУЩЕГО HP
+      // Обычное исцеление - процент от текущего HP
       const healPercent = ability.heal_amount * (1 + Math.random()); // 0.05 * (1 to 2) = 5-10%
-      return Math.max(1, Math.floor(boss.hp * healPercent));
+      healAmount = Math.max(1, Math.floor(boss.hp * healPercent));
     }
+    
+    // Cap single heal to 8% of max HP
+    const maxSingleHeal = Math.floor(boss.maxHp * 0.08);
+    healAmount = Math.min(healAmount, maxSingleHeal);
+    
+    return healAmount;
   }
 }
 
