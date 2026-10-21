@@ -320,7 +320,8 @@ export class GameService {
       enemy,
       actionType,
       enemyAction,
-      playerClass?.code
+      playerClass?.code,
+      predictedEnemyAction
     );
 
     // Тактик видит что будет делать враг
@@ -431,10 +432,14 @@ export class GameService {
       const newChatFloor = currentFloor + 1;
       await ChatProgressModel.updateFloor(chatProgress.id, newChatFloor);
 
-      // Move the global position forward; the persistent maximum only grows.
-      await PlayerProgressModel.updateFloor(progress.id, newChatFloor);
-      const newGlobalFloor = newChatFloor;
+      // The global floor is a record, not the position of the last chat. It is
+      // only written when this chat beats the all-time maximum, so playing an
+      // under-levelled chat can never roll the global floor back.
       const isNewRecord = newChatFloor > previousMaxFloor;
+      if (isNewRecord) {
+        await PlayerProgressModel.updateFloor(progress.id, newChatFloor);
+      }
+      const newGlobalFloor = isNewRecord ? newChatFloor : previousMaxFloor;
 
       // Full HP restore on floor completion
       await potionService.healOnFloorCompletion(progress.id, progress.max_hp);
@@ -519,10 +524,8 @@ export class GameService {
 
     // If player defeated, respawn at checkpoint
     if (combatResult.playerDefeated) {
-      // Reset to checkpoint in global progress
-      await PlayerProgressModel.updateFloor(progress.id, progress.checkpoint_floor);
-      
-      // Reset chat progress to checkpoint as well
+      // Reset this chat to the checkpoint. The global floor is a record and
+      // must not move backwards.
       await ChatProgressModel.updateFloor(chatProgress.id, progress.checkpoint_floor);
       
       // Full HP restore on respawn
@@ -675,7 +678,7 @@ export class GameService {
       `🎭 Класс: ${className}\n` +
       `🏆 Сезон: ${season.season_number}\n\n` +
       `🌍 **Глобальный прогресс:**\n` +
-      `🏰 Этаж: ${progress.floor}\n` +
+      `🏰 Этаж (рекорд): ${progress.floor}\n` +
       `🚩 Checkpoint: ${progress.checkpoint_floor}\n` +
       `❤️ HP: ${formatHealthBar(progress.hp, progress.max_hp)}\n` +
       `⚔️ Атака: ${progress.attack}\n` +
@@ -983,43 +986,39 @@ export class GameService {
     const progress = await PlayerProgressModel.find(user.id, season.id);
     if (!progress) return { message: 'Прогресс не найден.' };
 
-    // Reserve the single potion for this battle atomically: lock the combat row,
-    // verify it hasn't been spent yet and mark it used in the same transaction.
-    const reservation = await db.transaction(async (client) => {
+    // Reserve the potion and consume it inside one transaction: the combat row,
+    // the inventory row and the player HP row are locked together, so parallel
+    // requests cannot spend the same potion and a failure rolls everything back
+    // (potionUsed is never left stuck at true).
+    const outcome = await db.transaction(async (client) => {
       const stateResult = await client.query(
         'SELECT id, enemy_data FROM combat_state WHERE user_id = $1 AND season_id = $2 AND chat_id = $3 FOR UPDATE',
         [user.id, season.id, chat.id]
       );
       if (!stateResult.rows[0]) {
-        return 'no_combat';
+        return { type: 'no_combat' as const };
       }
       if (stateResult.rows[0].enemy_data?.potionUsed) {
-        return 'already_used';
+        return { type: 'already_used' as const };
+      }
+      const result = await potionService.usePotionById(progress.id, itemId, client);
+      if (!result.success) {
+        return { type: 'failed' as const, message: result.message };
       }
       await client.query(
         `UPDATE combat_state SET enemy_data = jsonb_set(enemy_data, '{potionUsed}', 'true'::jsonb), updated_at = NOW() WHERE id = $1`,
         [stateResult.rows[0].id]
       );
-      return 'reserved';
+      return { type: 'used' as const, message: result.message };
     });
 
-    if (reservation === 'no_combat') {
+    if (outcome.type === 'no_combat') {
       return { message: '🧪 Боевые зелья можно использовать только во время боя.' };
     }
-    if (reservation === 'already_used') {
+    if (outcome.type === 'already_used') {
       return { message: '🧪 Зелье уже использовано в этом бою.' };
     }
-
-    const result = await potionService.usePotionById(progress.id, itemId, progress.hp, progress.max_hp);
-    if (!result.success) {
-      // The attempt failed - release the reservation so a real potion can still
-      // be used this battle and no turn is wasted.
-      await db.query(
-        `UPDATE combat_state SET enemy_data = jsonb_set(enemy_data, '{potionUsed}', 'false'::jsonb), updated_at = NOW() WHERE user_id = $1 AND season_id = $2 AND chat_id = $3`,
-        [user.id, season.id, chat.id]
-      );
-    }
-    return { message: result.message };
+    return { message: outcome.message };
   }
 
   async getNecromancerMenu(telegramUserId: number): Promise<{ message: string; keyboard: InlineKeyboard }> {

@@ -12,7 +12,22 @@ export interface BossAbility {
   condition?: string; // 'low_hp', 'high_hp', 'random'
   cooldown?: number;
   icon: string;
+  action?: ActionType; // Action the boss performs when this ability is used
 }
+
+/** Minimum number of turns between two boss heals. Shared with CombatEngine. */
+export const HEAL_INTERVAL_TURNS = 4;
+/** Maximum total healing a boss can receive per fight, as a fraction of max HP. */
+export const HEAL_TOTAL_FRACTION = 0.20;
+/**
+ * Total chance that any single ability is used on a given turn. It is a single
+ * roll, so a boss with many abilities is not stronger than one with few.
+ */
+export const ABILITY_ACTIVATION_CHANCE = 0.5;
+/** Weight multiplier for the action the Tactician predicted. */
+export const PREDICTION_ACTION_BIAS = 2.0;
+/** Chance the fallback behaviour follows the prediction when it disagrees. */
+export const PREDICTION_FALLBACK_CHANCE = 0.35;
 
 export interface BossPhase {
   hp_threshold: number; // Процент HP для активации фазы
@@ -50,12 +65,14 @@ export class BossSystem {
       description: 'Наносит 150% урона',
       damage_multiplier: 1.5,
       icon: '💥',
+      action: ActionType.ATTACK,
     },
     'defensive_stance': {
       name: 'Защитная стойка',
       description: 'Увеличивает защиту на 100%',
       defense_multiplier: 2.0,
       icon: '🛡️',
+      action: ActionType.DEFEND,
     },
     'berserker_rage': {
       name: 'Ярость берсерка',
@@ -63,6 +80,7 @@ export class BossSystem {
       damage_multiplier: 2.0,
       condition: 'low_hp',
       icon: '😡',
+      action: ActionType.ATTACK,
     },
     'heal': {
       name: 'Исцеление',
@@ -70,6 +88,7 @@ export class BossSystem {
       heal_amount: 0.05, // Базовое значение, будет умножаться на random(1-2)
       cooldown: 3,
       icon: '💚',
+      action: ActionType.DEFEND,
     },
     'counter_attack': {
       name: 'Контратака',
@@ -77,23 +96,27 @@ export class BossSystem {
       damage_multiplier: 1.3,
       condition: 'player_defend',
       icon: '⚡',
+      action: ActionType.ATTACK,
     },
     'adaptation': {
       name: 'Адаптация',
       description: 'Изучает паттерны игрока быстрее',
       icon: '🧠',
+      action: ActionType.ATTACK,
     },
     'life_drain': {
       name: 'Похищение жизни',
       description: 'Восстанавливает HP равное 20% нанесённого урона',
       heal_amount: 0.2, // Снижено с 0.3 до 0.2
       icon: '🩸',
+      action: ActionType.ATTACK,
     },
     'elemental_blast': {
       name: 'Стихийный взрыв',
       description: 'Мощная атака, игнорирующая часть защиты',
       damage_multiplier: 1.8,
       icon: '🔥',
+      action: ActionType.ATTACK,
     },
   };
 
@@ -298,6 +321,7 @@ export class BossSystem {
       condition: index % 2 === 0 ? 'random' : 'low_hp',
       cooldown: 2 + (index % 4),
       icon,
+      action: ActionType.ATTACK,
     };
   }
 
@@ -555,7 +579,8 @@ export class BossSystem {
     boss: Enemy & { boss_config: BossConfig },
     currentHp: number,
     playerAction: ActionType,
-    turnCount: number
+    turnCount: number,
+    predictedEnemyAction?: ActionType
   ): { action: ActionType; ability?: BossAbility; message: string } {
     
     const config = boss.boss_config;
@@ -570,68 +595,73 @@ export class BossSystem {
       if (lastUsed === undefined) return true;
       return turnCount - lastUsed >= (ability.cooldown ?? defaultCooldown);
     };
-    const markUsed = (ability: BossAbility): void => {
-      boss.abilityCooldowns![ability.name] = turnCount;
+
+    // Healing shares its interval and total cap with CombatEngine, so the
+    // selector never proposes a heal the combat loop would refuse.
+    const healAvailable = (): boolean => {
+      if (turnCount - (boss.lastHealTurn || 0) < HEAL_INTERVAL_TURNS) return false;
+      const totalCap = Math.floor(boss.maxHp * HEAL_TOTAL_FRACTION);
+      return (boss.totalHealingReceived || 0) < totalCap;
     };
 
-    // Проверяем активацию способностей по условиям
-    for (const ability of config.abilities) {
-      // Low HP abilities
-      if (ability.condition === 'low_hp' && hpPercent < 30 && canUse(ability)) {
-        markUsed(ability);
-        return {
-          action: ActionType.ATTACK,
-          ability,
-          message: `${config.icon} ${boss.name} использует ${ability.icon} ${ability.name}!`,
-        };
+    const isEligible = (ability: BossAbility): boolean => {
+      if (!canUse(ability)) return false;
+      if (ability.condition === 'low_hp' && hpPercent >= 30) return false;
+      if (ability.condition === 'player_defend' && playerAction !== ActionType.DEFEND) return false;
+      if (ability.action === ActionType.DEFEND && ability.heal_amount && !healAvailable()) return false;
+      return true;
+    };
+
+    const candidates = config.abilities.filter(isEligible);
+
+    // A single roll decides whether any ability fires, so a boss with many
+    // abilities is not stronger than one with only a few.
+    if (candidates.length > 0 && Math.random() < ABILITY_ACTIVATION_CHANCE) {
+      // The predicted action gets a heavier weight, but never a guarantee.
+      const weights = candidates.map((ability) =>
+        predictedEnemyAction !== undefined && ability.action === predictedEnemyAction
+          ? PREDICTION_ACTION_BIAS
+          : 1
+      );
+      const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+      let roll = Math.random() * totalWeight;
+      let chosen = candidates[candidates.length - 1];
+      for (let i = 0; i < candidates.length; i++) {
+        roll -= weights[i];
+        if (roll <= 0) {
+          chosen = candidates[i];
+          break;
+        }
       }
 
-      // Counter attack when player defends
-      if (ability.condition === 'player_defend' && playerAction === ActionType.DEFEND && canUse(ability)) {
-        markUsed(ability);
-        return {
-          action: ActionType.ATTACK,
-          ability,
-          message: `${config.icon} ${boss.name} использует ${ability.icon} ${ability.name}!`,
-        };
-      }
-
-      // Heal ability at low HP (only when < 30%)
-      if (ability.heal_amount && hpPercent < 30 && canUse(ability)) {
-        markUsed(ability);
-        return {
-          action: ActionType.DEFEND,
-          ability,
-          message: `${config.icon} ${boss.name} использует ${ability.icon} ${ability.name}!`,
-        };
-      }
-
-      // Random abilities trigger by chance
-      if (ability.condition === 'random' && canUse(ability) && Math.random() < 0.5) {
-        markUsed(ability);
-        return {
-          action: ActionType.ATTACK,
-          ability,
-          message: `${config.icon} ${boss.name} использует ${ability.icon} ${ability.name}!`,
-        };
-      }
+      // Cooldown is only marked when the ability is actually activated.
+      boss.abilityCooldowns![chosen.name] = turnCount;
+      return {
+        action: chosen.action ?? ActionType.ATTACK,
+        ability: chosen,
+        message: `${config.icon} ${boss.name} использует ${chosen.icon} ${chosen.name}!`,
+      };
     }
 
-    // Unconditional offensive abilities (power_strike, elemental_blast,
-    // signature abilities) are activated occasionally instead of never.
-    for (const ability of config.abilities) {
-      if (ability.condition || !ability.damage_multiplier) continue;
-      if (!canUse(ability)) continue;
-      if (Math.random() < 0.35) {
-        markUsed(ability);
-        return {
-          action: ActionType.ATTACK,
-          ability,
-          message: `${config.icon} ${boss.name} использует ${ability.icon} ${ability.name}!`,
-        };
-      }
+    const base = this.selectFallbackAction(config, hpPercent, playerAction, turnCount);
+
+    // The Tactician's forecast biases the boss towards the predicted action
+    // without forcing it: the boss may still act differently.
+    if (predictedEnemyAction !== undefined && base.action !== predictedEnemyAction
+      && Math.random() < PREDICTION_FALLBACK_CHANCE) {
+      const actionText = predictedEnemyAction === ActionType.ATTACK ? 'атакует' : 'защищается';
+      return { action: predictedEnemyAction, message: `${config.icon} ${boss.name} ${actionText}!` };
     }
-    
+
+    return base;
+  }
+
+  private selectFallbackAction(
+    config: BossConfig,
+    hpPercent: number,
+    playerAction: ActionType,
+    turnCount: number
+  ): { action: ActionType; ability?: BossAbility; message: string } {
     // Поведение по AI type
     switch (config.ai_type) {
       case 'aggressive':

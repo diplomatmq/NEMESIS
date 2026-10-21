@@ -339,6 +339,7 @@ export class LootService {
     let totalDodge = 0;
     let totalLifesteal = 0;
     let totalAiResist = 0;
+    const effectCodes = new Set<string>();
 
     // Get equipped items
     const equipment = await this.getEquipment(playerProgressId);
@@ -374,6 +375,10 @@ export class LootService {
           totalLifesteal += Number(item.lifesteal_bonus) || 0;
           totalAiResist += Number(item.ai_resist_bonus) || 0;
 
+          if (item.special_effect_code) {
+            effectCodes.add(item.special_effect_code);
+          }
+
           totalHp = Math.floor(totalHp * (1 + Number(item.hp_percent || 0) / 100));
           totalAttack = Math.floor(totalAttack * (1 + Number(item.attack_percent || 0) / 100));
           totalDefense = Math.floor(totalDefense * (1 + Number(item.defense_percent || 0) / 100));
@@ -391,11 +396,12 @@ export class LootService {
       `UPDATE player_progress 
        SET max_hp = $1, attack = $2, defense = $3,
            crit_chance = $4, dodge = $5, lifesteal = $6, ai_resist = $7,
+           equipment_effects = $8::jsonb,
            hp = LEAST(hp, $1),
            updated_at = NOW()
-       WHERE id = $8`,
+       WHERE id = $9`,
       [totalHp, totalAttack, totalDefense, totalCritChance, totalDodge,
-        totalLifesteal, totalAiResist, playerProgressId]
+        totalLifesteal, totalAiResist, JSON.stringify(Array.from(effectCodes)), playerProgressId]
     );
   }
 }

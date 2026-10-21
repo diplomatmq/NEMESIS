@@ -67,9 +67,10 @@ async function runMigrations() {
       { name: '026_defense_bonus_tracking', file: '026_defense_bonus_tracking.sql', order: 26 },
       { name: '027_potions_level_and_tank_rebalance', file: '027_potions_level_and_tank_rebalance.sql', order: 27 },
       { name: '028_highest_floor_reached', file: '028_highest_floor_reached.sql', order: 28 },
+      { name: '029_special_effect_codes', file: '029_special_effect_codes.sql', order: 29 },
     ];
 
-    const EXPECTED_MIGRATION_COUNT = 29;
+    const EXPECTED_MIGRATION_COUNT = 30;
     if (migrations.length !== EXPECTED_MIGRATION_COUNT) {
       console.error(`❌ ERROR: Expected ${EXPECTED_MIGRATION_COUNT} migrations, but found ${migrations.length}`);
       console.error(`   This means migrations are missing from the array!`);

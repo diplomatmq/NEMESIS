@@ -15,6 +15,7 @@ export interface PlayerProgress {
   dodge: number;
   lifesteal: number;
   ai_resist: number;
+  equipment_effects: string[];
   gold: number;
   xp: number;
   level: number;
@@ -118,16 +119,16 @@ export class PlayerProgressModel {
   }
 
   /**
-   * Updates the current position in the tower without ever lowering the
-   * highest floor reached (and therefore the level). Dying and returning to a
-   * checkpoint only moves `floor`; progression is preserved.
+   * Moves the global floor forward. It is a record: neither `floor` nor
+   * `highest_floor_reached` can ever decrease, so playing in a lagging chat
+   * cannot roll the global progress back.
    */
   static async updateFloor(id: number, floor: number): Promise<void> {
     await db.query(
       `UPDATE player_progress
-       SET floor = $1,
+       SET floor = GREATEST(floor, $1),
            highest_floor_reached = GREATEST(highest_floor_reached, $1),
-           level = (GREATEST(highest_floor_reached, $1) - 1) / 10 + 1,
+           level = (GREATEST(highest_floor_reached, floor, $1) - 1) / 10 + 1,
            updated_at = NOW()
        WHERE id = $2`,
       [floor, id]

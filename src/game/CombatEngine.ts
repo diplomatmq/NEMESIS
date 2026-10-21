@@ -1,9 +1,10 @@
 import { PlayerProgress } from '../database/models/PlayerProgress';
 import { ActionType, CombatResult } from '../types/game.types';
 import { classService } from './ClassService';
-import { bossSystem, BossConfig } from './BossSystem';
+import { bossSystem, BossConfig, HEAL_INTERVAL_TURNS, HEAL_TOTAL_FRACTION } from './BossSystem';
 import { SeededRandom } from './SeededRandom';
 import { formatBossHealthBar, formatHealthBar, formatMobHealthBar } from './HealthBar';
+import { specialEffects, EffectContext, IncomingEffectReport } from './SpecialEffects';
 
 export interface Enemy {
   id?: number;
@@ -24,7 +25,12 @@ export interface Enemy {
   abilityCooldowns?: Record<string, number>; // Turn number when a boss ability was last used
   potionUsed?: boolean; // Limit to one potion per combat
   guardianHealTotal?: number; // Track guardian defense healing per combat
+  effectUsedOnce?: string[]; // Equipment effects that already fired in this combat
 }
+
+/** Equipment and class damage reduction can never exceed this value. */
+const MAX_DEFENSE_REDUCTION = 0.75;
+
 
 const MOB_ZONES: Array<[string, string, string]> = [
   ['Пещерный гоблин', 'Слабый скелет', 'Крысиный разведчик'],
@@ -85,7 +91,8 @@ export class CombatEngine {
     enemy: Enemy,
     playerAction: ActionType,
     enemyAction: ActionType,
-    playerClassCode?: string
+    playerClassCode?: string,
+    predictedEnemyAction?: ActionType
   ): Promise<CombatResult> {
     
     let playerDamage = 0;
@@ -101,6 +108,9 @@ export class CombatEngine {
     let counterAttackDamage = 0;
     let defenseHealing = 0;
     let nextAttackBonus = 0;
+    let attackHeal = 0;
+    let defenseDodgeBonus = 0;
+    let incomingReport: IncomingEffectReport | undefined;
     
     // Initialize boss healing tracking
     if (enemy.isBoss && enemy.totalHealingReceived === undefined) {
@@ -151,19 +161,55 @@ export class CombatEngine {
       }
     }
 
-    // For bosses, get action from boss system
+    // For bosses, get action from boss system. The Tactician's forecast is
+    // passed in so it can bias the choice towards the predicted action.
     let bossAbility;
     if (enemy.isBoss && enemy.boss_config) {
       const bossAction = bossSystem.selectBossAction(
         enemy as any,
         enemy.hp,
         playerAction,
-        enemy.turnCount || 1
+        enemy.turnCount || 1,
+        predictedEnemyAction
       );
       enemyAction = bossAction.action;
       bossAbility = bossAction.ability;
       if (bossAction.message) {
         bossAbilityMessage += bossAction.message + '\n';
+      }
+    }
+
+    // The forecast only counts when the enemy really performs that action.
+    const predictionCorrect =
+      predictedEnemyAction !== undefined && enemyAction === predictedEnemyAction;
+
+    if (!enemy.effectUsedOnce) {
+      enemy.effectUsedOnce = [];
+    }
+    const usedOnce = enemy.effectUsedOnce;
+    const effectContext = (overrides: Partial<EffectContext> = {}): EffectContext => ({
+      effects: Array.isArray(player.equipment_effects) ? player.equipment_effects : [],
+      playerHp: player.hp,
+      playerMaxHp: player.max_hp,
+      enemyHp: enemy.hp,
+      enemyMaxHp: enemy.maxHp,
+      isBoss: enemy.isBoss || false,
+      playerAction,
+      enemyAction,
+      isCrit: false,
+      predictionCorrect,
+      hasMinion: enemy.summonedSupport === 'mobs' || enemy.summonedSupport === 'boss',
+      turnCount: enemy.turnCount || 1,
+      usedOnce,
+      ...overrides,
+    });
+
+    // Void shields and similar relics can fully suppress an announced ability.
+    if (bossAbility) {
+      const nullify = specialEffects.tryNullifyAbility(effectContext({ isBoss: true }));
+      if (nullify.nullified) {
+        bossAbilityMessage += nullify.message;
+        bossAbility = undefined;
       }
     }
 
@@ -183,8 +229,29 @@ export class CombatEngine {
           ? Math.floor(enemy.defense * bossAbility.defense_multiplier)
           : enemy.defense;
 
-      // Base damage after armor penetration
-      playerDamage = Math.max(1, attackPower - Math.floor(bossDefenseForAttack / 2));
+      // Equipment effects that scale with a critical hit share the same roll
+      // as the crit itself, so both use one outcome.
+      const preCritEffects = specialEffects.analyzeAttack(effectContext({ isCrit: false }));
+      const critChance = (player.crit_chance || 0) / 100 +
+        (playerClassCode ? classService.getClassCritBonus(playerClassCode) : 0.1) +
+        preCritEffects.critChanceBonus / 100;
+      const willCrit = Math.random() < critChance;
+      const attackEffects = willCrit
+        ? specialEffects.analyzeAttack(effectContext({ isCrit: true }))
+        : preCritEffects;
+      if (attackEffects.messages.length > 0) {
+        classAbilityMessage += attackEffects.messages.join('\n') + '\n';
+      }
+      if (attackEffects.healPercent > 0) {
+        attackHeal = Math.floor(player.max_hp * attackEffects.healPercent);
+      }
+
+      // Base damage after armor penetration. Equipment can pierce part of the
+      // enemy defense before it is halved.
+      const defensePortion = Math.max(0, Math.floor(
+        Math.floor(bossDefenseForAttack / 2) * (1 - attackEffects.defensePierce)
+      ));
+      playerDamage = Math.max(1, attackPower - defensePortion);
 
       // Assassin Backstab (penerates defense completely)
       if (playerClassCode === 'assassin') {
@@ -242,10 +309,13 @@ export class CombatEngine {
         }
       }
 
+      // Equipment damage multiplier (rage, executioner, prediction relics...)
+      if (attackEffects.damageMultiplier !== 1) {
+        playerDamage = Math.max(1, Math.floor(playerDamage * attackEffects.damageMultiplier));
+      }
+
       // Critical hit (applied ONCE at the end of damage calculation)
-      const critChance = (player.crit_chance || 0) / 100 +
-        (playerClassCode ? classService.getClassCritBonus(playerClassCode) : 0.1);
-      if (Math.random() < critChance) {
+      if (willCrit) {
         playerDamage = Math.floor(playerDamage * 1.5);
         isCrit = true;
         if (playerClassCode === 'assassin') {
@@ -256,7 +326,8 @@ export class CombatEngine {
       // Lifesteal (calculated from FINAL damage dealt, applied later)
       if (playerClassCode) {
         const lifestealRate = (player.lifesteal || 0) / 100 +
-          classService.getClassLifesteal(playerClassCode);
+          classService.getClassLifesteal(playerClassCode) +
+          attackEffects.lifestealBonus;
         if (lifestealRate > 0 && Math.random() < 0.65) {
           lifestealHealing = Math.floor(playerDamage * lifestealRate);
         }
@@ -357,10 +428,16 @@ export class CombatEngine {
           }
           
           case 'tactician': {
-            // 50% reduction (tactical prediction) + 20% attack bonus
-            damageReduction = 0.50;
-            nextAttackBonus = Math.floor(effectiveAttack * 0.20);
-            classAbilityMessage += `🧠 Тактик: предугадал действие! Урон снижен на 50%, +${nextAttackBonus} к следующей атаке!\n`;
+            // The class reads the enemy intent: only a correct forecast pays
+            // off, a missed one leaves the baseline stance.
+            if (predictionCorrect) {
+              damageReduction = 0.50;
+              nextAttackBonus = Math.floor(effectiveAttack * 0.20);
+              classAbilityMessage += `🧠 Тактик: предугадал действие! Урон снижен на 50%, +${nextAttackBonus} к следующей атаке!\n`;
+            } else {
+              damageReduction = 0.30;
+              classAbilityMessage += `🧠 Тактик: прогноз не сбылся, урон снижен на 30%.\n`;
+            }
             break;
           }
           
@@ -405,6 +482,29 @@ export class CombatEngine {
             break;
           }
         }
+
+        // Equipment effects on defence (shields, plates, reflect relics...)
+        const defenseEffects = specialEffects.analyzeDefense(effectContext(), predictionCorrect);
+        if (defenseEffects.messages.length > 0) {
+          classAbilityMessage += defenseEffects.messages.join('\n') + '\n';
+        }
+        damageReduction = Math.min(
+          MAX_DEFENSE_REDUCTION,
+          damageReduction + defenseEffects.damageReduction
+        );
+        nextAttackBonus += Math.floor(effectiveAttack * defenseEffects.nextAttackBonusPercent);
+        defenseDodgeBonus = defenseEffects.dodgeBonus;
+        if (defenseEffects.healPercent > 0) {
+          defenseHealing += Math.floor(player.max_hp * defenseEffects.healPercent);
+        }
+        if (defenseEffects.reflectPercent > 0) {
+          reflectedDamage += Math.floor(baseEnemyAttack * defenseEffects.reflectPercent);
+        }
+        if (Math.random() < defenseEffects.blockChance
+          || Math.random() < defenseEffects.fullBlockChance) {
+          damageReduction = 1.0;
+          classAbilityMessage += '🛡 Экипировка полностью заблокировала удар!\n';
+        }
         
         // Apply damage reduction
         enemyDamage = Math.max(1, Math.floor(baseEnemyAttack * (1 - damageReduction)));
@@ -431,10 +531,28 @@ export class CombatEngine {
       }
 
       // Dodge chance (equipment-based, capped at 95%)
-      const dodgeChance = Math.min(0.95, 0.05 + (player.dodge || 0) / 100);
+      const dodgeChance = Math.min(0.95, 0.05 + (player.dodge || 0) / 100 + defenseDodgeBonus);
       if (Math.random() < dodgeChance) {
         enemyDamage = 0;
         isDodge = true;
+        const dodgeEffects = specialEffects.onDodge(effectContext());
+        if (dodgeEffects.messages.length > 0) {
+          classAbilityMessage += dodgeEffects.messages.join('\n') + '\n';
+        }
+        if (dodgeEffects.healPercent > 0) {
+          defenseHealing += Math.floor(player.max_hp * dodgeEffects.healPercent);
+        }
+        nextAttackBonus += Math.floor(effectiveAttack * dodgeEffects.nextAttackBonusPercent);
+      }
+
+      // Equipment reactions to an incoming hit (shields, last-chance relics)
+      if (enemyDamage > 0) {
+        incomingReport = specialEffects.analyzeIncoming(effectContext(), enemyDamage);
+        if (incomingReport.messages.length > 0) {
+          classAbilityMessage += incomingReport.messages.join('\n') + '\n';
+        }
+        enemyDamage = Math.max(1, Math.floor(enemyDamage * (1 - incomingReport.reduction))
+          - incomingReport.absorbFlat);
       }
 
       // Boss healing from life drain
@@ -442,16 +560,16 @@ export class CombatEngine {
         bossHealing = bossSystem.calculateBossHealing(enemy as any, bossAbility, enemyDamage);
       }
     } else if (enemyAction === ActionType.DEFEND && enemy.isBoss && bossAbility?.heal_amount) {
-      // Boss defensive healing with restrictions
+      // Boss defensive healing. Its limits are shared with BossSystem via the
+      // HEAL_* constants, but are re-checked here as a safety net.
       const currentTurn = enemy.turnCount || 1;
       const turnsSinceLastHeal = currentTurn - (enemy.lastHealTurn || 0);
-      const totalHealingCap = Math.floor(enemy.maxHp * 0.20); // 20% max total healing
-      
-      // Check healing restrictions
-      if (turnsSinceLastHeal >= 4 && (enemy.totalHealingReceived || 0) < totalHealingCap) {
+      const totalHealingCap = Math.floor(enemy.maxHp * HEAL_TOTAL_FRACTION);
+
+      if (turnsSinceLastHeal >= HEAL_INTERVAL_TURNS && (enemy.totalHealingReceived || 0) < totalHealingCap) {
         bossHealing = bossSystem.calculateBossHealing(enemy as any, bossAbility);
         enemy.lastHealTurn = currentTurn;
-      } else if (turnsSinceLastHeal < 4) {
+      } else if (turnsSinceLastHeal < HEAL_INTERVAL_TURNS) {
         bossAbilityMessage += `⏳ ${enemy.name} не может лечиться так часто!\n`;
       } else if ((enemy.totalHealingReceived || 0) >= totalHealingCap) {
         bossAbilityMessage += `🚫 ${enemy.name} исчерпал лечение в этом бою!\n`;
@@ -477,6 +595,23 @@ export class CombatEngine {
       newPlayerHp = Math.min(player.max_hp, newPlayerHp + defenseHealing);
     }
 
+    // Equipment healing that triggers on the player's own attack
+    if (attackHeal > 0) {
+      newPlayerHp = Math.min(player.max_hp, newPlayerHp + attackHeal);
+    }
+
+    // Passive equipment regeneration (each combat turn)
+    const regen = specialEffects.analyzeRegen(effectContext());
+    if (regen.healPercent !== 0 && newPlayerHp > 0) {
+      const regenAmount = Math.floor(player.max_hp * regen.healPercent);
+      if (regenAmount > 0) {
+        newPlayerHp = Math.min(player.max_hp, newPlayerHp + regenAmount);
+        if (regen.messages.length > 0) {
+          classAbilityMessage += regen.messages.join('\n') + '\n';
+        }
+      }
+    }
+
     // Apply lifesteal healing
     if (lifestealHealing > 0) {
       newPlayerHp = Math.min(player.max_hp, newPlayerHp + lifestealHealing);
@@ -487,7 +622,7 @@ export class CombatEngine {
 
     // Apply boss healing (only if boss is still alive) with restrictions
     if (bossHealing > 0 && newEnemyHp > 0) {
-      const totalHealingCap = Math.floor(enemy.maxHp * 0.20);
+      const totalHealingCap = Math.floor(enemy.maxHp * HEAL_TOTAL_FRACTION);
       const remainingHealingAllowed = totalHealingCap - (enemy.totalHealingReceived || 0);
       
       if (remainingHealingAllowed > 0) {
@@ -496,14 +631,23 @@ export class CombatEngine {
         enemy.totalHealingReceived = (enemy.totalHealingReceived || 0) + actualHealing;
       }
     }
+
+    // Last-chance equipment can cheat death once per combat.
+    if (newPlayerHp <= 0 && incomingReport?.preventLethal) {
+      newPlayerHp = 1;
+      classAbilityMessage += '⏳ Часы последнего шанса спасли вас от смерти!\n';
+    } else if (newPlayerHp <= 0 && incomingReport?.revive) {
+      newPlayerHp = Math.max(1, Math.floor(player.max_hp * 0.5));
+      classAbilityMessage += '✨ Реликвия возрождения вернула вас в бой!\n';
+    }
     
-    // Store defense bonus for next attack (if player defended but boss didn't attack)
-    if (playerAction === ActionType.DEFEND && nextAttackBonus > 0 && enemyAction !== ActionType.ATTACK) {
-      enemy.storedDefenseBonus = nextAttackBonus;
-      classAbilityMessage += `💫 Защита усилила вашу следующую атаку на +${nextAttackBonus}!\n`;
-    } else if (playerAction === ActionType.DEFEND && nextAttackBonus > 0) {
-      // If boss attacked, still store the bonus for next turn
-      enemy.storedDefenseBonus = nextAttackBonus;
+    // Store defense bonus for the next attack (the bonus survives until the
+    // player actually spends it on an ATTACK).
+    if (nextAttackBonus > 0) {
+      enemy.storedDefenseBonus = (enemy.storedDefenseBonus || 0) + nextAttackBonus;
+      if (enemyAction !== ActionType.ATTACK) {
+        classAbilityMessage += `💫 Защита усилила вашу следующую атаку на +${nextAttackBonus}!\n`;
+      }
     }
 
     const enemyDefeated = newEnemyHp <= 0;

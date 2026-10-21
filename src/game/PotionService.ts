@@ -3,6 +3,7 @@
  * Handles health potions and HP restoration mechanics
  */
 import { db } from '../database/db';
+import { PoolClient } from 'pg';
 
 export interface Potion {
   id: number;
@@ -14,54 +15,107 @@ export interface Potion {
   icon: string;
 }
 
+/** Minimal query runner shared by the pool and a transaction client. */
+type QueryRunner = { query: (text: string, params?: any[]) => Promise<any> };
+
 export class PotionService {
   /**
    * Use a specific health potion from the inventory.
+   *
+   * When a transaction client is provided, every read and write happens on it,
+   * so the single remaining potion, the HP change and the battle flag are all
+   * committed or rolled back together. Callers using the pool directly still
+   * get a self-contained operation, but the caller-visible reservation is not
+   * atomic with it.
    */
   async usePotionById(
     playerProgressId: number,
     itemId: number,
-    currentHp: number,
-    maxHp: number
+    client?: PoolClient
   ): Promise<{ success: boolean; message: string; newHp: number; potionUsed?: Potion }> {
-    const potions = await this.getPlayerPotions(playerProgressId);
-    const potion = potions.find((p) => p.id === itemId);
+    const runner: QueryRunner = client ?? db;
 
-    if (!potion) {
+    // Lock the inventory row so two parallel requests cannot both consume the
+    // same last potion.
+    const inventoryResult = await runner.query(
+      `SELECT i.id, i.name, i.description,
+              i.potion_heal_value as heal_value,
+              i.potion_heal_type as heal_type,
+              i.rarity, '🧪' as icon, pi.quantity
+       FROM player_inventory pi
+       JOIN items i ON pi.item_id = i.id
+       WHERE pi.player_progress_id = $1
+         AND pi.item_id = $2
+         AND i.slot = 'potion'
+         AND i.potion_heal_value > 0
+       FOR UPDATE OF pi`,
+      [playerProgressId, itemId]
+    );
+    const row = inventoryResult.rows[0];
+
+    if (!row || row.quantity <= 0) {
+      const current = await runner.query(
+        'SELECT hp FROM player_progress WHERE id = $1',
+        [playerProgressId]
+      );
       return {
         success: false,
         message: '🧪 Этого зелья нет в инвентаре!',
-        newHp: currentHp,
+        newHp: current.rows[0]?.hp ?? 0,
       };
     }
 
+    // Lock the progress row and read the live HP values instead of trusting
+    // the copies loaded before the transaction started.
+    const progressResult = await runner.query(
+      'SELECT hp, max_hp FROM player_progress WHERE id = $1 FOR UPDATE',
+      [playerProgressId]
+    );
+    const currentHp: number = progressResult.rows[0].hp;
+    const maxHp: number = progressResult.rows[0].max_hp;
+
     // Calculate healing
-    let healAmount = 0;
-    if (potion.heal_type === 'percentage') {
-      healAmount = Math.floor(maxHp * potion.heal_value / 100);
-    } else {
-      healAmount = potion.heal_value;
-    }
+    const healAmount = row.heal_type === 'percentage'
+      ? Math.floor(maxHp * row.heal_value / 100)
+      : row.heal_value;
 
     const newHp = Math.min(currentHp + healAmount, maxHp);
     const actualHeal = newHp - currentHp;
 
     // Remove potion from inventory
-    await this.removePotion(playerProgressId, potion.id);
+    if (row.quantity <= 1) {
+      await runner.query(
+        'DELETE FROM player_inventory WHERE player_progress_id = $1 AND item_id = $2',
+        [playerProgressId, itemId]
+      );
+    } else {
+      await runner.query(
+        'UPDATE player_inventory SET quantity = quantity - 1 WHERE player_progress_id = $1 AND item_id = $2',
+        [playerProgressId, itemId]
+      );
+    }
 
     // Update player HP
-    await db.query(
+    await runner.query(
       'UPDATE player_progress SET hp = $1, updated_at = NOW() WHERE id = $2',
       [newHp, playerProgressId]
     );
 
     return {
       success: true,
-      message: `${potion.icon} Вы использовали **${potion.name}**\n\n` +
+      message: `${row.icon} Вы использовали **${row.name}**\n\n` +
                `💚 Восстановлено: **${actualHeal} HP**\n` +
                `❤️ Текущее HP: **${newHp}/${maxHp}**`,
       newHp,
-      potionUsed: potion,
+      potionUsed: {
+        id: row.id,
+        name: row.name,
+        description: row.description,
+        heal_value: row.heal_value,
+        heal_type: row.heal_type,
+        rarity: row.rarity,
+        icon: row.icon,
+      },
     };
   }
 
@@ -129,28 +183,6 @@ export class PotionService {
     }
 
     return potions;
-  }
-
-  /**
-   * Remove one potion from inventory
-   */
-  async removePotion(playerProgressId: number, itemId: number): Promise<void> {
-    // Decrease quantity by 1
-    const result = await db.query(
-      `UPDATE player_inventory 
-       SET quantity = quantity - 1
-       WHERE player_progress_id = $1 AND item_id = $2
-       RETURNING quantity`,
-      [playerProgressId, itemId]
-    );
-
-    // If quantity is 0, delete the row
-    if (result.rows[0] && result.rows[0].quantity <= 0) {
-      await db.query(
-        'DELETE FROM player_inventory WHERE player_progress_id = $1 AND item_id = $2',
-        [playerProgressId, itemId]
-      );
-    }
   }
 
   /**
