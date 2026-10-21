@@ -8,7 +8,7 @@ export interface Potion {
   id: number;
   name: string;
   description: string;
-  heal_amount: number; // Flat amount or percentage if < 1
+  heal_value: number; // Percentage of max HP when heal_type = 'percentage'
   heal_type: 'flat' | 'percentage';
   rarity: string;
   icon: string;
@@ -40,9 +40,9 @@ export class PotionService {
     // Calculate healing
     let healAmount = 0;
     if (potion.heal_type === 'percentage') {
-      healAmount = Math.floor(maxHp * potion.heal_amount);
+      healAmount = Math.floor(maxHp * potion.heal_value / 100);
     } else {
-      healAmount = potion.heal_amount;
+      healAmount = potion.heal_value;
     }
 
     const newHp = Math.min(currentHp + healAmount, maxHp);
@@ -72,15 +72,16 @@ export class PotionService {
    */
   async getPlayerPotions(playerProgressId: number): Promise<Potion[]> {
     const result = await db.query(
-      `SELECT i.id, i.name, i.description, i.hp_bonus as heal_amount, 
-              CASE WHEN i.hp_bonus <= 1 THEN 'percentage' ELSE 'flat' END as heal_type,
+      `SELECT i.id, i.name, i.description,
+              i.potion_heal_value as heal_value,
+              i.potion_heal_type as heal_type,
               i.rarity, '🧪' as icon, pi.quantity
        FROM player_inventory pi
        JOIN items i ON pi.item_id = i.id
-       WHERE pi.player_progress_id = $1 
+       WHERE pi.player_progress_id = $1
        AND i.slot = 'potion'
-       AND i.hp_bonus > 0
-       ORDER BY i.hp_bonus DESC`,
+       AND i.potion_heal_value > 0
+       ORDER BY i.potion_heal_value DESC`,
       [playerProgressId]
     );
 
@@ -92,7 +93,7 @@ export class PotionService {
           id: row.id,
           name: row.name,
           description: row.description,
-          heal_amount: row.heal_amount,
+          heal_value: row.heal_value,
           heal_type: row.heal_type,
           rarity: row.rarity,
           icon: row.icon,
@@ -147,14 +148,22 @@ export class PotionService {
     if (itemResult.rows.length === 0) {
       // Create potion item
       const createResult = await db.query(
-        `INSERT INTO items (name, description, slot, rarity, hp_bonus)
-         VALUES ($1, $2, $3, $4, $5)
+        `INSERT INTO items (name, description, slot, rarity, hp_bonus, potion_heal_type, potion_heal_value)
+         VALUES ($1, $2, $3, $4, 0, $5, $6)
          RETURNING id`,
-        [potionData.name, potionData.description, 'potion', potionData.rarity, potionData.heal_amount]
+        [potionData.name, potionData.description, 'potion', potionData.rarity,
+          potionData.heal_type, potionData.heal_value]
       );
       itemId = createResult.rows[0].id;
     } else {
       itemId = itemResult.rows[0].id;
+      // Keep the heal definition in sync with the potion type
+      await db.query(
+        `UPDATE items
+         SET description = $2, potion_heal_type = $3, potion_heal_value = $4
+         WHERE id = $1`,
+        [itemId, potionData.description, potionData.heal_type, potionData.heal_value]
+      );
     }
 
     // Add to inventory or update quantity
@@ -184,29 +193,33 @@ export class PotionService {
   private getPotionData(type: 'small' | 'medium' | 'large'): {
     name: string;
     description: string;
-    heal_amount: number;
+    heal_type: 'percentage';
+    heal_value: number;
     rarity: string;
   } {
     switch (type) {
       case 'small':
         return {
           name: 'Малое зелье здоровья',
-          description: 'Восстанавливает 30 HP',
-          heal_amount: 30,
+          description: 'Восстанавливает 20% HP',
+          heal_type: 'percentage',
+          heal_value: 20,
           rarity: 'common',
         };
       case 'medium':
         return {
           name: 'Зелье здоровья',
-          description: 'Восстанавливает 50% HP',
-          heal_amount: 50, // Целое число (процент)
+          description: 'Восстанавливает 30% HP',
+          heal_type: 'percentage',
+          heal_value: 30,
           rarity: 'uncommon',
         };
       case 'large':
         return {
           name: 'Большое зелье здоровья',
-          description: 'Полностью восстанавливает HP',
-          heal_amount: 100, // Целое число (процент)
+          description: 'Восстанавливает 40% HP',
+          heal_type: 'percentage',
+          heal_value: 40,
           rarity: 'rare',
         };
     }

@@ -21,6 +21,8 @@ export interface Enemy {
   totalHealingReceived?: number; // Track total healing for boss heal cap
   lastHealTurn?: number; // Track when boss last healed for cooldown
   storedDefenseBonus?: number; // Store defense bonus for next attack
+  potionUsed?: boolean; // Limit to one potion per combat
+  guardianHealTotal?: number; // Track guardian defense healing per combat
 }
 
 const MOB_ZONES: Array<[string, string, string]> = [
@@ -169,8 +171,15 @@ export class CombatEngine {
 
     // Calculate player damage
     if (playerAction === ActionType.ATTACK) {
+      // Defensive stance and similar abilities boost the boss defense that
+      // reduces the player's attack this turn.
+      const bossDefenseForAttack =
+        enemy.isBoss && bossAbility?.defense_multiplier
+          ? Math.floor(enemy.defense * bossAbility.defense_multiplier)
+          : enemy.defense;
+
       // Base damage after armor penetration
-      playerDamage = Math.max(1, effectiveAttack - Math.floor(enemy.defense / 2));
+      playerDamage = Math.max(1, effectiveAttack - Math.floor(bossDefenseForAttack / 2));
 
       // Assassin Backstab (penerates defense completely)
       if (playerClassCode === 'assassin') {
@@ -292,12 +301,16 @@ export class CombatEngine {
           }
           
           case 'guardian': {
-            // 60% reduction + 5% max HP heal
-            damageReduction = 0.60;
-            defenseHealing = Math.floor(player.max_hp * 0.05);
-            classAbilityMessage += `🛡 Страж: крепость поглотила 60% урона! Восстановлено ${defenseHealing} HP!\n`;
-            // Store 10% attack bonus for next turn
-            nextAttackBonus = Math.floor(effectiveAttack * 0.10);
+            // 50% reduction + 2% max HP heal (capped at 10% max HP per combat)
+            damageReduction = 0.50;
+            const healCap = Math.floor(player.max_hp * 0.10);
+            const usedHeal = enemy.guardianHealTotal || 0;
+            const healAmount = Math.floor(player.max_hp * 0.02);
+            defenseHealing = Math.max(0, Math.min(healAmount, healCap - usedHeal));
+            enemy.guardianHealTotal = usedHeal + defenseHealing;
+            classAbilityMessage += `🛡 Страж: крепость поглотила 50% урона! Восстановлено ${defenseHealing} HP!\n`;
+            // Store 5% attack bonus for next turn
+            nextAttackBonus = Math.floor(effectiveAttack * 0.05);
             break;
           }
           
@@ -392,10 +405,13 @@ export class CombatEngine {
         enemyDamage = Math.max(1, Math.floor(baseEnemyAttack * (1 - damageReduction)));
         
       } else {
-        // Normal attack - enemy hits player without defense
-        // Bosses penetrate 50% of armor (not 75% - balanced down)
-        const armorPenetration = enemy.isBoss ? 0.50 : 0.50;
-        enemyDamage = Math.max(1, baseEnemyAttack - Math.floor(effectiveDefense * (1 - armorPenetration)));
+        // Normal attack - armor reduces damage but can never absorb more than
+        // 40% of the base hit, no matter how high defense is.
+        const armorReduction = Math.min(
+          Math.floor(effectiveDefense * 0.35),
+          Math.floor(baseEnemyAttack * 0.40)
+        );
+        enemyDamage = Math.max(1, baseEnemyAttack - armorReduction);
       }
       
       // Necromancer minion support effects
@@ -420,7 +436,7 @@ export class CombatEngine {
       if (enemy.isBoss && bossAbility && bossAbility.heal_amount && enemyDamage > 0) {
         bossHealing = bossSystem.calculateBossHealing(enemy as any, bossAbility, enemyDamage);
       }
-    } else if (enemyAction === ActionType.DEFEND && enemy.isBoss && bossAbility) {
+    } else if (enemyAction === ActionType.DEFEND && enemy.isBoss && bossAbility?.heal_amount) {
       // Boss defensive healing with restrictions
       const currentTurn = enemy.turnCount || 1;
       const turnsSinceLastHeal = currentTurn - (enemy.lastHealTurn || 0);

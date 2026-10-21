@@ -589,6 +589,15 @@ export class BossSystem {
           message: `${config.icon} ${boss.name} использует ${ability.icon} ${ability.name}!`,
         };
       }
+
+      // Random abilities trigger by chance
+      if (ability.condition === 'random' && Math.random() < 0.5) {
+        return {
+          action: ActionType.ATTACK,
+          ability,
+          message: `${config.icon} ${boss.name} использует ${ability.icon} ${ability.name}!`,
+        };
+      }
     }
     
     // Поведение по AI type
@@ -600,14 +609,22 @@ export class BossSystem {
           message: `${config.icon} ${boss.name} яростно атакует!`,
         };
       
-      case 'defensive':
-        // Чередует атаку и защиту
+      case 'defensive': {
+        // Чередует атаку и защиту. При защите использует защитную стойку,
+        // чтобы усиление защиты реально учитывалось при уроне игрока.
+        if (turnCount % 2 === 0) {
+          return {
+            action: ActionType.ATTACK,
+            message: `${config.icon} ${boss.name} атакует!`,
+          };
+        }
+        const stance = config.abilities.find((a) => a.defense_multiplier);
         return {
-          action: turnCount % 2 === 0 ? ActionType.ATTACK : ActionType.DEFEND,
-          message: turnCount % 2 === 0 
-            ? `${config.icon} ${boss.name} атакует!`
-            : `${config.icon} ${boss.name} принимает защитную стойку!`,
+          action: ActionType.DEFEND,
+          ability: stance,
+          message: `${config.icon} ${boss.name} принимает защитную стойку!`,
         };
+      }
       
       case 'adaptive':
         // Контрит действие игрока, но не всегда (60% шанс на адаптацию)

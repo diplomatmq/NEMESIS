@@ -121,22 +121,6 @@ export class GameService {
       user!.id,
       isCooldownExempt
     );
-    
-    // Decrement necromancer effect counters ONLY for combat actions (not potions)
-    if (action === ActionType.ATTACK || action === ActionType.DEFEND) {
-      if (progress.necro_debuff_games > 0) {
-        await db.query(
-          'UPDATE player_progress SET necro_debuff_games = GREATEST(necro_debuff_games - 1, 0) WHERE id = $1',
-          [progress.id]
-        );
-      }
-      if (progress.necro_bonus_games > 0) {
-        await db.query(
-          'UPDATE player_progress SET necro_bonus_games = GREATEST(necro_bonus_games - 1, 0) WHERE id = $1',
-          [progress.id]
-        );
-      }
-    }
 
     // Set new cooldown (user-global, not per chat)
     if (!isCooldownExempt) {
@@ -168,6 +152,7 @@ export class GameService {
     privateMessage?: string;
   }> {
     let rewardKeyboard: InlineKeyboard | undefined;
+    let potionMessage = '';
 
     const actionLower = action.toLowerCase().trim();
 
@@ -175,11 +160,12 @@ export class GameService {
       return { message: '🧭 Сначала выберите вариант найденного следа на кнопках выше.' };
     }
 
-    // Check if player wants to use a potion
-    if (actionLower.includes('зель') || actionLower.includes('лечен') || actionLower === 'p') {
-      const potionResult = await potionService.usePotion(progress.id, progress.hp, progress.max_hp);
-      return { message: potionResult.message };
-    }
+    // Check if player wants to use a battle potion
+    const isPotionAction =
+      actionLower.includes('potion') ||
+      actionLower.includes('зель') ||
+      actionLower.includes('лечен') ||
+      actionLower === 'p';
 
     const isCombatAction =
       actionLower.includes('атак') ||
@@ -205,10 +191,32 @@ export class GameService {
       actionType = ActionType.ATTACK; // Default to attack
     }
 
+    // Decrement necromancer effect counters only for real combat actions
+    // (based on the parsed action type, not the raw command string)
+    if (!isPotionAction && (actionType === ActionType.ATTACK || actionType === ActionType.DEFEND)) {
+      if (progress.necro_debuff_games > 0) {
+        await db.query(
+          'UPDATE player_progress SET necro_debuff_games = GREATEST(necro_debuff_games - 1, 0) WHERE id = $1',
+          [progress.id]
+        );
+      }
+      if (progress.necro_bonus_games > 0) {
+        await db.query(
+          'UPDATE player_progress SET necro_bonus_games = GREATEST(necro_bonus_games - 1, 0) WHERE id = $1',
+          [progress.id]
+        );
+      }
+    }
+
     // Check if player has existing combat state FOR THIS CHAT
     let combatState = await CombatStateModel.find(userId, seasonId, chatId);
     let enemy: Enemy;
     let currentFloor = chatProgress.current_floor;
+
+    // Battle potions are only usable during an active fight
+    if (isPotionAction && !combatState) {
+      return { message: '🧪 Зелья можно использовать только во время боя.' };
+    }
 
     if (combatState) {
       // Continue existing combat IN THIS CHAT
@@ -264,6 +272,22 @@ export class GameService {
         enemy_data: enemy,
         player_hp_before: progress.hp
       });
+    }
+
+    // Consume a potion: heals the player, then the enemy takes its normal action.
+    // This replaces the player's attack for the current turn.
+    if (isPotionAction) {
+      if (enemy.potionUsed) {
+        return { message: '🧪 В этом бою вы уже использовали зелье!' };
+      }
+      const potionResult = await potionService.usePotion(progress.id, progress.hp, progress.max_hp);
+      if (!potionResult.success) {
+        return { message: potionResult.message };
+      }
+      progress.hp = potionResult.newHp;
+      enemy.potionUsed = true;
+      potionMessage = potionResult.message + '\n\n';
+      actionType = ActionType.ITEM;
     }
 
     // Get player class
@@ -322,6 +346,10 @@ export class GameService {
       enemyAction,
       playerClass?.code
     );
+
+    if (potionMessage) {
+      combatResult.message = potionMessage + combatResult.message;
+    }
     
     // Тактик видит что будет делать враг
     if (tacticianAbilityUsed && predictedEnemyAction) {
@@ -681,7 +709,7 @@ export class GameService {
       `❤️ HP: ${formatHealthBar(progress.hp, progress.max_hp)}\n` +
       `⚔️ Атака: ${progress.attack}\n` +
       `🛡️ Защита: ${progress.defense}\n` +
-      `⭐ Уровень: ${progress.level}\n` +
+      `⭐ Уровень: ${PlayerProgressModel.calculateLevel(progress.floor)}\n` +
       `💰 Золото: ${progress.gold}\n` +
       necromancerInfo +
       chatInfo +

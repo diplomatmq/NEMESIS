@@ -112,10 +112,15 @@ export class PlayerProgressModel {
     );
   }
 
+  static calculateLevel(highestUnlockedFloor: number): number {
+    return Math.floor((highestUnlockedFloor - 1) / 10) + 1;
+  }
+
   static async updateFloor(id: number, floor: number): Promise<void> {
+    const level = PlayerProgressModel.calculateLevel(floor);
     await db.query(
-      'UPDATE player_progress SET floor = $1, updated_at = NOW() WHERE id = $2',
-      [floor, id]
+      'UPDATE player_progress SET floor = $1, level = $2, updated_at = NOW() WHERE id = $3',
+      [floor, level, id]
     );
   }
 

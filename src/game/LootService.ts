@@ -1,4 +1,5 @@
 import { db } from '../database/db';
+import { PlayerProgressModel } from '../database/models/PlayerProgress';
 import { ItemRarity, ItemType } from '../types/game.types';
 import { potionService } from './PotionService';
 import { SeededRandom } from './SeededRandom';
@@ -239,10 +240,11 @@ export class LootService {
     }
 
     const progress = await db.query(
-      'SELECT level FROM player_progress WHERE id = $1',
+      'SELECT floor FROM player_progress WHERE id = $1',
       [playerProgressId]
     );
-    if (!progress.rows[0] || Number(progress.rows[0].level) < item.level_required) {
+    if (!progress.rows[0] ||
+        PlayerProgressModel.calculateLevel(Number(progress.rows[0].floor)) < item.level_required) {
       return false;
     }
 
