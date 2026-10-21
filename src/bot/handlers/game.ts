@@ -380,22 +380,21 @@ export async function handleUsePotion(ctx: Context) {
     return;
   }
 
-  // Use potion through game action
-  const result = await gameService.executeAction(
-    {
-      telegramUserId: ctx.from.id,
-      telegramChatId: ctx.chat.id,
-      username: ctx.from.username,
-      firstName: ctx.from.first_name,
-      lastName: ctx.from.last_name,
-      chatType: ctx.chat.type,
-      chatTitle: 'title' in ctx.chat ? ctx.chat.title : undefined,
-    },
-    'potion', // special action for using potion
-    true // bypass cooldown for potion use
-  );
+  const menu = await gameService.getPotionMenu(ctx.from.id, ctx.chat.id);
+  await ctx.reply(markdownToTelegramHtml(menu.message), {
+    parse_mode: 'HTML',
+    reply_markup: menu.keyboard,
+  });
+}
 
-  await ctx.reply(markdownToTelegramHtml(result.message), { parse_mode: 'HTML' });
+export async function handlePotionCallback(ctx: Context) {
+  if (!ctx.from || !ctx.chat || !ctx.callbackQuery?.data) return;
+  const match = /^potion:use:(\d+)$/.exec(ctx.callbackQuery.data);
+  if (!match) return;
+
+  const result = await gameService.usePotion(ctx.from.id, ctx.chat.id, Number(match[1]));
+  await ctx.answerCallbackQuery();
+  await ctx.editMessageText(markdownToTelegramHtml(result.message), { parse_mode: 'HTML' });
 }
 
 /**

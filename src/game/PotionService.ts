@@ -16,27 +16,25 @@ export interface Potion {
 
 export class PotionService {
   /**
-   * Use a health potion from inventory
+   * Use a specific health potion from the inventory.
    */
-  async usePotion(
+  async usePotionById(
     playerProgressId: number,
+    itemId: number,
     currentHp: number,
     maxHp: number
   ): Promise<{ success: boolean; message: string; newHp: number; potionUsed?: Potion }> {
-    // Check if player has any health potions
     const potions = await this.getPlayerPotions(playerProgressId);
-    
-    if (potions.length === 0) {
+    const potion = potions.find((p) => p.id === itemId);
+
+    if (!potion) {
       return {
         success: false,
-        message: '🧪 У вас нет зелий здоровья!\n\n💡 Зелья можно получить из добычи или купить у торговцев.',
+        message: '🧪 Этого зелья нет в инвентаре!',
         newHp: currentHp,
       };
     }
 
-    // Use the first available potion
-    const potion = potions[0];
-    
     // Calculate healing
     let healAmount = 0;
     if (potion.heal_type === 'percentage') {
@@ -65,6 +63,35 @@ export class PotionService {
       newHp,
       potionUsed: potion,
     };
+  }
+
+  /**
+   * Return the distinct potions the player owns, with how many of each.
+   */
+  async getPotionChoices(
+    playerProgressId: number
+  ): Promise<Array<{ itemId: number; name: string; icon: string; heal_value: number; heal_type: 'flat' | 'percentage'; quantity: number }>> {
+    const potions = await this.getPlayerPotions(playerProgressId);
+    const byItem = new Map<number, { itemId: number; name: string; icon: string; heal_value: number; heal_type: 'flat' | 'percentage'; quantity: number }>();
+
+    for (const potion of potions) {
+      const existing = byItem.get(potion.id);
+      if (existing) {
+        existing.quantity += 1;
+      } else {
+        byItem.set(potion.id, {
+          itemId: potion.id,
+          name: potion.name,
+          icon: potion.icon,
+          heal_value: potion.heal_value,
+          heal_type: potion.heal_type,
+          quantity: 1,
+        });
+      }
+    }
+
+    // Strongest first so the list is stable and readable
+    return Array.from(byItem.values()).sort((a, b) => b.heal_value - a.heal_value);
   }
 
   /**

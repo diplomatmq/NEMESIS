@@ -122,15 +122,18 @@ export class GameService {
       isCooldownExempt
     );
 
-    // Set new cooldown (user-global, not per chat)
-    if (!isCooldownExempt) {
+    // Set new cooldown (user-global, not per chat).
+    // Actions that don't consume a turn (a failed potion attempt, a hint about
+    // an unfinished trail) must not start a cooldown either.
+    const consumesCooldown = actionResult.consumesCooldown !== false;
+    if (!isCooldownExempt && consumesCooldown) {
       await cooldownService.set(user!.id, chat.id);
     }
 
     return {
       success: true,
       message: actionResult.message,
-      cooldownSet: !isCooldownExempt,
+      cooldownSet: !isCooldownExempt && consumesCooldown,
       combatResult: actionResult.combatResult,
       keyboard: actionResult.keyboard,
       privateMessage: actionResult.privateMessage,
@@ -150,22 +153,15 @@ export class GameService {
     combatResult?: CombatResult;
     keyboard?: InlineKeyboard;
     privateMessage?: string;
+    consumesCooldown?: boolean;
   }> {
     let rewardKeyboard: InlineKeyboard | undefined;
-    let potionMessage = '';
 
     const actionLower = action.toLowerCase().trim();
 
     if (await trailService.getEvent(userId, seasonId)) {
-      return { message: '🧭 Сначала выберите вариант найденного следа на кнопках выше.' };
+      return { message: '🧭 Сначала выберите вариант найденного следа на кнопках выше.', consumesCooldown: false };
     }
-
-    // Check if player wants to use a battle potion
-    const isPotionAction =
-      actionLower.includes('potion') ||
-      actionLower.includes('зель') ||
-      actionLower.includes('лечен') ||
-      actionLower === 'p';
 
     const isCombatAction =
       actionLower.includes('атак') ||
@@ -177,6 +173,7 @@ export class GameService {
     if (isCombatAction && !progress.class_id) {
       return {
         message: '🎭 Сначала выберите класс командой /class, затем начинайте бой.',
+        consumesCooldown: false,
       };
     }
 
@@ -193,7 +190,7 @@ export class GameService {
 
     // Decrement necromancer effect counters only for real combat actions
     // (based on the parsed action type, not the raw command string)
-    if (!isPotionAction && (actionType === ActionType.ATTACK || actionType === ActionType.DEFEND)) {
+    if (actionType === ActionType.ATTACK || actionType === ActionType.DEFEND) {
       if (progress.necro_debuff_games > 0) {
         await db.query(
           'UPDATE player_progress SET necro_debuff_games = GREATEST(necro_debuff_games - 1, 0) WHERE id = $1',
@@ -212,11 +209,6 @@ export class GameService {
     let combatState = await CombatStateModel.find(userId, seasonId, chatId);
     let enemy: Enemy;
     let currentFloor = chatProgress.current_floor;
-
-    // Battle potions are only usable during an active fight
-    if (isPotionAction && !combatState) {
-      return { message: '🧪 Зелья можно использовать только во время боя.' };
-    }
 
     if (combatState) {
       // Continue existing combat IN THIS CHAT
@@ -272,22 +264,6 @@ export class GameService {
         enemy_data: enemy,
         player_hp_before: progress.hp
       });
-    }
-
-    // Consume a potion: heals the player, then the enemy takes its normal action.
-    // This replaces the player's attack for the current turn.
-    if (isPotionAction) {
-      if (enemy.potionUsed) {
-        return { message: '🧪 В этом бою вы уже использовали зелье!' };
-      }
-      const potionResult = await potionService.usePotion(progress.id, progress.hp, progress.max_hp);
-      if (!potionResult.success) {
-        return { message: potionResult.message };
-      }
-      progress.hp = potionResult.newHp;
-      enemy.potionUsed = true;
-      potionMessage = potionResult.message + '\n\n';
-      actionType = ActionType.ITEM;
     }
 
     // Get player class
@@ -347,10 +323,6 @@ export class GameService {
       playerClass?.code
     );
 
-    if (potionMessage) {
-      combatResult.message = potionMessage + combatResult.message;
-    }
-    
     // Тактик видит что будет делать враг
     if (tacticianAbilityUsed && predictedEnemyAction) {
       const actionText = predictedEnemyAction === ActionType.ATTACK ? '⚔️ атакует' : '🛡️ защищается';
@@ -425,11 +397,10 @@ export class GameService {
           combatResult.message += `\n☠️ **Душа моба поглощена.** (${progress.necro_mob_souls + 1}/15)`;
         }
       }
-      // Calculate reward multiplier based on global highest floor
-      // If current chat floor is <= highest floor reached across ALL chats, reduce rewards by 50%
-      // Rewards are normal only when: current_floor > highest_floor_reached (globally)
-      const globalHighestFloor = progress.floor;
-      const isExploringNewFloor = currentFloor > globalHighestFloor;
+      // Full rewards only while pushing the persistent maximum forward.
+      // progress.floor (and the checkpoint) can drop on death, so the reward
+      // must be derived from the never-decreasing highest_floor_reached.
+      const isExploringNewFloor = currentFloor >= progress.highest_floor_reached;
       const rewardMultiplier = isExploringNewFloor ? 1.0 : 0.5;
       
       if (!isExploringNewFloor) {
@@ -456,14 +427,14 @@ export class GameService {
       combatResult.message += loot.message;
 
       // Advance floor in chat progress first
+      const previousMaxFloor = progress.highest_floor_reached;
       const newChatFloor = currentFloor + 1;
       await ChatProgressModel.updateFloor(chatProgress.id, newChatFloor);
 
-      // Update GLOBAL floor ONLY if this chat reached a new maximum
-      const newGlobalFloor = Math.max(progress.floor, newChatFloor);
-      if (newGlobalFloor > progress.floor) {
-        await PlayerProgressModel.updateFloor(progress.id, newGlobalFloor);
-      }
+      // Move the global position forward; the persistent maximum only grows.
+      await PlayerProgressModel.updateFloor(progress.id, newChatFloor);
+      const newGlobalFloor = newChatFloor;
+      const isNewRecord = newChatFloor > previousMaxFloor;
 
       // Full HP restore on floor completion
       await potionService.healOnFloorCompletion(progress.id, progress.max_hp);
@@ -521,10 +492,10 @@ export class GameService {
 
       combatResult.message += `\n🏆 **Этаж ${currentFloor} пройден!**\n`;
       combatResult.message += `⬆️ Переход на этаж ${newChatFloor} (в этом чате).\n`;
-      if (newGlobalFloor > progress.floor) {
-        combatResult.message += `🌍 Новый глобальный рекорд: этаж ${newGlobalFloor}!\n`;
+      if (isNewRecord) {
+        combatResult.message += `🌍 Новый глобальный рекорд: этаж ${newChatFloor}!\n`;
       } else {
-        combatResult.message += `🌍 Глобальный максимум: этаж ${progress.floor}\n`;
+        combatResult.message += `🌍 Глобальный максимум: этаж ${previousMaxFloor}\n`;
       }
 
       if (!enemy.isBoss && Math.random() < 0.1) {
@@ -709,7 +680,7 @@ export class GameService {
       `❤️ HP: ${formatHealthBar(progress.hp, progress.max_hp)}\n` +
       `⚔️ Атака: ${progress.attack}\n` +
       `🛡️ Защита: ${progress.defense}\n` +
-      `⭐ Уровень: ${PlayerProgressModel.calculateLevel(progress.floor)}\n` +
+      `⭐ Уровень: ${PlayerProgressModel.calculateLevel(progress.highest_floor_reached)}\n` +
       `💰 Золото: ${progress.gold}\n` +
       necromancerInfo +
       chatInfo +
@@ -946,12 +917,109 @@ export class GameService {
     const equipment = await lootService.getEquipment(progress.id);
     const column = `${slot}_id`;
     if (equipment && Number(equipment[column]) === itemId) {
-      await db.query(`UPDATE player_equipment SET ${column} = NULL, updated_at = NOW() WHERE player_progress_id = $1`, [progress.id]);
-      return '✅ Предмет снят.';
+      const removed = await lootService.unequipItem(progress.id, slot);
+      return removed ? '✅ Предмет снят.' : '❌ Не удалось снять предмет.';
     }
     return (await lootService.equipItem(progress.id, itemId))
       ? '✅ Предмет надет.'
       : '❌ Этот предмет нельзя надеть.';
+  }
+
+  async getPotionMenu(
+    telegramUserId: number,
+    telegramChatId: number
+  ): Promise<{ message: string; keyboard: InlineKeyboard }> {
+    const keyboard = new InlineKeyboard();
+    const user = await UserModel.findByTelegramId(telegramUserId);
+    if (!user) return { message: 'Пользователь не найден.', keyboard };
+    const chat = await ChatModel.findByTelegramChatId(telegramChatId);
+    const season = await SeasonModel.getCurrentSeason();
+    if (!chat || !season) return { message: 'Чат или сезон не найден.', keyboard };
+    const progress = await PlayerProgressModel.find(user.id, season.id);
+    if (!progress) return { message: 'Прогресс не найден.', keyboard };
+
+    const combatState = await CombatStateModel.find(user.id, season.id, chat.id);
+    if (!combatState) {
+      return { message: '🧪 Боевые зелья можно использовать только во время боя.', keyboard };
+    }
+    if (combatState.enemy_data?.potionUsed) {
+      return { message: '🧪 Зелье уже использовано в этом бою.', keyboard };
+    }
+
+    const choices = await potionService.getPotionChoices(progress.id);
+    if (!choices.length) {
+      return { message: '🧪 У вас нет зелий здоровья.', keyboard };
+    }
+
+    const lines = choices.map((choice) => {
+      const heal = choice.heal_type === 'percentage'
+        ? `${choice.heal_value}% от макс. HP`
+        : `${choice.heal_value} HP`;
+      return `${choice.icon} **${choice.name}** ×${choice.quantity} — ${heal}`;
+    });
+    choices.forEach((choice) => {
+      keyboard.text(`${choice.icon} ${choice.name} (${choice.quantity})`, `potion:use:${choice.itemId}`).row();
+    });
+
+    return {
+      message: `🧪 **Выберите зелье**\n\n` +
+        `❤️ HP: **${progress.hp}/${progress.max_hp}**\n\n` +
+        `${lines.join('\n')}\n\n` +
+        `Лечение не расходует ход и не ставит кулдаун.`,
+      keyboard,
+    };
+  }
+
+  async usePotion(
+    telegramUserId: number,
+    telegramChatId: number,
+    itemId: number
+  ): Promise<{ message: string; keyboard?: InlineKeyboard }> {
+    const user = await UserModel.findByTelegramId(telegramUserId);
+    if (!user) return { message: 'Пользователь не найден.' };
+    const chat = await ChatModel.findByTelegramChatId(telegramChatId);
+    const season = await SeasonModel.getCurrentSeason();
+    if (!chat || !season) return { message: 'Чат или сезон не найден.' };
+    const progress = await PlayerProgressModel.find(user.id, season.id);
+    if (!progress) return { message: 'Прогресс не найден.' };
+
+    // Reserve the single potion for this battle atomically: lock the combat row,
+    // verify it hasn't been spent yet and mark it used in the same transaction.
+    const reservation = await db.transaction(async (client) => {
+      const stateResult = await client.query(
+        'SELECT id, enemy_data FROM combat_state WHERE user_id = $1 AND season_id = $2 AND chat_id = $3 FOR UPDATE',
+        [user.id, season.id, chat.id]
+      );
+      if (!stateResult.rows[0]) {
+        return 'no_combat';
+      }
+      if (stateResult.rows[0].enemy_data?.potionUsed) {
+        return 'already_used';
+      }
+      await client.query(
+        `UPDATE combat_state SET enemy_data = jsonb_set(enemy_data, '{potionUsed}', 'true'::jsonb), updated_at = NOW() WHERE id = $1`,
+        [stateResult.rows[0].id]
+      );
+      return 'reserved';
+    });
+
+    if (reservation === 'no_combat') {
+      return { message: '🧪 Боевые зелья можно использовать только во время боя.' };
+    }
+    if (reservation === 'already_used') {
+      return { message: '🧪 Зелье уже использовано в этом бою.' };
+    }
+
+    const result = await potionService.usePotionById(progress.id, itemId, progress.hp, progress.max_hp);
+    if (!result.success) {
+      // The attempt failed - release the reservation so a real potion can still
+      // be used this battle and no turn is wasted.
+      await db.query(
+        `UPDATE combat_state SET enemy_data = jsonb_set(enemy_data, '{potionUsed}', 'false'::jsonb), updated_at = NOW() WHERE user_id = $1 AND season_id = $2 AND chat_id = $3`,
+        [user.id, season.id, chat.id]
+      );
+    }
+    return { message: result.message };
   }
 
   async getNecromancerMenu(telegramUserId: number): Promise<{ message: string; keyboard: InlineKeyboard }> {

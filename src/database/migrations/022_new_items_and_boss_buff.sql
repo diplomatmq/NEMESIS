@@ -94,11 +94,9 @@ SET
   defense = defense + (10 + FLOOR(RANDOM() * 6))::INTEGER
 WHERE is_boss = true;
 
--- For bosses in boss_configs table (Season 1 bosses)
-UPDATE boss_configs
-SET 
-  base_hp = base_hp + 35,
-  base_defense = base_defense + 12
-WHERE id IN (SELECT DISTINCT boss_config_id FROM season_one_bosses WHERE boss_config_id IS NOT NULL);
+-- Season 1 boss stats come from BossSystem.getExpandedBossConfigs() in code,
+-- which is the single source of truth. There is no boss_configs table, so the
+-- previous SQL tweak here targeted a non-existent table and aborted the whole
+-- migration transaction.
 
 COMMIT;

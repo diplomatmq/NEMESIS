@@ -560,29 +560,45 @@ export class BossSystem {
     
     const config = boss.boss_config;
     const hpPercent = (currentHp / boss.maxHp) * 100;
-    
+
+    // Track when each ability was last used so cooldowns are respected for
+    // every trigger type (low_hp, random, ...), not just healing.
+    boss.abilityCooldowns = boss.abilityCooldowns || {};
+    const defaultCooldown = 3;
+    const canUse = (ability: BossAbility): boolean => {
+      const lastUsed = boss.abilityCooldowns![ability.name];
+      if (lastUsed === undefined) return true;
+      return turnCount - lastUsed >= (ability.cooldown ?? defaultCooldown);
+    };
+    const markUsed = (ability: BossAbility): void => {
+      boss.abilityCooldowns![ability.name] = turnCount;
+    };
+
     // Проверяем активацию способностей по условиям
     for (const ability of config.abilities) {
       // Low HP abilities
-      if (ability.condition === 'low_hp' && hpPercent < 30) {
+      if (ability.condition === 'low_hp' && hpPercent < 30 && canUse(ability)) {
+        markUsed(ability);
         return {
           action: ActionType.ATTACK,
           ability,
           message: `${config.icon} ${boss.name} использует ${ability.icon} ${ability.name}!`,
         };
       }
-      
+
       // Counter attack when player defends
-      if (ability.condition === 'player_defend' && playerAction === ActionType.DEFEND) {
+      if (ability.condition === 'player_defend' && playerAction === ActionType.DEFEND && canUse(ability)) {
+        markUsed(ability);
         return {
           action: ActionType.ATTACK,
           ability,
           message: `${config.icon} ${boss.name} использует ${ability.icon} ${ability.name}!`,
         };
       }
-      
+
       // Heal ability at low HP (only when < 30%)
-      if (ability.heal_amount && hpPercent < 30 && turnCount % (ability.cooldown || 5) === 0) {
+      if (ability.heal_amount && hpPercent < 30 && canUse(ability)) {
+        markUsed(ability);
         return {
           action: ActionType.DEFEND,
           ability,
@@ -591,7 +607,23 @@ export class BossSystem {
       }
 
       // Random abilities trigger by chance
-      if (ability.condition === 'random' && Math.random() < 0.5) {
+      if (ability.condition === 'random' && canUse(ability) && Math.random() < 0.5) {
+        markUsed(ability);
+        return {
+          action: ActionType.ATTACK,
+          ability,
+          message: `${config.icon} ${boss.name} использует ${ability.icon} ${ability.name}!`,
+        };
+      }
+    }
+
+    // Unconditional offensive abilities (power_strike, elemental_blast,
+    // signature abilities) are activated occasionally instead of never.
+    for (const ability of config.abilities) {
+      if (ability.condition || !ability.damage_multiplier) continue;
+      if (!canUse(ability)) continue;
+      if (Math.random() < 0.35) {
+        markUsed(ability);
         return {
           action: ActionType.ATTACK,
           ability,

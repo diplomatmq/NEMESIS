@@ -21,6 +21,7 @@ export interface Enemy {
   totalHealingReceived?: number; // Track total healing for boss heal cap
   lastHealTurn?: number; // Track when boss last healed for cooldown
   storedDefenseBonus?: number; // Store defense bonus for next attack
+  abilityCooldowns?: Record<string, number>; // Turn number when a boss ability was last used
   potionUsed?: boolean; // Limit to one potion per combat
   guardianHealTotal?: number; // Track guardian defense healing per combat
 }
@@ -107,27 +108,24 @@ export class CombatEngine {
       enemy.lastHealTurn = 0;
     }
     
-    // Retrieve stored defense bonus from previous turn
-    const hasStoredBonus = enemy.storedDefenseBonus && enemy.storedDefenseBonus > 0;
-    
+    // Defense bonus stored on a previous turn is spent only on the next
+    // ATTACK. It is read here but consumed inside the attack branch, so
+    // defending again or using other actions never wastes it.
+    const storedAttackBonus = enemy.storedDefenseBonus && enemy.storedDefenseBonus > 0
+      ? enemy.storedDefenseBonus
+      : 0;
+
     const necromancerPenalty = player.necro_debuff_games > 0;
     const effectiveAttack = Math.max(
       1,
       player.attack + (player.necro_bonus_games > 0 ? player.necro_attack_bonus : 0) -
-        (necromancerPenalty ? Math.floor(player.attack * 0.2) : 0) +
-        (hasStoredBonus ? enemy.storedDefenseBonus! : 0) // Apply stored defense bonus to attack
+        (necromancerPenalty ? Math.floor(player.attack * 0.2) : 0)
     );
     const effectiveDefense = Math.max(
       0,
       player.defense + (player.necro_bonus_games > 0 ? player.necro_defense_bonus : 0) -
         (necromancerPenalty ? Math.floor(player.defense * 0.1) : 0)
     );
-    
-    // Clear stored bonus after applying
-    if (hasStoredBonus) {
-      classAbilityMessage += `✨ Защита прошлого хода усиливает атаку на +${enemy.storedDefenseBonus}!\n`;
-      enemy.storedDefenseBonus = 0;
-    }
     
     // Necromancer minion support notifications (defensive)
     if (enemy.summonedSupport && enemyAction === ActionType.ATTACK) {
@@ -171,6 +169,13 @@ export class CombatEngine {
 
     // Calculate player damage
     if (playerAction === ActionType.ATTACK) {
+      // Spend the defense bonus stored on a previous turn on this attack only.
+      const attackPower = effectiveAttack + storedAttackBonus;
+      if (storedAttackBonus > 0) {
+        classAbilityMessage += `✨ Защита прошлого хода усиливает атаку на +${storedAttackBonus}!\n`;
+        enemy.storedDefenseBonus = 0;
+      }
+
       // Defensive stance and similar abilities boost the boss defense that
       // reduces the player's attack this turn.
       const bossDefenseForAttack =
@@ -179,7 +184,7 @@ export class CombatEngine {
           : enemy.defense;
 
       // Base damage after armor penetration
-      playerDamage = Math.max(1, effectiveAttack - Math.floor(bossDefenseForAttack / 2));
+      playerDamage = Math.max(1, attackPower - Math.floor(bossDefenseForAttack / 2));
 
       // Assassin Backstab (penerates defense completely)
       if (playerClassCode === 'assassin') {
@@ -187,7 +192,7 @@ export class CombatEngine {
         const backstabChance = hpPercent < 25 ? 0.65 : 0.4;
         assassinBackstab = Math.random() < backstabChance;
         if (assassinBackstab) {
-          playerDamage = Math.max(1, effectiveAttack); // Full attack, ignore defense
+          playerDamage = Math.max(1, attackPower); // Full attack, ignore defense
           classAbilityMessage +=
             '🗡 Ассасин: зашёл за спину — ответный удар сорван, защита пробита!\n';
         }
@@ -259,7 +264,7 @@ export class CombatEngine {
       
       // Necromancer summoned boss adds damage to player's attack
       if (playerClassCode === 'necromancer' && enemy.summonedSupport === 'boss') {
-        const summonedBossDamage = Math.max(1, Math.floor(effectiveAttack * 0.20));
+        const summonedBossDamage = Math.max(1, Math.floor(attackPower * 0.20));
         playerDamage += summonedBossDamage;
         classAbilityMessage += `☠️ Призванный босс: +${summonedBossDamage} урона!\n`;
       }

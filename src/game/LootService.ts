@@ -240,11 +240,11 @@ export class LootService {
     }
 
     const progress = await db.query(
-      'SELECT floor FROM player_progress WHERE id = $1',
+      'SELECT highest_floor_reached FROM player_progress WHERE id = $1',
       [playerProgressId]
     );
     if (!progress.rows[0] ||
-        PlayerProgressModel.calculateLevel(Number(progress.rows[0].floor)) < item.level_required) {
+        PlayerProgressModel.calculateLevel(Number(progress.rows[0].highest_floor_reached)) < item.level_required) {
       return false;
     }
 
@@ -284,6 +284,31 @@ export class LootService {
     }
 
     // Recalculate player stats
+    await this.recalculateStats(playerProgressId);
+
+    return true;
+  }
+
+  async unequipItem(playerProgressId: number, slot: string): Promise<boolean> {
+    const validSlots = ['weapon', 'shield', 'helmet', 'armor', 'boots', 'accessory'];
+    if (!validSlots.includes(slot)) return false;
+
+    const equipment = await this.getEquipment(playerProgressId);
+    if (!equipment) return false;
+
+    const slotColumn = `${slot}_id`;
+    if (equipment[slotColumn] === null || equipment[slotColumn] === undefined) {
+      return false;
+    }
+
+    await db.query(
+      `UPDATE player_equipment
+       SET ${slotColumn} = NULL, updated_at = NOW()
+       WHERE player_progress_id = $1`,
+      [playerProgressId]
+    );
+
+    // Recalculate stats and clamp current HP to the new maximum
     await this.recalculateStats(playerProgressId);
 
     return true;
@@ -360,11 +385,13 @@ export class LootService {
       }
     }
 
-    // Update player stats
+    // Update player stats. Current HP is clamped so it can never exceed the
+    // recalculated maximum (e.g. after a piece of armor is removed).
     await db.query(
       `UPDATE player_progress 
        SET max_hp = $1, attack = $2, defense = $3,
            crit_chance = $4, dodge = $5, lifesteal = $6, ai_resist = $7,
+           hp = LEAST(hp, $1),
            updated_at = NOW()
        WHERE id = $8`,
       [totalHp, totalAttack, totalDefense, totalCritChance, totalDodge,
