@@ -608,7 +608,10 @@ export class BossSystem {
       if (!canUse(ability)) return false;
       if (ability.condition === 'low_hp' && hpPercent >= 30) return false;
       if (ability.condition === 'player_defend' && playerAction !== ActionType.DEFEND) return false;
-      if (ability.action === ActionType.DEFEND && ability.heal_amount && !healAvailable()) return false;
+      // Every healing ability, attacking drains included, obeys the shared
+      // interval and total cap, so no heal is activated only to be refused by
+      // the combat loop while still burning its cooldown.
+      if (ability.heal_amount && !healAvailable()) return false;
       return true;
     };
 
@@ -643,7 +646,14 @@ export class BossSystem {
       };
     }
 
-    const base = this.selectFallbackAction(config, hpPercent, playerAction, turnCount);
+    const base = this.selectFallbackAction(
+      config,
+      hpPercent,
+      playerAction,
+      turnCount,
+      canUse,
+      boss.abilityCooldowns
+    );
 
     // The Tactician's forecast biases the boss towards the predicted action
     // without forcing it: the boss may still act differently.
@@ -660,7 +670,9 @@ export class BossSystem {
     config: BossConfig,
     hpPercent: number,
     playerAction: ActionType,
-    turnCount: number
+    turnCount: number,
+    canUse: (ability: BossAbility) => boolean,
+    abilityCooldowns: Record<string, number>
   ): { action: ActionType; ability?: BossAbility; message: string } {
     // Поведение по AI type
     switch (config.ai_type) {
@@ -680,7 +692,16 @@ export class BossSystem {
             message: `${config.icon} ${config.name} атакует!`,
           };
         }
-        const stance = config.abilities.find((a) => a.defense_multiplier);
+        // The stance respects its cooldown here too. If it is still recharging
+        // the boss simply attacks instead of reusing it every other turn.
+        const stance = config.abilities.find((a) => a.defense_multiplier && canUse(a));
+        if (!stance) {
+          return {
+            action: ActionType.ATTACK,
+            message: `${config.icon} ${config.name} атакует!`,
+          };
+        }
+        abilityCooldowns[stance.name] = turnCount;
         return {
           action: ActionType.DEFEND,
           ability: stance,

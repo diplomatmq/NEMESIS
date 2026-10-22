@@ -146,10 +146,11 @@ export class CombatEngine {
       }
     }
 
-    // Increment turn count for bosses
-    if (enemy.isBoss && enemy.boss_config) {
-      enemy.turnCount = (enemy.turnCount || 0) + 1;
-    }
+    // The turn counter drives first-strike effects as well as boss cooldowns,
+    // so it must advance for every enemy, not only bosses. Otherwise
+    // turnCount stays at 1 for regular enemies and first-hit relics fire on
+    // every incoming hit.
+    enemy.turnCount = (enemy.turnCount || 0) + 1;
 
     // Check for boss phase transition
     if (enemy.isBoss && enemy.boss_config) {
@@ -563,10 +564,11 @@ export class CombatEngine {
         enemyDamage = 0;
       } else {
         const cappedReduction = Math.min(MAX_DEFENSE_REDUCTION, Math.max(0, damageReduction));
-        enemyDamage = Math.max(
-          1,
-          Math.floor(baseEnemyAttack * (1 - cappedReduction)) - (incomingReport?.absorbFlat || 0)
-        );
+        const afterReduction = Math.floor(baseEnemyAttack * (1 - cappedReduction));
+        const absorbed = incomingReport?.absorbFlat || 0;
+        // A shield that covers the whole remaining hit leaves zero damage; the
+        // minimum of one only applies when damage still gets through.
+        enemyDamage = absorbed >= afterReduction ? 0 : Math.max(1, afterReduction - absorbed);
       }
 
       // Boss healing from life drain. It shares the same interval and total
