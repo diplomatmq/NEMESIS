@@ -668,7 +668,7 @@ export class BossSystem {
         // Всегда атакует
         return {
           action: ActionType.ATTACK,
-          message: `${config.icon} ${boss.name} яростно атакует!`,
+          message: `${config.icon} ${config.name} яростно атакует!`,
         };
       
       case 'defensive': {
@@ -677,14 +677,14 @@ export class BossSystem {
         if (turnCount % 2 === 0) {
           return {
             action: ActionType.ATTACK,
-            message: `${config.icon} ${boss.name} атакует!`,
+            message: `${config.icon} ${config.name} атакует!`,
           };
         }
         const stance = config.abilities.find((a) => a.defense_multiplier);
         return {
           action: ActionType.DEFEND,
           ability: stance,
-          message: `${config.icon} ${boss.name} принимает защитную стойку!`,
+          message: `${config.icon} ${config.name} принимает защитную стойку!`,
         };
       }
       
@@ -693,12 +693,12 @@ export class BossSystem {
         if (Math.random() < 0.6) {
           return {
             action: playerAction === ActionType.ATTACK ? ActionType.DEFEND : ActionType.ATTACK,
-            message: `${config.icon} ${boss.name} адаптируется к вашей тактике!`,
+            message: `${config.icon} ${config.name} адаптируется к вашей тактике!`,
           };
         } else {
           return {
             action: ActionType.ATTACK,
-            message: `${config.icon} ${boss.name} атакует!`,
+            message: `${config.icon} ${config.name} атакует!`,
           };
         }
       
@@ -706,23 +706,23 @@ export class BossSystem {
         // Случайное
         return {
           action: Math.random() > 0.5 ? ActionType.ATTACK : ActionType.DEFEND,
-          message: `${config.icon} ${boss.name} непредсказуем!`,
+          message: `${config.icon} ${config.name} непредсказуем!`,
         };
       
       case 'tactical':
         // Умный выбор
         if (hpPercent > 70) {
-          return { action: ActionType.ATTACK, message: `${config.icon} ${boss.name} агрессивно наступает!` };
+          return { action: ActionType.ATTACK, message: `${config.icon} ${config.name} агрессивно наступает!` };
         } else if (hpPercent > 30) {
-          return { action: playerAction === ActionType.ATTACK ? ActionType.DEFEND : ActionType.ATTACK, message: `${config.icon} ${boss.name} действует тактично!` };
+          return { action: playerAction === ActionType.ATTACK ? ActionType.DEFEND : ActionType.ATTACK, message: `${config.icon} ${config.name} действует тактично!` };
         } else {
-          return { action: ActionType.ATTACK, message: `${config.icon} ${boss.name} в отчаянии!` };
+          return { action: ActionType.ATTACK, message: `${config.icon} ${config.name} в отчаянии!` };
         }
       
       default:
         return {
           action: ActionType.ATTACK,
-          message: `${config.icon} ${boss.name} атакует!`,
+          message: `${config.icon} ${config.name} атакует!`,
         };
     }
   }

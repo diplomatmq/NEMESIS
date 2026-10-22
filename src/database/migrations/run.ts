@@ -68,9 +68,10 @@ async function runMigrations() {
       { name: '027_potions_level_and_tank_rebalance', file: '027_potions_level_and_tank_rebalance.sql', order: 27 },
       { name: '028_highest_floor_reached', file: '028_highest_floor_reached.sql', order: 28 },
       { name: '029_special_effect_codes', file: '029_special_effect_codes.sql', order: 29 },
+      { name: '030_item_synergy_and_effect_descriptions', file: '030_item_synergy_and_effect_descriptions.sql', order: 30 },
     ];
 
-    const EXPECTED_MIGRATION_COUNT = 30;
+    const EXPECTED_MIGRATION_COUNT = 31;
     if (migrations.length !== EXPECTED_MIGRATION_COUNT) {
       console.error(`❌ ERROR: Expected ${EXPECTED_MIGRATION_COUNT} migrations, but found ${migrations.length}`);
       console.error(`   This means migrations are missing from the array!`);

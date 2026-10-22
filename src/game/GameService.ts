@@ -14,6 +14,7 @@ import {
   isCooldownExemptTelegramUser,
 } from './CooldownService';
 import { combatEngine, Enemy } from './CombatEngine';
+import { PREDICTION_ACTION_BIAS } from './BossSystem';
 import { behaviorTracker } from './BehaviorTracker';
 import { lootService } from './LootService';
 import { classService } from './ClassService';
@@ -288,27 +289,27 @@ export class GameService {
     // AI всегда предсказывает действия игрока для всех классов
     if (currentFloor > 10 && behaviorProfile.total_actions >= 3) {
       tacticianAbilityUsed = playerClass?.code === 'tactician';
+
+      // 1. Прогноз — это отдельная догадка о действии врага, а не само действие.
       const predictedPlayerAction = behaviorTracker.predictNextAction(behaviorProfile);
       const aiAccuracy = behaviorTracker.calculateAIAccuracy(
         currentFloor,
         progress.ai_resist || 0
       );
-      
-      // AI uses prediction with accuracy rate
       if (Math.random() < aiAccuracy) {
-        // AI successfully predicted - counter it
-        if (predictedPlayerAction === ActionType.ATTACK) {
-          enemyAction = ActionType.DEFEND; // Defend against predicted attack
-        } else {
-          enemyAction = ActionType.ATTACK; // Attack if player predicted to defend
-        }
+        // AI успешно предсказал игрока — предполагает контр-действие.
+        predictedEnemyAction =
+          predictedPlayerAction === ActionType.ATTACK
+            ? ActionType.DEFEND
+            : ActionType.ATTACK;
       } else {
-        // AI failed prediction - random action
-        enemyAction = Math.random() > 0.6 ? ActionType.ATTACK : ActionType.DEFEND;
+        // AI ошибся — прогноз случаен.
+        predictedEnemyAction = Math.random() > 0.6 ? ActionType.ATTACK : ActionType.DEFEND;
       }
-      
-      // Запоминаем что будет делать враг (для тактика)
-      predictedEnemyAction = enemyAction;
+
+      // 2. Фактическое действие выбирается независимо, но с повышенным весом
+      // для совпадающего с прогнозом варианта — совпадение не гарантировано.
+      enemyAction = this.rollEnemyAction(predictedEnemyAction);
     } else {
       // Для низких этажей - простая случайная логика
       enemyAction = Math.random() > 0.5 ? ActionType.ATTACK : ActionType.DEFEND;
@@ -324,11 +325,11 @@ export class GameService {
       predictedEnemyAction
     );
 
-    // Тактик видит что будет делать враг
+    // Тактик видит предположение о действии врага
     if (tacticianAbilityUsed && predictedEnemyAction) {
-      const actionText = predictedEnemyAction === ActionType.ATTACK ? '⚔️ атакует' : '🛡️ защищается';
+      const actionText = predictedEnemyAction === ActionType.ATTACK ? 'атакует' : 'защищается';
       combatResult.message =
-        `🧠 Тактик: враг ${actionText}!\n` + combatResult.message;
+        `🧠 Тактик предполагает: враг, вероятнее всего, ${actionText}.\n` + combatResult.message;
     }
 
     // Record action for behavior tracking
@@ -1305,6 +1306,18 @@ export class GameService {
       case 'common': return '⚪';
       default: return '📦';
     }
+  }
+
+  /**
+   * Выбирает фактическое действие врага. Действие, совпадающее с прогнозом,
+   * получает повышенный вес, но совпадение не гарантируется.
+   */
+  private rollEnemyAction(forecast: ActionType): ActionType {
+    const attackWeight = forecast === ActionType.ATTACK ? PREDICTION_ACTION_BIAS : 1;
+    const defendWeight = forecast === ActionType.DEFEND ? PREDICTION_ACTION_BIAS : 1;
+    return Math.random() * (attackWeight + defendWeight) < attackWeight
+      ? ActionType.ATTACK
+      : ActionType.DEFEND;
   }
 }
 

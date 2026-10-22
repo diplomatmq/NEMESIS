@@ -179,6 +179,9 @@ export class SpecialEffectsService {
     if (this.has(ctx, 'lucky_bone')) {
       multiply(1.05, '🍀 Кость удачи: +5% урона!');
     }
+    if (this.has(ctx, 'unique')) {
+      multiply(1.05, '✨ Уникальная реликвия: +5% урона!');
+    }
     if (this.has(ctx, 'changing_bonus')) {
       const factor = 0.90 + Math.random() * 0.25;
       multiply(factor, `🎭 Меняющийся бонус: ×${factor.toFixed(2)} урона!`);
@@ -260,10 +263,6 @@ export class SpecialEffectsService {
       report.damageReduction += 0.08;
       report.messages.push('🔨 Молот последнего рубежа: -8% урона!');
     }
-    if (this.has(ctx, 'first_hit_reduction') && ctx.turnCount <= 1) {
-      report.damageReduction += 0.50;
-      report.messages.push('❤️ Сердце крепости: первый удар -50%!');
-    }
     if (this.has(ctx, 'minion_protection') && ctx.hasMinion) {
       report.damageReduction += 0.05;
       report.messages.push('💀 Щит призрачного легиона: -5% урона!');
@@ -295,10 +294,6 @@ export class SpecialEffectsService {
     }
     if (this.has(ctx, 'shadow_step')) {
       report.dodgeBonus += 0.05;
-    }
-    if (this.has(ctx, 'first_strike_dodge') && ctx.isBoss && ctx.turnCount <= 1) {
-      report.dodgeBonus += 0.10;
-      report.messages.push('👻 Сапоги призрачной поступи: +10% уклонения!');
     }
 
     if (this.has(ctx, 'living_shield')) {
@@ -369,6 +364,22 @@ export class SpecialEffectsService {
     return report;
   }
 
+  /**
+   * Dodge evaluated for every incoming hit, independent of the action the
+   * player chose this turn.
+   */
+  analyzeIncomingDodge(ctx: EffectContext): { dodgeBonus: number; messages: string[] } {
+    const result = { dodgeBonus: 0, messages: [] as string[] };
+    if (this.has(ctx, 'first_strike_dodge') && ctx.isBoss && ctx.turnCount <= 1) {
+      result.dodgeBonus += 0.10;
+      result.messages.push('👻 Сапоги призрачной поступи: +10% уклонения от первой атаки!');
+    }
+    if (this.has(ctx, 'hide_last_action')) {
+      result.dodgeBonus += 0.05;
+    }
+    return result;
+  }
+
   analyzeIncoming(ctx: EffectContext, incomingDamage: number): IncomingEffectReport {
     const report: IncomingEffectReport = {
       reduction: 0,
@@ -392,6 +403,13 @@ export class SpecialEffectsService {
       report.reduction += 0.10;
       report.messages.push('🗿 Сердце каменного титана: -10% урона!');
     }
+    // First-hit relics work on any incoming hit, not only while the player is
+    // defending.
+    if (this.has(ctx, 'first_hit_reduction') && ctx.turnCount <= 1) {
+      report.reduction += 0.50;
+      report.messages.push('❤️ Сердце крепости: первый удар -50%!');
+    }
+    if (this.has(ctx, 'unique')) report.reduction += 0.03;
     if (this.has(ctx, 'emergency_shield') && hp < 25 && !ctx.usedOnce.includes('emergency_shield')) {
       ctx.usedOnce.push('emergency_shield');
       report.absorbFlat += Math.floor(ctx.playerMaxHp * 0.15);
@@ -413,13 +431,13 @@ export class SpecialEffectsService {
       report.reduction += 0.20;
       report.messages.push('⏳ Часы последнего шанса: следующий урон -20%!');
     }
+    // Lethal protection is only announced here. The effect is marked as used
+    // by CombatEngine at the moment it actually saves the player, so a
+    // non-lethal hit never consumes it.
     if (this.has(ctx, 'last_chance') && !ctx.usedOnce.includes('last_chance')) {
-      ctx.usedOnce.push('last_chance');
       report.preventLethal = true;
-      ctx.usedOnce.push('last_chance_shield');
     }
     if (this.has(ctx, 'revive') && !ctx.usedOnce.includes('revive')) {
-      ctx.usedOnce.push('revive');
       report.revive = true;
     }
     if (this.has(ctx, 'greed')) {

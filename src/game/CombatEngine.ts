@@ -358,12 +358,12 @@ export class CombatEngine {
       }
 
       // Assassin Backstab negates enemy attack completely
+      let damageReduction = 0;
+      let fullBlock = false;
       if (assassinBackstab) {
         enemyDamage = 0;
       } else if (playerAction === ActionType.DEFEND) {
         // NEW DEFENSE SYSTEM - Full rewrite per spec
-        let damageReduction = 0;
-        
         switch (playerClassCode) {
           case 'berserker': {
             // 35% reduction (45% if HP < 30%)
@@ -393,7 +393,7 @@ export class CombatEngine {
           case 'assassin': {
             // 40% chance full dodge + counter (50% attack damage)
             if (Math.random() < 0.40) {
-              damageReduction = 1.0;
+              fullBlock = true;
               counterAttackDamage = Math.floor(effectiveAttack * 0.50);
               classAbilityMessage += `🗡 Ассасин: теневое уклонение! Контратака на ${counterAttackDamage} урона!\n`;
             } else {
@@ -445,7 +445,7 @@ export class CombatEngine {
             // Random effects: 20% full dodge, 30% mirror (35% + reflect), 50% swap (40%)
             const roll = Math.random();
             if (roll < 0.20) {
-              damageReduction = 1.0;
+              fullBlock = true;
               classAbilityMessage += `🃏 Шут: фокус! Полное уклонение!\n`;
             } else if (roll < 0.50) {
               damageReduction = 0.35;
@@ -502,13 +502,10 @@ export class CombatEngine {
         }
         if (Math.random() < defenseEffects.blockChance
           || Math.random() < defenseEffects.fullBlockChance) {
-          damageReduction = 1.0;
+          fullBlock = true;
           classAbilityMessage += '🛡 Экипировка полностью заблокировала удар!\n';
         }
-        
-        // Apply damage reduction
-        enemyDamage = Math.max(1, Math.floor(baseEnemyAttack * (1 - damageReduction)));
-        
+
       } else {
         // Normal attack - armor reduces damage but can never absorb more than
         // 40% of the base hit, no matter how high defense is.
@@ -516,25 +513,31 @@ export class CombatEngine {
           Math.floor(effectiveDefense * 0.35),
           Math.floor(baseEnemyAttack * 0.40)
         );
-        enemyDamage = Math.max(1, baseEnemyAttack - armorReduction);
-      }
-      
-      // Necromancer minion support effects
-      if (enemy.summonedSupport === 'mobs') {
-        // Three risen corpses reduce incoming damage by 30%
-        enemyDamage = Math.floor(enemyDamage * 0.70);
-      } else if (enemy.summonedSupport === 'boss') {
-        // Summoned boss HELPS player - reduces incoming damage by 15%
-        enemyDamage = Math.floor(enemyDamage * 0.85);
-        // AND adds damage to the enemy (will be applied later)
-        // This is tracked separately to avoid double-application
+        damageReduction = baseEnemyAttack > 0 ? armorReduction / baseEnemyAttack : 0;
       }
 
+      // Necromancer minion support feeds the same reduction pool.
+      if (enemy.summonedSupport === 'mobs') {
+        damageReduction += 0.30;
+      } else if (enemy.summonedSupport === 'boss') {
+        damageReduction += 0.15;
+      }
+
+      // First-strike and concealment relics add dodge no matter which action
+      // the player chose.
+      const firstStrike = specialEffects.analyzeIncomingDodge(effectContext());
+
       // Dodge chance (equipment-based, capped at 95%)
-      const dodgeChance = Math.min(0.95, 0.05 + (player.dodge || 0) / 100 + defenseDodgeBonus);
+      const dodgeChance = Math.min(
+        0.95,
+        0.05 + (player.dodge || 0) / 100 + defenseDodgeBonus + firstStrike.dodgeBonus
+      );
       if (Math.random() < dodgeChance) {
-        enemyDamage = 0;
+        fullBlock = true;
         isDodge = true;
+        if (firstStrike.messages.length > 0) {
+          classAbilityMessage += firstStrike.messages.join('\n') + '\n';
+        }
         const dodgeEffects = specialEffects.onDodge(effectContext());
         if (dodgeEffects.messages.length > 0) {
           classAbilityMessage += dodgeEffects.messages.join('\n') + '\n';
@@ -545,19 +548,38 @@ export class CombatEngine {
         nextAttackBonus += Math.floor(effectiveAttack * dodgeEffects.nextAttackBonusPercent);
       }
 
-      // Equipment reactions to an incoming hit (shields, last-chance relics)
-      if (enemyDamage > 0) {
-        incomingReport = specialEffects.analyzeIncoming(effectContext(), enemyDamage);
+      // Equipment reactions to an incoming hit (shields, last-chance relics).
+      if (!fullBlock) {
+        incomingReport = specialEffects.analyzeIncoming(effectContext(), baseEnemyAttack);
         if (incomingReport.messages.length > 0) {
           classAbilityMessage += incomingReport.messages.join('\n') + '\n';
         }
-        enemyDamage = Math.max(1, Math.floor(enemyDamage * (1 - incomingReport.reduction))
-          - incomingReport.absorbFlat);
+        damageReduction += incomingReport.reduction;
       }
 
-      // Boss healing from life drain
+      // Apply every percentage reduction once, under one shared cap. A real
+      // full block leaves zero damage instead of the usual minimum of one.
+      if (fullBlock) {
+        enemyDamage = 0;
+      } else {
+        const cappedReduction = Math.min(MAX_DEFENSE_REDUCTION, Math.max(0, damageReduction));
+        enemyDamage = Math.max(
+          1,
+          Math.floor(baseEnemyAttack * (1 - cappedReduction)) - (incomingReport?.absorbFlat || 0)
+        );
+      }
+
+      // Boss healing from life drain. It shares the same interval and total
+      // cap as dedicated heal abilities, so drain attacks cannot be stacked
+      // with them more often than the interval allows.
       if (enemy.isBoss && bossAbility && bossAbility.heal_amount && enemyDamage > 0) {
-        bossHealing = bossSystem.calculateBossHealing(enemy as any, bossAbility, enemyDamage);
+        const currentTurn = enemy.turnCount || 1;
+        if (currentTurn - (enemy.lastHealTurn || 0) >= HEAL_INTERVAL_TURNS) {
+          bossHealing = bossSystem.calculateBossHealing(enemy as any, bossAbility, enemyDamage);
+          if (bossHealing > 0) {
+            enemy.lastHealTurn = currentTurn;
+          }
+        }
       }
     } else if (enemyAction === ActionType.DEFEND && enemy.isBoss && bossAbility?.heal_amount) {
       // Boss defensive healing. Its limits are shared with BossSystem via the
@@ -632,12 +654,16 @@ export class CombatEngine {
       }
     }
 
-    // Last-chance equipment can cheat death once per combat.
+    // Last-chance equipment can cheat death once per combat. The effect is
+    // marked as used only here, when it actually prevents death.
     if (newPlayerHp <= 0 && incomingReport?.preventLethal) {
       newPlayerHp = 1;
+      usedOnce.push('last_chance');
+      usedOnce.push('last_chance_shield');
       classAbilityMessage += '⏳ Часы последнего шанса спасли вас от смерти!\n';
     } else if (newPlayerHp <= 0 && incomingReport?.revive) {
       newPlayerHp = Math.max(1, Math.floor(player.max_hp * 0.5));
+      usedOnce.push('revive');
       classAbilityMessage += '✨ Реликвия возрождения вернула вас в бой!\n';
     }
     
