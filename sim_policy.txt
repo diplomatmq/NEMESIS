@@ -1,0 +1,197 @@
+﻿
+==============================================================================================================
+ЭТАЖ 150 (ур. 15) — босс Хранитель Часов | HP 2248 ATK 100 DEF 29
+==============================================================================================================
+berserker   | нет экип. | win   0.0% | loss 100.0% | TO  0.0% | turns   1.9/   2 | atk   1.7 def   0.3 | hp   0% | cls  24% | pot  50% | death1   2.0%
+berserker   | урон      | win  87.4% | loss  12.6% | TO  0.0% | turns  13.9/  14 | atk  10.6 def   3.3 | hp  28% | cls  98% | pot  86% | death1   0.0%
+berserker   | танк      | win   0.0% | loss 100.0% | TO  0.0% | turns  26.0/  25 | atk  17.1 def   8.9 | hp   0% | cls 100% | pot 100% | death1   0.0%
+berserker   | гибрид    | win 100.0% | loss   0.0% | TO  0.0% | turns  25.3/  25 | atk  19.1 def   6.2 | hp  21% | cls 100% | pot  94% | death1   0.0%
+berserker   | синергия  | win  85.4% | loss  14.6% | TO  0.0% | turns  14.6/  14 | atk  10.5 def   4.0 | hp  13% | cls 100% | pot  98% | death1   0.0%
+guardian    | нет экип. | win   0.0% | loss 100.0% | TO  0.0% | turns   3.4/   3 | atk   2.2 def   1.2 | hp   0% | cls  78% | pot  75% | death1   0.0%
+guardian    | урон      | win  94.6% | loss   5.4% | TO  0.0% | turns  15.1/  15 | atk  11.8 def   3.3 | hp  35% | cls  94% | pot  68% | death1   0.0%
+guardian    | танк      | win   0.0% | loss 100.0% | TO  0.0% | turns  32.6/  32 | atk  21.4 def  11.2 | hp   0% | cls 100% | pot 100% | death1   0.0%
+guardian    | гибрид    | win 100.0% | loss   0.0% | TO  0.0% | turns  26.1/  26 | atk  20.3 def   5.8 | hp  35% | cls 100% | pot  79% | death1   0.0%
+guardian    | синергия  | win   0.2% | loss  99.8% | TO  0.0% | turns  29.4/  29 | atk  19.6 def   9.8 | hp   0% | cls 100% | pot 100% | death1   0.0%
+assassin    | нет экип. | win   0.0% | loss 100.0% | TO  0.0% | turns   1.4/   1 | atk   1.1 def   0.2 | hp   0% | cls  66% | pot   2% | death1   3.0%
+assassin    | урон      | win  95.0% | loss   5.0% | TO  0.0% | turns  11.7/  12 | atk   8.9 def   2.7 | hp  31% | cls 100% | pot  68% | death1   0.0%
+assassin    | танк      | win   0.0% | loss 100.0% | TO  0.0% | turns  24.1/  23 | atk  15.6 def   8.4 | hp   0% | cls 100% | pot 100% | death1   0.0%
+assassin    | гибрид    | win 100.0% | loss   0.0% | TO  0.0% | turns  25.0/  25 | atk  17.6 def   7.3 | hp  16% | cls 100% | pot  94% | death1   0.0%
+assassin    | синергия  | win  86.2% | loss  13.8% | TO  0.0% | turns  11.2/  11 | atk   8.3 def   2.9 | hp  23% | cls 100% | pot  83% | death1   0.0%
+vampire     | нет экип. | win   0.0% | loss 100.0% | TO  0.0% | turns   2.0/   2 | atk   1.7 def   0.3 | hp   0% | cls  28% | pot  51% | death1   1.4%
+vampire     | урон      | win  99.4% | loss   0.6% | TO  0.0% | turns  13.8/  14 | atk  11.5 def   2.2 | hp  65% | cls 100% | pot  18% | death1   0.0%
+vampire     | танк      | win   0.8% | loss  99.2% | TO  0.0% | turns  36.2/  34 | atk  22.7 def  13.5 | hp   2% | cls 100% | pot 100% | death1   0.0%
+vampire     | гибрид    | win 100.0% | loss   0.0% | TO  0.0% | turns  26.9/  26 | atk  21.8 def   5.1 | hp  45% | cls 100% | pot  46% | death1   0.0%
+vampire     | синергия  | win 100.0% | loss   0.0% | TO  0.0% | turns  18.0/  18 | atk  15.3 def   2.7 | hp  90% | cls 100% | pot   0% | death1   0.0%
+arcanist    | нет экип. | win   0.0% | loss 100.0% | TO  0.0% | turns   1.4/   1 | atk   1.2 def   0.2 | hp   0% | cls  17% | pot   2% | death1   3.0%
+arcanist    | урон      | win  82.8% | loss  17.2% | TO  0.0% | turns  13.3/  13 | atk  10.0 def   3.3 | hp  30% | cls 100% | pot  78% | death1   0.0%
+arcanist    | танк      | win   0.0% | loss 100.0% | TO  0.0% | turns  25.8/  25 | atk  17.2 def   8.6 | hp   0% | cls 100% | pot 100% | death1   0.0%
+arcanist    | гибрид    | win 100.0% | loss   0.0% | TO  0.0% | turns  26.7/  27 | atk  19.6 def   7.1 | hp  19% | cls 100% | pot  95% | death1   0.0%
+arcanist    | синергия  | win 100.0% | loss   0.0% | TO  0.0% | turns  21.9/  22 | atk  17.3 def   4.7 | hp  36% | cls 100% | pot  69% | death1   0.0%
+tactician   | нет экип. | win   0.0% | loss 100.0% | TO  0.0% | turns   2.0/   2 | atk   1.2 def   0.7 | hp   0% | cls  65% | pot  53% | death1   2.4%
+tactician   | урон      | win  94.8% | loss   5.2% | TO  0.0% | turns  12.3/  12 | atk   9.7 def   2.6 | hp  37% | cls  91% | pot  64% | death1   0.0%
+tactician   | танк      | win   0.0% | loss 100.0% | TO  0.0% | turns  27.0/  26 | atk  17.8 def   9.2 | hp   0% | cls 100% | pot 100% | death1   0.0%
+tactician   | гибрид    | win 100.0% | loss   0.0% | TO  0.0% | turns  26.1/  26 | atk  19.6 def   6.6 | hp  23% | cls  99% | pot  92% | death1   0.0%
+tactician   | синергия  | win  98.6% | loss   1.4% | TO  0.0% | turns  20.8/  21 | atk  16.7 def   4.2 | hp  39% | cls  97% | pot  67% | death1   0.0%
+jester      | нет экип. | win   0.0% | loss 100.0% | TO  0.0% | turns   1.4/   1 | atk   1.2 def   0.2 | hp   0% | cls  27% | pot   3% | death1   8.8%
+jester      | урон      | win  87.0% | loss  13.0% | TO  0.0% | turns  13.9/  14 | atk  10.7 def   3.3 | hp  32% | cls 100% | pot  77% | death1   0.0%
+jester      | танк      | win   0.0% | loss 100.0% | TO  0.0% | turns  26.7/  26 | atk  17.6 def   9.1 | hp   0% | cls 100% | pot 100% | death1   0.0%
+jester      | гибрид    | win 100.0% | loss   0.0% | TO  0.0% | turns  28.5/  28 | atk  20.7 def   7.7 | hp  20% | cls 100% | pot  94% | death1   0.0%
+jester      | синергия  | win   0.8% | loss  99.2% | TO  0.0% | turns  23.2/  23 | atk  15.4 def   7.8 | hp   2% | cls 100% | pot 100% | death1   0.0%
+necromancer | нет экип. | win   0.0% | loss 100.0% | TO  0.0% | turns   1.9/   2 | atk   1.4 def   0.5 | hp   0% | cls  58% | pot  45% | death1   1.6%
+necromancer | урон      | win  96.8% | loss   3.2% | TO  0.0% | turns  12.2/  12 | atk   9.9 def   2.3 | hp  48% | cls 100% | pot  29% | death1   0.0%
+necromancer | танк      | win   2.6% | loss  97.4% | TO  0.0% | turns  44.1/  44 | atk  29.3 def  14.8 | hp   3% | cls 100% | pot 100% | death1   0.0%
+necromancer | гибрид    | win 100.0% | loss   0.0% | TO  0.0% | turns  23.7/  23 | atk  19.3 def   4.4 | hp  50% | cls 100% | pot  20% | death1   0.0%
+necromancer | синергия  | win  81.4% | loss  18.6% | TO  0.0% | turns  33.2/  34 | atk  25.0 def   8.2 | hp  28% | cls 100% | pot  97% | death1   0.0%
+
+==============================================================================================================
+ЭТАЖ 200 (ур. 20) — босс Вулканический Титан | HP 2498 ATK 107 DEF 32
+==============================================================================================================
+berserker   | нет экип. | win   0.0% | loss 100.0% | TO  0.0% | turns   2.0/   2 | atk   1.7 def   0.3 | hp   0% | cls  28% | pot  49% | death1   3.4%
+berserker   | урон      | win  42.6% | loss  57.4% | TO  0.0% | turns  14.3/  15 | atk   9.8 def   4.4 | hp  15% | cls 100% | pot  99% | death1   0.0%
+berserker   | танк      | win   0.0% | loss 100.0% | TO  0.0% | turns  22.1/  22 | atk  14.8 def   7.3 | hp   0% | cls 100% | pot 100% | death1   0.0%
+berserker   | гибрид    | win 100.0% | loss   0.0% | TO  0.0% | turns  29.0/  29 | atk  19.0 def  10.0 | hp   3% | cls 100% | pot 100% | death1   0.0%
+berserker   | синергия  | win  57.2% | loss  42.8% | TO  0.0% | turns  13.4/  13 | atk   9.3 def   4.1 | hp   5% | cls 100% | pot 100% | death1   0.0%
+guardian    | нет экип. | win   0.0% | loss 100.0% | TO  0.0% | turns   2.8/   3 | atk   1.8 def   1.0 | hp   0% | cls  69% | pot  46% | death1   0.0%
+guardian    | урон      | win  61.4% | loss  38.6% | TO  0.0% | turns  17.3/  17 | atk  12.0 def   5.3 | hp  17% | cls  99% | pot  97% | death1   0.0%
+guardian    | танк      | win   0.0% | loss 100.0% | TO  0.0% | turns  26.5/  26 | atk  17.7 def   8.8 | hp   0% | cls 100% | pot 100% | death1   0.0%
+guardian    | гибрид    | win 100.0% | loss   0.0% | TO  0.0% | turns  33.4/  34 | atk  22.3 def  11.1 | hp   5% | cls 100% | pot 100% | death1   0.0%
+guardian    | синергия  | win   0.0% | loss 100.0% | TO  0.0% | turns  23.4/  23 | atk  15.6 def   7.9 | hp   0% | cls 100% | pot 100% | death1   0.0%
+assassin    | нет экип. | win   0.0% | loss 100.0% | TO  0.0% | turns   1.4/   1 | atk   1.2 def   0.2 | hp   0% | cls  69% | pot   7% | death1   4.0%
+assassin    | урон      | win  70.2% | loss  29.8% | TO  0.0% | turns  12.8/  13 | atk   8.9 def   3.9 | hp  17% | cls 100% | pot  97% | death1   0.0%
+assassin    | танк      | win   0.0% | loss 100.0% | TO  0.0% | turns  19.9/  19 | atk  13.2 def   6.7 | hp   0% | cls 100% | pot 100% | death1   0.0%
+assassin    | гибрид    | win 100.0% | loss   0.0% | TO  0.0% | turns  29.5/  29 | atk  18.4 def  11.1 | hp   4% | cls 100% | pot 100% | death1   0.0%
+assassin    | синергия  | win  43.4% | loss  56.6% | TO  0.0% | turns  11.4/  12 | atk   7.9 def   3.5 | hp  12% | cls 100% | pot  96% | death1   0.0%
+vampire     | нет экип. | win   0.0% | loss 100.0% | TO  0.0% | turns   2.2/   2 | atk   1.4 def   0.8 | hp   0% | cls  65% | pot  56% | death1   1.4%
+vampire     | урон      | win  94.0% | loss   6.0% | TO  0.0% | turns  15.6/  15 | atk  12.6 def   3.0 | hp  48% | cls 100% | pot  52% | death1   0.0%
+vampire     | танк      | win   0.0% | loss 100.0% | TO  0.0% | turns  29.1/  27 | atk  18.8 def  10.3 | hp   0% | cls 100% | pot 100% | death1   0.0%
+vampire     | гибрид    | win 100.0% | loss   0.0% | TO  0.0% | turns  33.5/  33 | atk  23.4 def  10.1 | hp  12% | cls 100% | pot  98% | death1   0.0%
+vampire     | синергия  | win 100.0% | loss   0.0% | TO  0.0% | turns  20.2/  20 | atk  17.2 def   3.1 | hp  79% | cls 100% | pot   0% | death1   0.0%
+arcanist    | нет экип. | win   0.0% | loss 100.0% | TO  0.0% | turns   1.4/   1 | atk   1.2 def   0.2 | hp   0% | cls  17% | pot  11% | death1   6.4%
+arcanist    | урон      | win  63.8% | loss  36.2% | TO  0.0% | turns  12.5/  12 | atk   9.0 def   3.5 | hp  24% | cls 100% | pot  93% | death1   0.0%
+arcanist    | танк      | win   0.0% | loss 100.0% | TO  0.0% | turns  22.1/  22 | atk  14.9 def   7.1 | hp   0% | cls 100% | pot 100% | death1   0.0%
+arcanist    | гибрид    | win 100.0% | loss   0.0% | TO  0.0% | turns  27.3/  27 | atk  18.3 def   9.1 | hp   6% | cls 100% | pot 100% | death1   0.0%
+arcanist    | синергия  | win 100.0% | loss   0.0% | TO  0.0% | turns  22.1/  22 | atk  16.2 def   5.9 | hp  21% | cls 100% | pot  96% | death1   0.0%
+tactician   | нет экип. | win   0.0% | loss 100.0% | TO  0.0% | turns   1.4/   1 | atk   1.2 def   0.2 | hp   0% | cls  19% | pot   7% | death1   3.4%
+tactician   | урон      | win  34.4% | loss  65.6% | TO  0.0% | turns  15.2/  15 | atk  10.4 def   4.8 | hp  15% | cls 100% | pot 100% | death1   0.0%
+tactician   | танк      | win   0.0% | loss 100.0% | TO  0.0% | turns  22.6/  22 | atk  15.3 def   7.3 | hp   0% | cls 100% | pot 100% | death1   0.0%
+tactician   | гибрид    | win 100.0% | loss   0.0% | TO  0.0% | turns  40.2/  40 | atk  24.4 def  15.8 | hp   2% | cls 100% | pot 100% | death1   0.0%
+tactician   | синергия  | win  19.2% | loss  80.8% | TO  0.0% | turns  25.1/  25 | atk  17.4 def   7.7 | hp  13% | cls 100% | pot 100% | death1   0.0%
+jester      | нет экип. | win   0.0% | loss 100.0% | TO  0.0% | turns   1.5/   1 | atk   1.2 def   0.3 | hp   0% | cls  37% | pot   6% | death1  15.8%
+jester      | урон      | win  39.0% | loss  61.0% | TO  0.0% | turns  14.9/  15 | atk  10.2 def   4.7 | hp  17% | cls 100% | pot  98% | death1   0.0%
+jester      | танк      | win   0.0% | loss 100.0% | TO  0.0% | turns  22.8/  22 | atk  15.3 def   7.4 | hp   0% | cls 100% | pot 100% | death1   0.0%
+jester      | гибрид    | win 100.0% | loss   0.0% | TO  0.0% | turns  35.6/  36 | atk  22.2 def  13.3 | hp   3% | cls 100% | pot 100% | death1   0.0%
+jester      | синергия  | win   0.0% | loss 100.0% | TO  0.0% | turns  15.5/  15 | atk  10.6 def   4.9 | hp   0% | cls 100% | pot 100% | death1   0.0%
+necromancer | нет экип. | win   0.0% | loss 100.0% | TO  0.0% | turns   1.6/   1 | atk   1.4 def   0.2 | hp   0% | cls  28% | pot  19% | death1   1.2%
+necromancer | урон      | win  87.2% | loss  12.8% | TO  0.0% | turns  13.9/  14 | atk  10.7 def   3.2 | hp  36% | cls 100% | pot  70% | death1   0.0%
+necromancer | танк      | win   0.0% | loss 100.0% | TO  0.0% | turns  34.9/  33 | atk  23.4 def  11.5 | hp   0% | cls 100% | pot 100% | death1   0.0%
+necromancer | гибрид    | win 100.0% | loss   0.0% | TO  0.0% | turns  27.6/  27 | atk  21.5 def   6.2 | hp  38% | cls 100% | pot  66% | death1   0.0%
+necromancer | синергия  | win   0.0% | loss 100.0% | TO  0.0% | turns  35.4/  35 | atk  24.1 def  11.3 | hp   0% | cls 100% | pot 100% | death1   0.0%
+
+==============================================================================================================
+ЭТАЖ 500 (ур. 50) — босс Вершинный Судья | HP 4248 ATK 185 DEF 56
+==============================================================================================================
+berserker   | нет экип. | win   0.0% | loss 100.0% | TO  0.0% | turns   1.2/   1 | atk   1.0 def   0.2 | hp   0% | cls  18% | pot   0% | death1  14.4%
+berserker   | урон      | win  69.8% | loss  30.2% | TO  0.0% | turns  15.1/  15 | atk  10.5 def   4.6 | hp  16% | cls 100% | pot  98% | death1   0.0%
+berserker   | танк      | win   1.6% | loss  98.4% | TO  0.0% | turns  24.6/  25 | atk  16.4 def   8.3 | hp   5% | cls 100% | pot 100% | death1   0.0%
+berserker   | гибрид    | win  99.2% | loss   0.8% | TO  0.0% | turns  17.2/  17 | atk  12.8 def   4.4 | hp  26% | cls 100% | pot  97% | death1   0.0%
+berserker   | синергия  | win  58.4% | loss  41.6% | TO  0.0% | turns  24.8/  25 | atk  17.0 def   7.8 | hp   9% | cls 100% | pot 100% | death1   0.0%
+guardian    | нет экип. | win   0.0% | loss 100.0% | TO  0.0% | turns   1.5/   1 | atk   1.3 def   0.3 | hp   0% | cls  20% | pot  12% | death1   0.0%
+guardian    | урон      | win  68.2% | loss  31.8% | TO  0.0% | turns  17.2/  17 | atk  12.1 def   5.2 | hp  17% | cls 100% | pot  98% | death1   0.0%
+guardian    | танк      | win   1.0% | loss  99.0% | TO  0.0% | turns  28.3/  28 | atk  18.8 def   9.5 | hp   3% | cls 100% | pot 100% | death1   0.0%
+guardian    | гибрид    | win  99.4% | loss   0.6% | TO  0.0% | turns  18.2/  18 | atk  13.9 def   4.3 | hp  32% | cls  98% | pot  88% | death1   0.0%
+guardian    | синергия  | win   0.0% | loss 100.0% | TO  0.0% | turns  24.7/  25 | atk  16.4 def   8.3 | hp   0% | cls 100% | pot 100% | death1   0.0%
+assassin    | нет экип. | win   0.0% | loss 100.0% | TO  0.0% | turns   1.3/   1 | atk   1.1 def   0.2 | hp   0% | cls  65% | pot   0% | death1   9.2%
+assassin    | урон      | win  80.0% | loss  20.0% | TO  0.0% | turns  14.0/  14 | atk   9.7 def   4.2 | hp  20% | cls 100% | pot  95% | death1   0.0%
+assassin    | танк      | win   0.4% | loss  99.6% | TO  0.0% | turns  23.6/  23 | atk  15.3 def   8.3 | hp   0% | cls 100% | pot 100% | death1   0.0%
+assassin    | гибрид    | win  89.4% | loss  10.6% | TO  0.0% | turns  18.0/  18 | atk  12.7 def   5.3 | hp  20% | cls 100% | pot  97% | death1   0.0%
+assassin    | синергия  | win   0.8% | loss  99.2% | TO  0.0% | turns   5.4/   5 | atk   3.9 def   1.6 | hp   7% | cls  95% | pot  66% | death1   0.0%
+vampire     | нет экип. | win   0.0% | loss 100.0% | TO  0.0% | turns   1.6/   1 | atk   1.3 def   0.3 | hp   0% | cls  20% | pot  18% | death1   0.0%
+vampire     | урон      | win  94.4% | loss   5.6% | TO  0.0% | turns  17.5/  17 | atk  13.3 def   4.3 | hp  34% | cls 100% | pot  76% | death1   0.0%
+vampire     | танк      | win   6.0% | loss  94.0% | TO  0.0% | turns  33.4/  32 | atk  21.7 def  11.7 | hp   2% | cls 100% | pot 100% | death1   0.0%
+vampire     | гибрид    | win  99.0% | loss   1.0% | TO  0.0% | turns  21.0/  21 | atk  16.4 def   4.6 | hp  37% | cls 100% | pot  78% | death1   0.0%
+vampire     | синергия  | win 100.0% | loss   0.0% | TO  0.0% | turns  69.4/  69 | atk  37.3 def  32.1 | hp   3% | cls 100% | pot 100% | death1   0.0%
+arcanist    | нет экип. | win   0.0% | loss 100.0% | TO  0.0% | turns   1.2/   1 | atk   1.0 def   0.2 | hp   0% | cls  17% | pot   0% | death1  13.0%
+arcanist    | урон      | win  59.8% | loss  40.2% | TO  0.0% | turns  15.4/  15 | atk  10.7 def   4.7 | hp  17% | cls 100% | pot  98% | death1   0.0%
+arcanist    | танк      | win   0.0% | loss 100.0% | TO  0.0% | turns  24.8/  25 | atk  16.4 def   8.4 | hp   0% | cls 100% | pot 100% | death1   0.0%
+arcanist    | гибрид    | win  84.8% | loss  15.2% | TO  0.0% | turns  20.1/  20 | atk  14.4 def   5.7 | hp  19% | cls 100% | pot 100% | death1   0.0%
+arcanist    | синергия  | win   0.2% | loss  99.8% | TO  0.0% | turns  12.9/  13 | atk   8.7 def   4.2 | hp   4% | cls 100% | pot 100% | death1   0.0%
+tactician   | нет экип. | win   0.0% | loss 100.0% | TO  0.0% | turns   1.3/   1 | atk   1.1 def   0.2 | hp   0% | cls  19% | pot   9% | death1   9.2%
+tactician   | урон      | win  69.6% | loss  30.4% | TO  0.0% | turns  15.3/  15 | atk  10.6 def   4.7 | hp  18% | cls 100% | pot  97% | death1   0.0%
+tactician   | танк      | win   0.0% | loss 100.0% | TO  0.0% | turns  25.2/  25 | atk  16.8 def   8.5 | hp   0% | cls 100% | pot 100% | death1   0.0%
+tactician   | гибрид    | win  98.6% | loss   1.4% | TO  0.0% | turns  17.7/  18 | atk  13.3 def   4.4 | hp  28% | cls  99% | pot  96% | death1   0.0%
+tactician   | синергия  | win   0.0% | loss 100.0% | TO  0.0% | turns  15.7/  15 | atk  10.4 def   5.2 | hp   0% | cls 100% | pot 100% | death1   0.0%
+jester      | нет экип. | win   0.0% | loss 100.0% | TO  0.0% | turns   1.2/   1 | atk   1.1 def   0.2 | hp   0% | cls  25% | pot   0% | death1  18.4%
+jester      | урон      | win  73.4% | loss  26.6% | TO  0.0% | turns  15.0/  15 | atk  10.5 def   4.5 | hp  21% | cls 100% | pot  96% | death1   0.0%
+jester      | танк      | win   0.0% | loss 100.0% | TO  0.0% | turns  25.9/  26 | atk  17.1 def   8.9 | hp   0% | cls 100% | pot 100% | death1   0.0%
+jester      | гибрид    | win  93.4% | loss   6.6% | TO  0.0% | turns  19.4/  19 | atk  14.0 def   5.3 | hp  23% | cls 100% | pot  96% | death1   0.0%
+jester      | синергия  | win   5.8% | loss  94.2% | TO  0.0% | turns  15.0/  15 | atk  10.1 def   4.9 | hp   9% | cls 100% | pot 100% | death1   0.0%
+necromancer | нет экип. | win   0.0% | loss 100.0% | TO  0.0% | turns   1.4/   1 | atk   1.2 def   0.2 | hp   0% | cls  21% | pot   8% | death1   4.2%
+necromancer | урон      | win  90.6% | loss   9.4% | TO  0.0% | turns  14.4/  14 | atk  11.1 def   3.3 | hp  34% | cls 100% | pot  71% | death1   0.0%
+necromancer | танк      | win  43.2% | loss  56.8% | TO  0.0% | turns  34.3/  34 | atk  23.5 def  10.8 | hp  11% | cls 100% | pot 100% | death1   0.0%
+necromancer | гибрид    | win  96.8% | loss   3.2% | TO  0.0% | turns  17.4/  17 | atk  13.7 def   3.6 | hp  40% | cls 100% | pot  44% | death1   0.0%
+necromancer | синергия  | win   0.0% | loss 100.0% | TO  0.0% | turns  15.6/  16 | atk  10.4 def   5.2 | hp   0% | cls 100% | pot 100% | death1   0.0%
+
+==============================================================================================================
+АНОМАЛИИ
+==============================================================================================================
+Гарантированные победы (100%): 21
+  этаж 150 | berserker | гибрид
+  этаж 150 | guardian | гибрид
+  этаж 150 | assassin | гибрид
+  этаж 150 | vampire | гибрид
+  этаж 150 | vampire | синергия
+  этаж 150 | arcanist | гибрид
+  этаж 150 | arcanist | синергия
+  этаж 150 | tactician | гибрид
+  этаж 150 | jester | гибрид
+  этаж 150 | necromancer | гибрид
+  этаж 200 | berserker | гибрид
+  этаж 200 | guardian | гибрид
+  этаж 200 | assassin | гибрид
+  этаж 200 | vampire | гибрид
+  этаж 200 | vampire | синергия
+  этаж 200 | arcanist | гибрид
+  этаж 200 | arcanist | синергия
+  этаж 200 | tactician | гибрид
+  этаж 200 | jester | гибрид
+  этаж 200 | necromancer | гибрид
+  этаж 500 | vampire | синергия
+Провалы ниже 20% (с экипировкой): 35
+  этаж 150 | berserker | танк → 0.0%
+  этаж 150 | guardian | танк → 0.0%
+  этаж 150 | guardian | синергия → 0.2%
+  этаж 150 | assassin | танк → 0.0%
+  этаж 150 | vampire | танк → 0.8%
+  этаж 150 | arcanist | танк → 0.0%
+  этаж 150 | tactician | танк → 0.0%
+  этаж 150 | jester | танк → 0.0%
+  этаж 150 | jester | синергия → 0.8%
+  этаж 150 | necromancer | танк → 2.6%
+  этаж 200 | berserker | танк → 0.0%
+  этаж 200 | guardian | танк → 0.0%
+  этаж 200 | guardian | синергия → 0.0%
+  этаж 200 | assassin | танк → 0.0%
+  этаж 200 | vampire | танк → 0.0%
+  этаж 200 | arcanist | танк → 0.0%
+  этаж 200 | tactician | танк → 0.0%
+  этаж 200 | tactician | синергия → 19.2%
+  этаж 200 | jester | танк → 0.0%
+  этаж 200 | jester | синергия → 0.0%
+  этаж 200 | necromancer | танк → 0.0%
+  этаж 200 | necromancer | синергия → 0.0%
+  этаж 500 | berserker | танк → 1.6%
+  этаж 500 | guardian | танк → 1.0%
+  этаж 500 | guardian | синергия → 0.0%
+  этаж 500 | assassin | танк → 0.4%
+  этаж 500 | assassin | синергия → 0.8%
+  этаж 500 | vampire | танк → 6.0%
+  этаж 500 | arcanist | танк → 0.0%
+  этаж 500 | arcanist | синергия → 0.2%
+  этаж 500 | tactician | танк → 0.0%
+  этаж 500 | tactician | синергия → 0.0%
+  этаж 500 | jester | танк → 0.0%
+  этаж 500 | jester | синергия → 5.8%
+  этаж 500 | necromancer | синергия → 0.0%
+Таймауты (>200 ходов): 0
+
+Готово за 17.1 с.

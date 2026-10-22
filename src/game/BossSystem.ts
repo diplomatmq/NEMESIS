@@ -144,7 +144,7 @@ export class BossSystem {
      * fixed catalogue so floors 10..500 are deterministic and fully described.
      * 
      * Boss stat formula changes (NEW BALANCE):
-     * - HP: 300 + level * 150 (unchanged - bosses should be tanky)
+     * - HP: 300 + level * 150
      * - ATK: 20 + level * 7 (up to L=10), then 90 + (level - 10) * 2.7 (slower growth)
      * - DEF: 6 + level * 2 (up to L=10), then 26 + (level - 10) * 0.9 (slower growth)
      * 
@@ -280,14 +280,19 @@ export class BossSystem {
             }
         }
         
+        // Late floors grow tankier and hit slightly harder. This tuning is a
+        // distinct step from the per-boss multipliers above, so no factor is
+        // ever applied twice.
+        const tuning = this.getBossFloorTuning(floor);
+
         return {
           name,
           title,
           description,
           floor,
           level,
-          base_hp: baseHp,
-          base_attack: Math.round(baseAttack * atkMultiplier),
+          base_hp: Math.round(baseHp * tuning.hp),
+          base_attack: Math.round(baseAttack * atkMultiplier * tuning.attack),
           base_defense: Math.round(baseDefense * defMultiplier),
           abilities: [
             ...abilityNames.map((ability) => this.BOSS_ABILITIES[ability]),
@@ -457,6 +462,27 @@ export class BossSystem {
     ];
   }
 
+  /**
+   * Stepwise tuning for the late tower. Bands are aligned to the ten-floor
+   * gear tiers because player power does not grow smoothly: it jumps when a
+   * new equipment level unlocks and stays almost flat until the next one.
+   * Measured player defence even regresses at the level-50 tier, so the
+   * 410-500 band is deliberately softer than 360-409; a strictly increasing
+   * curve would make the last floors unwinnable. Each band only touches HP
+   * and attack and never doubles an existing multiplier.
+   */
+  private getBossFloorTuning(floor: number): { hp: number; attack: number } {
+    if (floor >= 410) return { hp: 0.90, attack: 0.90 };
+    if (floor >= 360) return { hp: 1.28, attack: 1.12 };
+    if (floor >= 310) return { hp: 1.20, attack: 1.10 };
+    if (floor >= 260) return { hp: 0.94, attack: 0.97 };
+    if (floor >= 190) return { hp: 0.96, attack: 0.98 };
+    if (floor >= 110) return { hp: 1.06, attack: 1.03 };
+    if (floor >= 100) return { hp: 1.24, attack: 1.11 };
+    if (floor >= 60) return { hp: 1.08, attack: 1.03 };
+    return { hp: 1, attack: 1 };
+  }
+
   private scaleBossToFloor(config: BossConfig, floor: number): BossConfig {
     const scaleFactor = floor / config.floor;
     
@@ -529,14 +555,18 @@ export class BossSystem {
       defMultiplier = 0.90;
     }
     
+    // Apply the same late-floor tuning as the named bosses so procedural
+    // fights share the intended difficulty curve.
+    const tuning = this.getBossFloorTuning(floor);
+
     return {
       name,
       title,
       description: `Могущественный ${title.toLowerCase()} босс ${level} уровня`,
       floor,
       level,
-      base_hp: baseHp,
-      base_attack: Math.round(baseAttack * atkMultiplier),
+      base_hp: Math.round(baseHp * tuning.hp),
+      base_attack: Math.round(baseAttack * atkMultiplier * tuning.attack),
       base_defense: Math.round(baseDefense * defMultiplier),
       abilities: selectedAbilities,
       ai_type: rng.choose(aiTypes),

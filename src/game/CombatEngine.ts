@@ -31,6 +31,12 @@ export interface Enemy {
 /** Equipment and class damage reduction can never exceed this value. */
 const MAX_DEFENSE_REDUCTION = 0.75;
 
+/** Baseline charge a DEFEND action grants to the next attack. */
+const DEFENSE_BASE_BONUS = 0.10;
+
+/** The stored charge can never exceed this share of the effective attack. */
+const MAX_STORED_DEFENSE_BONUS = 0.30;
+
 
 const MOB_ZONES: Array<[string, string, string]> = [
   ['Пещерный гоблин', 'Слабый скелет', 'Крысиный разведчик'],
@@ -302,8 +308,8 @@ export class CombatEngine {
       // Check boss weakness/resistance
       if (enemy.isBoss && enemy.boss_config) {
         if (enemy.boss_config.weakness === playerClassCode) {
-          playerDamage = Math.floor(playerDamage * 1.3);
-          bossAbilityMessage += `💪 Босс слаб против вашего класса! +30% урона\n`;
+          playerDamage = Math.floor(playerDamage * 1.2);
+          bossAbilityMessage += `💪 Босс слаб против вашего класса! +20% урона\n`;
         } else if (enemy.boss_config.resistance === playerClassCode) {
           playerDamage = Math.floor(playerDamage * 0.7);
           bossAbilityMessage += `🛡️ Босс устойчив к вашему классу! -30% урона\n`;
@@ -342,108 +348,123 @@ export class CombatEngine {
       }
     }
 
-    // Calculate enemy damage with boss abilities
-    if (enemyAction === ActionType.ATTACK) {
-      let baseEnemyAttack = enemy.attack;
-      let baseEnemyDefense = enemy.defense;
+    // Enemy strike preparation. Defensive stances need the same numbers for
+    // reflection and counter-attacks, so they are computed up front even when
+    // the enemy chooses not to attack this turn.
+    const enemyAttacked = enemyAction === ActionType.ATTACK;
+    let baseEnemyAttack = enemy.attack;
+    let baseEnemyDefense = enemy.defense;
 
-      // Apply boss ability modifiers
-      if (enemy.isBoss && bossAbility) {
-        const modifiers = bossSystem.applyBossAbilityModifiers(
-          baseEnemyAttack,
-          baseEnemyDefense,
-          bossAbility
-        );
-        baseEnemyAttack = modifiers.damage;
-        baseEnemyDefense = modifiers.defense;
-      }
+    // Apply boss ability modifiers
+    if (enemy.isBoss && bossAbility) {
+      const modifiers = bossSystem.applyBossAbilityModifiers(
+        baseEnemyAttack,
+        baseEnemyDefense,
+        bossAbility
+      );
+      baseEnemyAttack = modifiers.damage;
+      baseEnemyDefense = modifiers.defense;
+    }
 
-      // Assassin Backstab negates enemy attack completely
-      let damageReduction = 0;
-      let fullBlock = false;
-      if (assassinBackstab) {
-        enemyDamage = 0;
-      } else if (playerAction === ActionType.DEFEND) {
-        // NEW DEFENSE SYSTEM - Full rewrite per spec
-        switch (playerClassCode) {
-          case 'berserker': {
-            // 35% reduction (45% if HP < 30%)
-            const hpPercent = (player.hp / player.max_hp) * 100;
-            damageReduction = hpPercent < 30 ? 0.45 : 0.35;
-            const reductionPercent = Math.floor(damageReduction * 100);
-            classAbilityMessage += `⚔️ Берсерк: ярость боли поглотила ${reductionPercent}% урона!\n`;
-            // Store 15% attack bonus for next turn
-            nextAttackBonus = Math.floor(effectiveAttack * 0.15);
-            break;
-          }
-          
-          case 'guardian': {
-            // 50% reduction + 2% max HP heal (capped at 10% max HP per combat)
-            damageReduction = 0.50;
-            const healCap = Math.floor(player.max_hp * 0.10);
-            const usedHeal = enemy.guardianHealTotal || 0;
-            const healAmount = Math.floor(player.max_hp * 0.02);
-            defenseHealing = Math.max(0, Math.min(healAmount, healCap - usedHeal));
-            enemy.guardianHealTotal = usedHeal + defenseHealing;
-            classAbilityMessage += `🛡 Страж: крепость поглотила 50% урона! Восстановлено ${defenseHealing} HP!\n`;
-            // Store 5% attack bonus for next turn
-            nextAttackBonus = Math.floor(effectiveAttack * 0.05);
-            break;
-          }
-          
-          case 'assassin': {
-            // 40% chance full dodge + counter (50% attack damage)
-            if (Math.random() < 0.40) {
-              fullBlock = true;
-              counterAttackDamage = Math.floor(effectiveAttack * 0.50);
-              classAbilityMessage += `🗡 Ассасин: теневое уклонение! Контратака на ${counterAttackDamage} урона!\n`;
-            } else {
-              damageReduction = 0.40; // Base 40% reduction even on failed dodge
+    let damageReduction = 0;
+    let fullBlock = false;
+
+    // Assassin Backstab negates enemy attack completely
+    if (assassinBackstab) {
+      enemyDamage = 0;
+    } else if (playerAction === ActionType.DEFEND) {
+      // A guard always charges the next strike. The baseline is 10% of the
+      // effective attack and the class stance extends it on top, so a boss
+      // that skips its attack does not waste the player's stance.
+      nextAttackBonus = Math.floor(effectiveAttack * DEFENSE_BASE_BONUS);
+
+      switch (playerClassCode) {
+        case 'berserker': {
+          // 35% reduction (45% if HP < 30%)
+          const hpPercent = (player.hp / player.max_hp) * 100;
+          damageReduction = hpPercent < 30 ? 0.45 : 0.35;
+          const reductionPercent = Math.floor(damageReduction * 100);
+          classAbilityMessage += `⚔️ Берсерк: ярость боли поглотила ${reductionPercent}% урона!\n`;
+          nextAttackBonus += Math.floor(effectiveAttack * 0.15);
+          break;
+        }
+
+        case 'guardian': {
+          // 50% reduction + 2% max HP heal (capped at 10% max HP per combat)
+          damageReduction = 0.50;
+          const healCap = Math.floor(player.max_hp * 0.10);
+          const usedHeal = enemy.guardianHealTotal || 0;
+          const healAmount = Math.floor(player.max_hp * 0.02);
+          defenseHealing = Math.max(0, Math.min(healAmount, healCap - usedHeal));
+          enemy.guardianHealTotal = usedHeal + defenseHealing;
+          classAbilityMessage += `🛡 Страж: крепость поглотила 50% урона! Восстановлено ${defenseHealing} HP!\n`;
+          nextAttackBonus += Math.floor(effectiveAttack * 0.05);
+          break;
+        }
+
+        case 'assassin': {
+          // The shadow dodge and its counter need a strike to evade, so they
+          // stay inert when the enemy holds its ground.
+          if (enemyAttacked && Math.random() < 0.40) {
+            fullBlock = true;
+            counterAttackDamage = Math.floor(effectiveAttack * 0.50);
+            classAbilityMessage += `🗡 Ассасин: теневое уклонение! Контратака на ${counterAttackDamage} урона!\n`;
+          } else {
+            damageReduction = 0.40;
+            if (enemyAttacked) {
               classAbilityMessage += `🗡 Ассасин: частичное уклонение! Урон снижен на 40%!\n`;
             }
-            // Store 20% attack bonus for next turn
-            nextAttackBonus = Math.floor(effectiveAttack * 0.20);
-            break;
           }
-          
-          case 'vampire': {
-            // 35% reduction + reflect 15% of prevented + heal 15% of reflected
-            damageReduction = 0.35;
+          nextAttackBonus += Math.floor(effectiveAttack * 0.20);
+          break;
+        }
+
+        case 'vampire': {
+          // 35% reduction + reflect 15% of prevented + heal 15% of reflected
+          damageReduction = 0.35;
+          if (enemyAttacked) {
             const prevented = Math.floor(baseEnemyAttack * damageReduction);
             reflectedDamage = Math.floor(prevented * 0.15);
             defenseHealing = Math.floor(reflectedDamage * 0.15);
             classAbilityMessage += `🩸 Вампир: кровавое возмездие! Отражено ${reflectedDamage} урона, восстановлено ${defenseHealing} HP!\n`;
-            // Store 15% attack bonus for next turn
-            nextAttackBonus = Math.floor(effectiveAttack * 0.15);
-            break;
           }
-          
-          case 'arcanist': {
-            // 45% reduction + energy stored as attack bonus
-            damageReduction = 0.45;
+          nextAttackBonus += Math.floor(effectiveAttack * 0.15);
+          break;
+        }
+
+        case 'arcanist': {
+          // 45% reduction + energy stored as attack bonus. Energy only comes
+          // from damage the barrier actually absorbs.
+          damageReduction = 0.45;
+          if (enemyAttacked) {
             const prevented = Math.floor(baseEnemyAttack * damageReduction);
             const energyPercent = Math.min(25, Math.floor(prevented * 0.20));
-            nextAttackBonus = Math.floor(effectiveAttack * (energyPercent / 100));
-            classAbilityMessage += `🧙 Арканист: магический барьер поглотил 45% урона! +${nextAttackBonus} к следующей атаке!\n`;
-            break;
+            const energyBonus = Math.floor(effectiveAttack * (energyPercent / 100));
+            nextAttackBonus += energyBonus;
+            classAbilityMessage += `🧙 Арканист: магический барьер поглотил 45% урона! +${energyBonus} к следующей атаке!\n`;
           }
-          
-          case 'tactician': {
-            // The class reads the enemy intent: only a correct forecast pays
-            // off, a missed one leaves the baseline stance.
-            if (predictionCorrect) {
-              damageReduction = 0.50;
-              nextAttackBonus = Math.floor(effectiveAttack * 0.20);
-              classAbilityMessage += `🧠 Тактик: предугадал действие! Урон снижен на 50%, +${nextAttackBonus} к следующей атаке!\n`;
-            } else {
-              damageReduction = 0.30;
-              classAbilityMessage += `🧠 Тактик: прогноз не сбылся, урон снижен на 30%.\n`;
-            }
-            break;
+          break;
+        }
+
+        case 'tactician': {
+          // The class reads the enemy intent: only a correct forecast pays
+          // off, a missed one leaves the baseline stance.
+          if (predictionCorrect) {
+            damageReduction = 0.50;
+            const bonus = Math.floor(effectiveAttack * 0.20);
+            nextAttackBonus += bonus;
+            classAbilityMessage += `🧠 Тактик: предугадал действие! Урон снижен на 50%, +${bonus} к следующей атаке!\n`;
+          } else {
+            damageReduction = 0.30;
+            classAbilityMessage += `🧠 Тактик: прогноз не сбылся, урон снижен на 30%.\n`;
           }
-          
-          case 'jester': {
-            // Random effects: 20% full dodge, 30% mirror (35% + reflect), 50% swap (40%)
+          break;
+        }
+
+        case 'jester': {
+          // Random effects: 20% full dodge, 30% mirror (35% + reflect),
+          // 50% swap (40%). All of them need an incoming strike.
+          if (enemyAttacked) {
             const roll = Math.random();
             if (roll < 0.20) {
               fullBlock = true;
@@ -457,47 +478,49 @@ export class CombatEngine {
               damageReduction = 0.40;
               classAbilityMessage += `🃏 Шут: подмена! Урон снижен на 40%!\n`;
             }
-            // Store 15% attack bonus for next turn
-            nextAttackBonus = Math.floor(effectiveAttack * 0.15);
-            break;
-          }
-          
-          case 'necromancer': {
-            // 50% if minion active, 40% if no minion
-            const hasMinion = enemy.summonedSupport === 'mobs' || enemy.summonedSupport === 'boss';
-            damageReduction = hasMinion ? 0.50 : 0.40;
-            const reductionPercent = Math.floor(damageReduction * 100);
-            if (hasMinion) {
-              classAbilityMessage += `☠️ Некромант: миньон поглотил ${reductionPercent}% урона!\n`;
-            } else {
-              classAbilityMessage += `☠️ Некромант: призрачный щит поглотил ${reductionPercent}% урона!\n`;
-            }
-            // Store 15% attack bonus for next turn
-            nextAttackBonus = Math.floor(effectiveAttack * 0.15);
-            break;
-          }
-          
-          default: {
-            // Default 40% reduction for undefined classes
+          } else {
             damageReduction = 0.40;
-            break;
           }
+          nextAttackBonus += Math.floor(effectiveAttack * 0.15);
+          break;
         }
 
-        // Equipment effects on defence (shields, plates, reflect relics...)
-        const defenseEffects = specialEffects.analyzeDefense(effectContext(), predictionCorrect);
-        if (defenseEffects.messages.length > 0) {
-          classAbilityMessage += defenseEffects.messages.join('\n') + '\n';
+        case 'necromancer': {
+          // 50% if minion active, 40% if no minion
+          const hasMinion = enemy.summonedSupport === 'mobs' || enemy.summonedSupport === 'boss';
+          damageReduction = hasMinion ? 0.50 : 0.40;
+          const reductionPercent = Math.floor(damageReduction * 100);
+          if (hasMinion) {
+            classAbilityMessage += `☠️ Некромант: миньон поглотил ${reductionPercent}% урона!\n`;
+          } else {
+            classAbilityMessage += `☠️ Некромант: призрачный щит поглотил ${reductionPercent}% урона!\n`;
+          }
+          nextAttackBonus += Math.floor(effectiveAttack * 0.15);
+          break;
         }
-        damageReduction = Math.min(
-          MAX_DEFENSE_REDUCTION,
-          damageReduction + defenseEffects.damageReduction
-        );
-        nextAttackBonus += Math.floor(effectiveAttack * defenseEffects.nextAttackBonusPercent);
-        defenseDodgeBonus = defenseEffects.dodgeBonus;
-        if (defenseEffects.healPercent > 0) {
-          defenseHealing += Math.floor(player.max_hp * defenseEffects.healPercent);
+
+        default: {
+          // Default 40% reduction for undefined classes
+          damageReduction = 0.40;
+          break;
         }
+      }
+
+      // Equipment effects on defence (shields, plates, reflect relics...)
+      const defenseEffects = specialEffects.analyzeDefense(effectContext(), predictionCorrect);
+      if (defenseEffects.messages.length > 0) {
+        classAbilityMessage += defenseEffects.messages.join('\n') + '\n';
+      }
+      damageReduction = Math.min(
+        MAX_DEFENSE_REDUCTION,
+        damageReduction + defenseEffects.damageReduction
+      );
+      nextAttackBonus += Math.floor(effectiveAttack * defenseEffects.nextAttackBonusPercent);
+      defenseDodgeBonus = defenseEffects.dodgeBonus;
+      if (defenseEffects.healPercent > 0) {
+        defenseHealing += Math.floor(player.max_hp * defenseEffects.healPercent);
+      }
+      if (enemyAttacked) {
         if (defenseEffects.reflectPercent > 0) {
           reflectedDamage += Math.floor(baseEnemyAttack * defenseEffects.reflectPercent);
         }
@@ -506,8 +529,11 @@ export class CombatEngine {
           fullBlock = true;
           classAbilityMessage += '🛡 Экипировка полностью заблокировала удар!\n';
         }
+      }
+    }
 
-      } else {
+    if (enemyAttacked) {
+      if (!assassinBackstab && playerAction !== ActionType.DEFEND) {
         // Normal attack - armor reduces damage but can never absorb more than
         // 40% of the base hit, no matter how high defense is.
         const armorReduction = Math.min(
@@ -670,11 +696,16 @@ export class CombatEngine {
     }
     
     // Store defense bonus for the next attack (the bonus survives until the
-    // player actually spends it on an ATTACK).
+    // player actually spends it on an ATTACK). Repeated guards top the charge
+    // up but never let it grow past the cap.
     if (nextAttackBonus > 0) {
-      enemy.storedDefenseBonus = (enemy.storedDefenseBonus || 0) + nextAttackBonus;
-      if (enemyAction !== ActionType.ATTACK) {
-        classAbilityMessage += `💫 Защита усилила вашу следующую атаку на +${nextAttackBonus}!\n`;
+      const bonusCap = Math.floor(effectiveAttack * MAX_STORED_DEFENSE_BONUS);
+      const previousBonus = enemy.storedDefenseBonus || 0;
+      const storedBonus = Math.min(bonusCap, previousBonus + nextAttackBonus);
+      const addedBonus = storedBonus - previousBonus;
+      enemy.storedDefenseBonus = storedBonus;
+      if (addedBonus > 0 && enemyAction !== ActionType.ATTACK) {
+        classAbilityMessage += `💫 Защита усилила вашу следующую атаку на +${addedBonus}!\n`;
       }
     }
 

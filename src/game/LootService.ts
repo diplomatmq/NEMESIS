@@ -341,6 +341,17 @@ export class LootService {
     let totalAiResist = 0;
     const effectCodes = new Set<string>();
 
+    // Class synergy percentages are collected across the whole set and applied
+    // once at the end. Applying them inside the loop would compound each piece
+    // on top of the already-boosted total.
+    let hpPercent = 0;
+    let attackPercent = 0;
+    let defensePercent = 0;
+    let critPercent = 0;
+    let dodgePercent = 0;
+    let lifestealPercent = 0;
+    let aiResistPercent = 0;
+
     // Get equipped items
     const equipment = await this.getEquipment(playerProgressId);
     
@@ -379,16 +390,26 @@ export class LootService {
             effectCodes.add(item.special_effect_code);
           }
 
-          totalHp = Math.floor(totalHp * (1 + Number(item.hp_percent || 0) / 100));
-          totalAttack = Math.floor(totalAttack * (1 + Number(item.attack_percent || 0) / 100));
-          totalDefense = Math.floor(totalDefense * (1 + Number(item.defense_percent || 0) / 100));
-          totalCritChance += Number(item.crit_percent || 0);
-          totalDodge += Number(item.dodge_percent || 0);
-          totalLifesteal += Number(item.lifesteal_percent || 0);
-          totalAiResist += Number(item.ai_resist_percent || 0);
+          hpPercent += Number(item.hp_percent || 0);
+          attackPercent += Number(item.attack_percent || 0);
+          defensePercent += Number(item.defense_percent || 0);
+          critPercent += Number(item.crit_percent || 0);
+          dodgePercent += Number(item.dodge_percent || 0);
+          lifestealPercent += Number(item.lifesteal_percent || 0);
+          aiResistPercent += Number(item.ai_resist_percent || 0);
         }
       }
     }
+
+    // Apply the summed class synergy once, after the base stats and the flat
+    // equipment bonuses are fully counted.
+    totalHp = Math.floor(totalHp * (1 + hpPercent / 100));
+    totalAttack = Math.floor(totalAttack * (1 + attackPercent / 100));
+    totalDefense = Math.floor(totalDefense * (1 + defensePercent / 100));
+    totalCritChance += critPercent;
+    totalDodge += dodgePercent;
+    totalLifesteal += lifestealPercent;
+    totalAiResist += aiResistPercent;
 
     // Update player stats. Current HP is clamped so it can never exceed the
     // recalculated maximum (e.g. after a piece of armor is removed).
