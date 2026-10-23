@@ -212,16 +212,16 @@ export class SpecialEffectsService {
     }
 
     if (this.has(ctx, 'ancient_lifesteal')) {
-      report.lifestealBonus += 0.10;
-      report.messages.push('🩸 Древний вампиризм: +10% вампиризма!');
+      report.lifestealBonus += 0.05;
+      report.messages.push('🩸 Древний вампиризм: +5% вампиризма!');
     }
     if (this.has(ctx, 'blood_seal')) {
-      report.lifestealBonus += 0.10;
-      report.messages.push('🩸 Печать кровавой клятвы: +10% вампиризма!');
+      report.lifestealBonus += 0.05;
+      report.messages.push('🩸 Печать кровавой клятвы: +5% вампиризма!');
     }
     if (this.has(ctx, 'low_hp_lifesteal') && hp < 40) {
-      report.lifestealBonus += 0.10;
-      report.messages.push('🩸 Серп кровопийцы: +10% лечения!');
+      report.lifestealBonus += 0.05;
+      report.messages.push('🩸 Серп кровопийцы: +5% лечения!');
     }
     if (this.has(ctx, 'attack_regeneration')) {
       report.healPercent += 0.02;
@@ -322,19 +322,19 @@ export class SpecialEffectsService {
     }
 
     if (this.has(ctx, 'counter_attack')) {
-      report.nextAttackBonusPercent += 0.10;
+      report.nextAttackBonusPercent += 0.15;
     }
     if (this.has(ctx, 'guard_counter')) {
-      report.nextAttackBonusPercent += 0.30;
+      report.nextAttackBonusPercent += 0.40;
     }
     if (this.has(ctx, 'after_defend_attack')) {
-      report.nextAttackBonusPercent += 0.15;
+      report.nextAttackBonusPercent += 0.20;
     }
     if (this.has(ctx, 'defend_attack_boost')) {
-      report.nextAttackBonusPercent += 0.15;
+      report.nextAttackBonusPercent += 0.20;
     }
     if (this.has(ctx, 'counter_strike')) {
-      report.nextAttackBonusPercent += 0.05;
+      report.nextAttackBonusPercent += 0.10;
     }
     if (predictionCorrect && this.has(ctx, 'foresight_def')) {
       report.damageReduction += 0.05;

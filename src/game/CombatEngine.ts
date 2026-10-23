@@ -22,6 +22,7 @@ export interface Enemy {
   totalHealingReceived?: number; // Track total healing for boss heal cap
   lastHealTurn?: number; // Track when boss last healed for cooldown
   storedDefenseBonus?: number; // Store defense bonus for next attack
+  defenseStacks?: number; // Accumulating damage bonus from consecutive defends
   abilityCooldowns?: Record<string, number>; // Turn number when a boss ability was last used
   potionUsed?: boolean; // Limit to one potion per combat
   guardianHealTotal?: number; // Track guardian defense healing per combat
@@ -32,10 +33,10 @@ export interface Enemy {
 const MAX_DEFENSE_REDUCTION = 0.75;
 
 /** Baseline charge a DEFEND action grants to the next attack. */
-const DEFENSE_BASE_BONUS = 0.10;
+const DEFENSE_BASE_BONUS = 0.30;
 
 /** The stored charge can never exceed this share of the effective attack. */
-const MAX_STORED_DEFENSE_BONUS = 0.30;
+const MAX_STORED_DEFENSE_BONUS = 1.00;
 
 
 const MOB_ZONES: Array<[string, string, string]> = [
@@ -321,6 +322,15 @@ export class CombatEngine {
         playerDamage = Math.max(1, Math.floor(playerDamage * attackEffects.damageMultiplier));
       }
 
+      // Apply stacking damage bonus from consecutive defends
+      const defenseStacks = enemy.defenseStacks || 0;
+      if (defenseStacks > 0) {
+        const stackBonus = Math.floor(playerDamage * 0.08 * defenseStacks); // 8% per stack
+        playerDamage += stackBonus;
+        classAbilityMessage += `⚡ Накопленная сила (×${defenseStacks}): +${stackBonus} урона!\n`;
+        enemy.defenseStacks = 0; // Reset stacks after attacking
+      }
+
       // Critical hit (applied ONCE at the end of damage calculation)
       if (willCrit) {
         playerDamage = Math.floor(playerDamage * 1.5);
@@ -385,7 +395,7 @@ export class CombatEngine {
           damageReduction = hpPercent < 30 ? 0.45 : 0.35;
           const reductionPercent = Math.floor(damageReduction * 100);
           classAbilityMessage += `⚔️ Берсерк: ярость боли поглотила ${reductionPercent}% урона!\n`;
-          nextAttackBonus += Math.floor(effectiveAttack * 0.15);
+          nextAttackBonus += Math.floor(effectiveAttack * 0.35);
           break;
         }
 
@@ -398,7 +408,7 @@ export class CombatEngine {
           defenseHealing = Math.max(0, Math.min(healAmount, healCap - usedHeal));
           enemy.guardianHealTotal = usedHeal + defenseHealing;
           classAbilityMessage += `🛡 Страж: крепость поглотила 50% урона! Восстановлено ${defenseHealing} HP!\n`;
-          nextAttackBonus += Math.floor(effectiveAttack * 0.05);
+          nextAttackBonus += Math.floor(effectiveAttack * 0.30);
           break;
         }
 
@@ -415,7 +425,7 @@ export class CombatEngine {
               classAbilityMessage += `🗡 Ассасин: частичное уклонение! Урон снижен на 40%!\n`;
             }
           }
-          nextAttackBonus += Math.floor(effectiveAttack * 0.20);
+          nextAttackBonus += Math.floor(effectiveAttack * 0.40);
           break;
         }
 
@@ -428,7 +438,7 @@ export class CombatEngine {
             defenseHealing = Math.floor(reflectedDamage * 0.15);
             classAbilityMessage += `🩸 Вампир: кровавое возмездие! Отражено ${reflectedDamage} урона, восстановлено ${defenseHealing} HP!\n`;
           }
-          nextAttackBonus += Math.floor(effectiveAttack * 0.15);
+          nextAttackBonus += Math.floor(effectiveAttack * 0.35);
           break;
         }
 
@@ -662,11 +672,17 @@ export class CombatEngine {
       }
     }
 
-    // Apply lifesteal healing
+    // Apply lifesteal healing with cap per turn
     if (lifestealHealing > 0) {
-      newPlayerHp = Math.min(player.max_hp, newPlayerHp + lifestealHealing);
+      // Cap lifesteal at 15% of max HP per turn to prevent infinite sustain
+      const lifestealCap = Math.floor(player.max_hp * 0.15);
+      const actualHealing = Math.min(lifestealHealing, lifestealCap);
+      newPlayerHp = Math.min(player.max_hp, newPlayerHp + actualHealing);
       if (playerClassCode === 'vampire') {
-        classAbilityMessage += `🩸 Вампир: lifesteal восстановил ${lifestealHealing} HP!\n`;
+        classAbilityMessage += `🩸 Вампир: lifesteal восстановил ${actualHealing} HP!\n`;
+        if (actualHealing < lifestealHealing) {
+          classAbilityMessage += `⚠️ Достигнут предел восстановления за ход!\n`;
+        }
       }
     }
 
@@ -706,6 +722,12 @@ export class CombatEngine {
       enemy.storedDefenseBonus = storedBonus;
       if (addedBonus > 0 && enemyAction !== ActionType.ATTACK) {
         classAbilityMessage += `💫 Защита усилила вашу следующую атаку на +${addedBonus}!\n`;
+      }
+      
+      // Accumulate defense stacks (max 10 stacks, each gives 8% damage bonus)
+      if (playerAction === ActionType.DEFEND) {
+        const currentStacks = enemy.defenseStacks || 0;
+        enemy.defenseStacks = Math.min(10, currentStacks + 1);
       }
     }
 
