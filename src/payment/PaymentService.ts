@@ -225,18 +225,18 @@ export class PaymentService {
   }>> {
     const result = await db.query(
       `SELECT 
-        ROW_NUMBER() OVER (ORDER BY pp.floor DESC, pp.total_attack DESC) as rank,
+        ROW_NUMBER() OVER (ORDER BY pp.highest_floor_reached DESC, pp.attack DESC) as rank,
         u.telegram_id,
         u.username,
         u.first_name,
-        pp.floor,
-        pp.total_attack,
-        c.name as class_name
+        pp.highest_floor_reached as floor,
+        pp.attack as total_attack,
+        COALESCE(c.name, 'Без класса') as class_name
       FROM player_progress pp
       JOIN users u ON pp.user_id = u.id
-      JOIN classes c ON pp.class_id = c.id
+      LEFT JOIN classes c ON pp.class_id = c.id
       WHERE pp.season_id = (SELECT id FROM seasons WHERE is_current = true)
-      ORDER BY pp.floor DESC, pp.total_attack DESC
+      ORDER BY pp.highest_floor_reached DESC, pp.attack DESC
       LIMIT $1`,
       [limit]
     );
@@ -254,20 +254,20 @@ export class PaymentService {
   }>> {
     const result = await db.query(
       `SELECT 
-        ROW_NUMBER() OVER (ORDER BY pp.floor DESC, pp.total_attack DESC) as rank,
+        ROW_NUMBER() OVER (ORDER BY pp.highest_floor_reached DESC, pp.attack DESC) as rank,
         u.telegram_id,
         u.username,
         u.first_name,
-        pp.floor,
-        pp.total_attack,
-        c.name as class_name
+        pp.highest_floor_reached as floor,
+        pp.attack as total_attack,
+        COALESCE(c.name, 'Без класса') as class_name
       FROM player_progress pp
       JOIN users u ON pp.user_id = u.id
-      JOIN classes c ON pp.class_id = c.id
+      LEFT JOIN classes c ON pp.class_id = c.id
       JOIN combat_state cs ON pp.user_id = cs.user_id AND pp.season_id = cs.season_id
       WHERE pp.season_id = (SELECT id FROM seasons WHERE is_current = true)
         AND cs.chat_id = $1
-      ORDER BY pp.floor DESC, pp.total_attack DESC
+      ORDER BY pp.highest_floor_reached DESC, pp.attack DESC
       LIMIT $2`,
       [chatId, limit]
     );
