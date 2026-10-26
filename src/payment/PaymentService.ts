@@ -1,5 +1,6 @@
 import { db } from '../database/db';
 import { PendingPaymentModel, PendingPayment } from '../database/models/PendingPayment';
+import { BossPin } from '../database/models/PlayerProgress';
 
 export interface PaymentValidationResult {
   valid: boolean;
@@ -222,6 +223,7 @@ export class PaymentService {
     floor: number;
     total_attack: number;
     class_name: string;
+    active_pin?: BossPin | null;
   }>> {
     const result = await db.query(
       `SELECT 
@@ -231,6 +233,7 @@ export class PaymentService {
         u.first_name,
         pp.highest_floor_reached as floor,
         pp.attack as total_attack,
+        pp.active_pin,
         COALESCE(c.name, 'Без класса') as class_name
       FROM player_progress pp
       JOIN users u ON pp.user_id = u.id
@@ -251,6 +254,7 @@ export class PaymentService {
     floor: number;
     total_attack: number;
     class_name: string;
+    active_pin?: BossPin | null;
   }>> {
     const result = await db.query(
       `SELECT 
@@ -260,6 +264,7 @@ export class PaymentService {
         u.first_name,
         pp.highest_floor_reached as floor,
         pp.attack as total_attack,
+        pp.active_pin,
         COALESCE(c.name, 'Без класса') as class_name
       FROM player_progress pp
       JOIN users u ON pp.user_id = u.id

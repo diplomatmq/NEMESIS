@@ -3,7 +3,8 @@ import { ChatModel } from '../database/models/Chat';
 import { SeasonModel } from '../database/models/Season';
 import { 
   PlayerProgressModel, 
-  PlayerProgress, 
+  PlayerProgress,
+  BossPin,
   ChatProgressModel, 
   CombatStateModel,
   CombatState 
@@ -14,7 +15,7 @@ import {
   isCooldownExemptTelegramUser,
 } from './CooldownService';
 import { combatEngine, Enemy } from './CombatEngine';
-import { PREDICTION_ACTION_BIAS, stripCustomEmoji } from './BossSystem';
+import { PREDICTION_ACTION_BIAS, formatBossIcon, stripCustomEmoji } from './BossSystem';
 import { behaviorTracker } from './BehaviorTracker';
 import { lootService } from './LootService';
 import { classService } from './ClassService';
@@ -362,10 +363,11 @@ export class GameService {
           if (souls.length >= 2) {
             rewardKeyboard = new InlineKeyboard();
             souls.forEach((existingSoul, index) => {
+              const soulEmojiId = existingSoul.boss_config?.custom_emoji_id;
               rewardKeyboard!.text(
-                `☠️ Заменить ${existingSoul.name}`,
+                `${soulEmojiId ? '' : '☠️ '}Заменить ${existingSoul.name}`,
                 `sacrifice:replace:${index}`
-              ).row();
+              ).icon(soulEmojiId).row();
             });
             rewardKeyboard.text('❌ Отказаться', 'sacrifice:decline');
             
@@ -459,6 +461,31 @@ export class GameService {
 
       // Boss kill achievement
       if (enemy.isBoss) {
+        // Every named boss permanently drops its custom emoji as a pin the
+        // first time it is defeated. Repeated kills never duplicate it.
+        const pinEmojiId = enemy.boss_config?.custom_emoji_id;
+        if (pinEmojiId) {
+          const pins = Array.isArray(progress.boss_pins) ? progress.boss_pins : [];
+          const alreadyOwned = pins.some((pin) => pin.boss_config?.custom_emoji_id === pinEmojiId);
+          if (!alreadyOwned) {
+            const pin: BossPin = {
+              name: enemy.boss_config?.name ?? stripCustomEmoji(enemy.name),
+              floor: currentFloor,
+              boss_config: {
+                icon: enemy.boss_config?.icon,
+                custom_emoji_id: pinEmojiId,
+              },
+            };
+            await db.query(
+              `UPDATE player_progress
+               SET boss_pins = boss_pins || $2::jsonb, updated_at = NOW()
+               WHERE id = $1`,
+              [progress.id, JSON.stringify([pin])]
+            );
+            combatResult.message += `\n📌 **Получен пин босса:** ${formatBossIcon(pin.boss_config ?? {})} ${pin.name}`;
+          }
+        }
+
         const bossAchievements = await achievementService.checkAndUnlockAchievements(
           progress.id,
           { type: 'boss_killed', value: 1 }
@@ -473,15 +500,16 @@ export class GameService {
             ? [...progress.necro_boss_souls]
             : [];
           if (enemy.isBoss && storedSouls.length < 2) {
-            storedSouls.push({ name: stripCustomEmoji(enemy.name), floor: currentFloor });
+            storedSouls.push({ name: stripCustomEmoji(enemy.name), floor: currentFloor, boss_config: enemy.boss_config });
           }
           if (storedSouls.length > 0 && Math.random() < 0.15) {
             rewardKeyboard = new InlineKeyboard();
             storedSouls.slice(0, 2).forEach((soul, index) => {
+              const soulEmojiId = soul.boss_config?.custom_emoji_id;
               rewardKeyboard!.text(
-                `☠️ Отдать ${soul.name}`,
+                `${soulEmojiId ? '' : '☠️ '}Отдать ${soul.name}`,
                 `throne:sacrifice:${index}`
-              ).row();
+              ).icon(soulEmojiId).row();
             });
             rewardKeyboard.text('Не брать', 'throne:skip');
             combatResult.message += '\n👑 **Трон из мёртвых!** Выберите душу для дополнительной жертвы или откажитесь.';
@@ -630,7 +658,7 @@ export class GameService {
           if (bossSouls.length > 0) {
             necromancerInfo += `👹 Души боссов: ${bossSouls.length}/2\n`;
             bossSouls.forEach((soul, idx) => {
-              necromancerInfo += `  ${idx + 1}. ${soul.name} (этаж ${soul.floor})\n`;
+              necromancerInfo += `  ${idx + 1}. ${formatBossIcon(soul.boss_config ?? {})} ${soul.name} (этаж ${soul.floor})\n`;
             });
           } else {
             necromancerInfo += `👹 Души боссов: 0/2\n`;
@@ -699,6 +727,8 @@ export class GameService {
       .text('🎒 Инвентарь', `status:inventory:${telegramUserId}`)
       .row()
       .text('⚔️ Экипировка', `status:equipment:${telegramUserId}`)
+      .text('📌 Пин', `status:pin:${telegramUserId}`)
+      .row()
       .text('♻️ Сброс', `status:reset:${telegramUserId}`);
 
     // Add slots button only in private chats
@@ -755,6 +785,88 @@ export class GameService {
         `• достижения и прочая статистика\n\n` +
         `❗ Действие необратимо. Продолжить?`,
       keyboard,
+    };
+  }
+
+  async getPinMenu(
+    telegramUserId: number
+  ): Promise<{ message: string; keyboard: InlineKeyboard; hasPins: boolean }> {
+    const user = await UserModel.findByTelegramId(telegramUserId);
+    if (!user) {
+      return {
+        message: 'Пользователь не найден. Отправьте /start в личном чате с ботом.',
+        keyboard: new InlineKeyboard(),
+        hasPins: false,
+      };
+    }
+
+    const season = await SeasonModel.getOrCreateCurrentSeason();
+    const progress = await PlayerProgressModel.find(user.id, season.id);
+    if (!progress) {
+      return {
+        message: 'Прогресс не найден. Начните игру!',
+        keyboard: new InlineKeyboard(),
+        hasPins: false,
+      };
+    }
+
+    const pins = Array.isArray(progress.boss_pins) ? progress.boss_pins : [];
+    if (pins.length === 0) {
+      return {
+        message:
+          `📌 **Пины**\n\n` +
+          `У вас пока нет ни одного пина.\n` +
+          `Побеждайте боссов — каждый даёт свой эмодзи в коллекцию.`,
+        keyboard: new InlineKeyboard(),
+        hasPins: false,
+      };
+    }
+
+    const activeEmojiId = progress.active_pin?.boss_config?.custom_emoji_id;
+    let message = `📌 **Смена пина**\n\n**Ваши пины:**\n`;
+    pins.forEach((pin, index) => {
+      const isActive = activeEmojiId && pin.boss_config?.custom_emoji_id === activeEmojiId;
+      message += `${index + 1}. ${formatBossIcon(pin.boss_config ?? {})} ${pin.name} (этаж ${pin.floor})` +
+        `${isActive ? ' — установлен' : ''}\n`;
+    });
+    message += `\n✏️ Введите номер пина, чтобы он отображался рядом с вашим ником в /top.`;
+
+    return { message, keyboard: new InlineKeyboard(), hasPins: true };
+  }
+
+  async setPin(
+    telegramUserId: number,
+    index: number
+  ): Promise<{ success: boolean; message: string }> {
+    const user = await UserModel.findByTelegramId(telegramUserId);
+    if (!user) {
+      return { success: false, message: 'Пользователь не найден. Отправьте /start.' };
+    }
+
+    const season = await SeasonModel.getOrCreateCurrentSeason();
+    const progress = await PlayerProgressModel.find(user.id, season.id);
+    if (!progress) {
+      return { success: false, message: 'Прогресс не найден. Начните игру!' };
+    }
+
+    const pins = Array.isArray(progress.boss_pins) ? progress.boss_pins : [];
+    if (!Number.isInteger(index) || index < 1 || index > pins.length) {
+      return {
+        success: false,
+        message: `❌ Пин с таким номером не найден. Введите число от 1 до ${pins.length}.`,
+      };
+    }
+
+    const pin = pins[index - 1];
+    await db.query(
+      'UPDATE player_progress SET active_pin = $2::jsonb, updated_at = NOW() WHERE id = $1',
+      [progress.id, JSON.stringify(pin)]
+    );
+
+    return {
+      success: true,
+      message: `✅ Пин установлен: ${formatBossIcon(pin.boss_config ?? {})} ${pin.name}\n` +
+        `Он будет отображаться рядом с вашим ником в /top.`,
     };
   }
 
@@ -826,6 +938,8 @@ export class GameService {
                necro_defense_bonus = 0,
                necro_bonus_games = 0,
                necro_summon_effect = NULL,
+               boss_pins = '[]'::jsonb,
+               active_pin = NULL,
                reset_used = true,
                updated_at = NOW()
            WHERE id = $1`,
@@ -1219,7 +1333,8 @@ export class GameService {
       keyboard.text('⭐ Пропустить КД за 5 Stars', 'sacrifice:skip:mobs').row();
     }
     bosses.forEach((boss, index) => {
-      keyboard.text(`☠️ ${boss.name} · ${boss.floor} этаж`, `sacrifice:boss:${index}`).row();
+      const soulEmojiId = boss.boss_config?.custom_emoji_id;
+      keyboard.text(`${soulEmojiId ? '' : '☠️ '}${boss.name} · ${boss.floor} этаж`, `sacrifice:boss:${index}`).icon(soulEmojiId).row();
       keyboard.text('⭐ Пропустить КД за 5 Stars', `sacrifice:skip:boss:${index}`).row();
     });
     if (!keyboard.inline_keyboard.length) {

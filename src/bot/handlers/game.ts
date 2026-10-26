@@ -8,6 +8,9 @@ import { PlayerProgressModel } from '../../database/models/PlayerProgress';
 import { InvoiceService } from '../../payment/InvoiceService';
 import { markdownToTelegramHtml } from '../../game/HealthBar';
 
+// Users waiting to type a pin number after opening the pin menu.
+const pendingPinSelections = new Map<number, { timestamp: number }>();
+
 export async function handleGameAction(ctx: Context, invoiceService: InvoiceService) {
   if (!ctx.from || !ctx.chat || !ctx.message?.text) {
     return;
@@ -405,7 +408,7 @@ export async function handleStatusCallback(ctx: Context) {
   const data = ctx.callbackQuery.data;
   
   // Parse status menu callbacks
-  const statusMatch = /^status:(market|inventory|equipment|slots|reset):(\d+)$/.exec(data);
+  const statusMatch = /^status:(market|inventory|equipment|slots|reset|pin):(\d+)$/.exec(data);
   if (!statusMatch) return;
   
   const [, action, userId] = statusMatch;
@@ -453,10 +456,44 @@ export async function handleStatusCallback(ctx: Context) {
         reply_markup: result.keyboard,
         parse_mode: 'HTML',
       });
+    } else if (action === 'pin') {
+      const result = await gameService.getPinMenu(ctx.from.id);
+      if (result.hasPins) {
+        pendingPinSelections.set(ctx.from.id, { timestamp: Date.now() });
+      }
+      await ctx.answerCallbackQuery();
+      await ctx.reply(markdownToTelegramHtml(result.message), {
+        reply_markup: result.keyboard,
+        parse_mode: 'HTML',
+      });
     }
   } catch (error: any) {
     await ctx.answerCallbackQuery(error.message || '❌ Ошибка');
   }
+}
+
+/**
+ * Handles a typed pin number while the pin menu is open.
+ * Returns true when the message was consumed by the pin flow.
+ */
+export async function handlePinTextInput(ctx: Context): Promise<boolean> {
+  if (!ctx.from || !ctx.message?.text) return false;
+
+  const pending = pendingPinSelections.get(ctx.from.id);
+  if (!pending) return false;
+
+  if (Date.now() - pending.timestamp > 5 * 60 * 1000) {
+    pendingPinSelections.delete(ctx.from.id);
+    return false;
+  }
+
+  // Only intercept plain numbers; anything else is left to other handlers.
+  if (!/^\d+$/.test(ctx.message.text.trim())) return false;
+
+  pendingPinSelections.delete(ctx.from.id);
+  const result = await gameService.setPin(ctx.from.id, Number(ctx.message.text.trim()));
+  await ctx.reply(markdownToTelegramHtml(result.message), { parse_mode: 'HTML' });
+  return true;
 }
 
 /**

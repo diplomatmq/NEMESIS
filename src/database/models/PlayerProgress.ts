@@ -1,5 +1,11 @@
 import { db } from '../db';
 
+export interface BossPin {
+  name: string;
+  floor: number;
+  boss_config?: { icon?: string; custom_emoji_id?: string };
+}
+
 export interface PlayerProgress {
   id: number;
   user_id: number;
@@ -22,8 +28,8 @@ export interface PlayerProgress {
   checkpoint_floor: number;
   trail_modifier: number;
   necro_mob_souls: number;
-  necro_boss_souls: Array<{ name: string; floor: number; boss_config?: unknown }>;
-  necro_pending_soul?: { name: string; floor: number; boss_config?: unknown } | null;
+  necro_boss_souls: Array<{ name: string; floor: number; boss_config?: { icon?: string; custom_emoji_id?: string } }>;
+  necro_pending_soul?: { name: string; floor: number; boss_config?: { icon?: string; custom_emoji_id?: string } } | null;
   necro_sacrifice_available_at?: Date;
   necro_debuff_games: number;
   necro_attack_bonus: number;
@@ -31,6 +37,8 @@ export interface PlayerProgress {
   necro_bonus_games: number;
   necro_summon_effect?: { type: 'mobs' | 'boss'; name?: string; ability?: string } | null;
   reset_used: boolean;
+  boss_pins: BossPin[];
+  active_pin?: BossPin | null;
   created_at: Date;
   updated_at: Date;
 }

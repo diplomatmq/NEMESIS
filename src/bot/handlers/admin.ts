@@ -2,6 +2,7 @@ import { Context } from 'grammy';
 import { paymentService } from '../../payment/PaymentService';
 import { markdownToTelegramHtml } from '../../game/HealthBar';
 import { CUSTOM_EMOJI, ce } from '../../game/CustomEmoji';
+import { formatBossIcon } from '../../game/BossSystem';
 
 const ADMIN_IDS = [793216884, 678418106];
 
@@ -60,7 +61,8 @@ export async function handleTop(ctx: Context) {
         const name = player.username 
           ? `@${player.username}` 
           : player.first_name || `User ${player.telegram_id}`;
-        message += `${medal} **#${player.rank}** ${name}\n`;
+        const pin = player.active_pin ? `${formatBossIcon(player.active_pin.boss_config ?? {})} ` : '';
+        message += `${medal} **#${player.rank}** ${pin}${name}\n`;
         message += `   └ ${ce(CUSTOM_EMOJI.class, '🎭')} ${player.class_name} • ${ce(CUSTOM_EMOJI.floor, '🏰')} Этаж ${player.floor} • ${ce(CUSTOM_EMOJI.attack, '⚔️')} ${player.total_attack}\n`;
       });
     }
@@ -72,7 +74,8 @@ export async function handleTop(ctx: Context) {
         const name = player.username 
           ? `@${player.username}` 
           : player.first_name || `User ${player.telegram_id}`;
-        message += `${medal} **#${player.rank}** ${name}\n`;
+        const pin = player.active_pin ? `${formatBossIcon(player.active_pin.boss_config ?? {})} ` : '';
+        message += `${medal} **#${player.rank}** ${pin}${name}\n`;
         message += `   └ ${ce(CUSTOM_EMOJI.class, '🎭')} ${player.class_name} • ${ce(CUSTOM_EMOJI.floor, '🏰')} Этаж ${player.floor} • ${ce(CUSTOM_EMOJI.attack, '⚔️')} ${player.total_attack}\n`;
       });
     }

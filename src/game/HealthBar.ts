@@ -209,9 +209,32 @@ export function formatBossHealthBar(currentHp: number, maxHp: number): string {
   return formatHealthBarWithEmojis(currentHp, maxHp, BOSS_HEALTH_EMOJI_BY_SEGMENT);
 }
 
+/**
+ * Tags this module and the rest of the codebase emit on purpose. Everything
+ * else that looks like markup is treated as plain text: game data such as
+ * ability and item descriptions may contain a bare "<" (for example
+ * "при HP < 30%"), which Telegram's HTML parser rejects as an unsupported tag.
+ */
+const ALLOWED_HTML_TAG = /<\/?(?:b|s|i|u|code|pre|tg-emoji)\b[^>]*>/gi;
+
 export function markdownToTelegramHtml(message: string): string {
-  return message
+  const withMarkdown = message
     .replace(/\*\*(.+?)\*\*/gs, '<b>$1</b>')
     .replace(/~~(.+?)~~/gs, '<s>$1</s>')
     .replace(/\*([^*\n]+)\*/g, '<i>$1</i>');
+
+  // Pull the intentional tags out before escaping so they survive, then put
+  // them back untouched once the raw text has been made HTML-safe.
+  const tags: string[] = [];
+  const masked = withMarkdown.replace(ALLOWED_HTML_TAG, (tag) => {
+    tags.push(tag);
+    return `\u0000${tags.length - 1}\u0000`;
+  });
+
+  const escaped = masked
+    .replace(/&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  return escaped.replace(/\u0000(\d+)\u0000/g, (_, index) => tags[Number(index)]);
 }

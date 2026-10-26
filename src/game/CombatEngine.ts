@@ -1,7 +1,7 @@
 import { PlayerProgress } from '../database/models/PlayerProgress';
 import { ActionType, CombatResult } from '../types/game.types';
 import { classService } from './ClassService';
-import { bossSystem, BossConfig, HEAL_INTERVAL_TURNS, HEAL_TOTAL_FRACTION } from './BossSystem';
+import { bossSystem, BossConfig, formatBossIcon, HEAL_INTERVAL_TURNS, HEAL_TOTAL_FRACTION } from './BossSystem';
 import { SeededRandom } from './SeededRandom';
 import { formatBossHealthBar, formatHealthBar, formatMobHealthBar } from './HealthBar';
 import { specialEffects, EffectContext, IncomingEffectReport } from './SpecialEffects';
@@ -754,6 +754,7 @@ export class CombatEngine {
       isCrit,
       isDodge,
       enemy.name,
+      enemy.boss_config ? formatBossIcon(enemy.boss_config) : '👹',
       newEnemyHp,
       enemy.maxHp,
       enemy.isBoss || false,
@@ -788,6 +789,7 @@ export class CombatEngine {
     isCrit: boolean,
     isDodge: boolean,
     enemyName: string,
+    enemyIcon: string,
     enemyHp: number,
     enemyMaxHp: number,
     enemyIsBoss: boolean,
@@ -821,7 +823,7 @@ export class CombatEngine {
         if (isDodge) {
           msg += `⚡ Вы уклоняетесь от атаки!\n`;
         } else {
-          msg += `👹 ${enemyName} атакует!\n`;
+          msg += `${enemyIsBoss ? enemyName : `👹 ${enemyName}`} атакует!\n`;
           msg += `💔 Вы получаете ${enemyDamage} урона.\n`;
         }
       } else if (enemyAction === ActionType.DEFEND) {
@@ -840,7 +842,7 @@ export class CombatEngine {
       const enemyHealthBar = enemyIsBoss
         ? formatBossHealthBar(enemyHp, enemyMaxHp)
         : formatMobHealthBar(enemyHp, enemyMaxHp);
-      msg += `👹 HP противника: ${enemyHealthBar}\n`;
+      msg += `${enemyIcon} HP противника: ${enemyHealthBar}\n`;
     }
 
     if (playerDefeated) {

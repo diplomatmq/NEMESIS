@@ -116,10 +116,11 @@ export const BOSS_CUSTOM_EMOJI_IDS = [
 ];
 
 /** Renders a boss icon as custom emoji when one is assigned, else the plain icon. */
-export function formatBossIcon(config: Pick<BossConfig, 'icon' | 'custom_emoji_id'>): string {
+export function formatBossIcon(config: { icon?: string; custom_emoji_id?: string }): string {
+  const fallback = config.icon ?? '👹';
   return config.custom_emoji_id
-    ? `<tg-emoji emoji-id="${config.custom_emoji_id}">${config.icon}</tg-emoji>`
-    : config.icon;
+    ? `<tg-emoji emoji-id="${config.custom_emoji_id}">${fallback}</tg-emoji>`
+    : fallback;
 }
 
 /** Removes custom-emoji markup for plain-text contexts such as button labels. */

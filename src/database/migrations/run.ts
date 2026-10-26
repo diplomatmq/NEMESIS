@@ -72,9 +72,10 @@ async function runMigrations() {
       { name: '031_effect_description_alignment', file: '031_effect_description_alignment.sql', order: 31 },
       { name: '032_vampire_tank_balance', file: '032_vampire_tank_balance.sql', order: 32 },
       { name: '033_player_reset', file: '033_player_reset.sql', order: 33 },
+      { name: '034_player_pins', file: '034_player_pins.sql', order: 34 },
     ];
 
-    const EXPECTED_MIGRATION_COUNT = 34;
+    const EXPECTED_MIGRATION_COUNT = 35;
     if (migrations.length !== EXPECTED_MIGRATION_COUNT) {
       console.error(`❌ ERROR: Expected ${EXPECTED_MIGRATION_COUNT} migrations, but found ${migrations.length}`);
       console.error(`   This means migrations are missing from the array!`);
