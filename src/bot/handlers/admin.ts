@@ -1,5 +1,7 @@
 import { Context } from 'grammy';
 import { paymentService } from '../../payment/PaymentService';
+import { markdownToTelegramHtml } from '../../game/HealthBar';
+import { CUSTOM_EMOJI, ce } from '../../game/CustomEmoji';
 
 const ADMIN_IDS = [793216884, 678418106];
 
@@ -21,11 +23,11 @@ export async function handleDbStats(ctx: Context) {
       `👥 **Игроков:** ${stats.totalPlayers}\n` +
       `💬 **Чатов:** ${stats.totalChats} (без личных)\n` +
       `⭐ **Всего звёзд:** ${stats.totalStars}\n\n` +
-      `💰 **Распределение:**\n` +
+      `${ce(CUSTOM_EMOJI.gold, '💰')} **Распределение:**\n` +
       `• Доля Soun: **${stats.sounShare}** ⭐ (75%)\n` +
       `• Доля Егор: **${stats.egorShare}** ⭐ (25%)`;
 
-    await ctx.reply(message, { parse_mode: 'Markdown' });
+    await ctx.reply(markdownToTelegramHtml(message), { parse_mode: 'HTML' });
   } catch (error) {
     console.error('❌ Error getting DB stats:', error);
     await ctx.reply('❌ Ошибка получения статистики');
@@ -48,10 +50,10 @@ export async function handleTop(ctx: Context) {
     }
 
     let message = `🏆 **ТОП-5 ИГРОКОВ**\n\n`;
-    message += `🌍 **Глобальный топ:**\n`;
+    message += `${ce(CUSTOM_EMOJI.planet, '🌍')} **Глобальный топ:**\n`;
     
     if (globalTop.length === 0) {
-      message += `_Пока нет игроков_\n`;
+      message += `*Пока нет игроков*\n`;
     } else {
       globalTop.forEach(player => {
         const medal = player.rank === 1 ? '🥇' : player.rank === 2 ? '🥈' : player.rank === 3 ? '🥉' : '🏅';
@@ -59,7 +61,7 @@ export async function handleTop(ctx: Context) {
           ? `@${player.username}` 
           : player.first_name || `User ${player.telegram_id}`;
         message += `${medal} **#${player.rank}** ${name}\n`;
-        message += `   └ ${player.class_name} • Этаж ${player.floor} • ${player.total_attack} ⚔️\n`;
+        message += `   └ ${ce(CUSTOM_EMOJI.class, '🎭')} ${player.class_name} • ${ce(CUSTOM_EMOJI.floor, '🏰')} Этаж ${player.floor} • ${ce(CUSTOM_EMOJI.attack, '⚔️')} ${player.total_attack}\n`;
       });
     }
 
@@ -71,11 +73,11 @@ export async function handleTop(ctx: Context) {
           ? `@${player.username}` 
           : player.first_name || `User ${player.telegram_id}`;
         message += `${medal} **#${player.rank}** ${name}\n`;
-        message += `   └ ${player.class_name} • Этаж ${player.floor} • ${player.total_attack} ⚔️\n`;
+        message += `   └ ${ce(CUSTOM_EMOJI.class, '🎭')} ${player.class_name} • ${ce(CUSTOM_EMOJI.floor, '🏰')} Этаж ${player.floor} • ${ce(CUSTOM_EMOJI.attack, '⚔️')} ${player.total_attack}\n`;
       });
     }
 
-    await ctx.reply(message, { parse_mode: 'Markdown' });
+    await ctx.reply(markdownToTelegramHtml(message), { parse_mode: 'HTML' });
   } catch (error) {
     console.error('❌ Error getting top players:', error);
     await ctx.reply('❌ Ошибка получения топа игроков');

@@ -70,9 +70,11 @@ async function runMigrations() {
       { name: '029_special_effect_codes', file: '029_special_effect_codes.sql', order: 29 },
       { name: '030_item_synergy_and_effect_descriptions', file: '030_item_synergy_and_effect_descriptions.sql', order: 30 },
       { name: '031_effect_description_alignment', file: '031_effect_description_alignment.sql', order: 31 },
+      { name: '032_vampire_tank_balance', file: '032_vampire_tank_balance.sql', order: 32 },
+      { name: '033_player_reset', file: '033_player_reset.sql', order: 33 },
     ];
 
-    const EXPECTED_MIGRATION_COUNT = 32;
+    const EXPECTED_MIGRATION_COUNT = 34;
     if (migrations.length !== EXPECTED_MIGRATION_COUNT) {
       console.error(`❌ ERROR: Expected ${EXPECTED_MIGRATION_COUNT} migrations, but found ${migrations.length}`);
       console.error(`   This means migrations are missing from the array!`);

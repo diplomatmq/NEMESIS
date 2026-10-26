@@ -2,6 +2,8 @@ import { Context } from 'grammy';
 import { slotMachineService } from '../../game/SlotMachineService';
 import { InvoiceService } from '../../payment/InvoiceService';
 import { InlineKeyboard } from 'grammy';
+import { markdownToTelegramHtml } from '../../game/HealthBar';
+import { CUSTOM_EMOJI, ce } from '../../game/CustomEmoji';
 
 // Store pending slot requests (user waiting to send spin count)
 const pendingSlotRequests = new Map<number, { timestamp: number }>();
@@ -104,11 +106,14 @@ export async function handleSlotSpinCount(ctx: Context) {
     });
 
     await ctx.reply(
-      `💰 **Оплатите сессию:**\n\n` +
-      `🎰 Прокруток: **${spins}**\n` +
-      `⭐ Стоимость: **${starsRequired} звёзд**\n\n` +
-      `После оплаты вы сможете отправить ${spins} игровых автоматов 🎰`,
+      markdownToTelegramHtml(
+        `${ce(CUSTOM_EMOJI.gold, '💰')} **Оплатите сессию:**\n\n` +
+        `🎰 Прокруток: **${spins}**\n` +
+        `⭐ Стоимость: **${starsRequired} звёзд**\n\n` +
+        `После оплаты вы сможете отправить ${spins} игровых автоматов 🎰`
+      ),
       {
+        parse_mode: 'HTML',
         reply_markup: {
           inline_keyboard: [[{ text: '⭐ Оплатить', url: invoiceUrl }]],
         },

@@ -4,6 +4,8 @@ import { UserModel } from '../../database/models/User';
 import { ChatModel } from '../../database/models/Chat';
 import { SeasonModel } from '../../database/models/Season';
 import { PlayerProgressModel } from '../../database/models/PlayerProgress';
+import { markdownToTelegramHtml } from '../../game/HealthBar';
+import { CUSTOM_EMOJI, ce } from '../../game/CustomEmoji';
 
 export async function getClassPage(page: number): Promise<{
   text: string;
@@ -18,12 +20,12 @@ export async function getClassPage(page: number): Promise<{
     .text('➡️', `classpage:${Math.min(classes.length - 1, safePage + 1)}`);
   return {
     text:
-      `🎭 **Класс ${safePage + 1}/${classes.length}**\n\n` +
+      `${ce(CUSTOM_EMOJI.class, '🎭')} **Класс ${safePage + 1}/${classes.length}**\n\n` +
       `${gameClass.icon} **${gameClass.name}**\n` +
       `${gameClass.description}\n\n` +
       `💪 HP: ${gameClass.base_hp}\n` +
-      `⚔️ Атака: ${gameClass.base_attack}\n` +
-      `🛡️ Защита: ${gameClass.base_defense}\n` +
+      `${ce(CUSTOM_EMOJI.attack, '⚔️')} Атака: ${gameClass.base_attack}\n` +
+      `${ce(CUSTOM_EMOJI.defense, '🛡️')} Защита: ${gameClass.base_defense}\n` +
       `✨ Способность: ${gameClass.passive_ability}`,
     keyboard,
   };
@@ -55,9 +57,11 @@ export async function handleClassSelection(ctx: Context) {
   if (progress.class_id) {
     const currentClass = await classService.getClassById(progress.class_id);
     await ctx.reply(
-      `🎭 Ваш класс: ${currentClass?.icon} **${currentClass?.name}**\n\n` +
-      `Класс можно изменить только в начале нового сезона.`,
-      { parse_mode: 'Markdown' }
+      markdownToTelegramHtml(
+        `${ce(CUSTOM_EMOJI.class, '🎭')} Ваш класс: ${currentClass?.icon} **${currentClass?.name}**\n\n` +
+        `Класс можно изменить только в начале нового сезона.`
+      ),
+      { parse_mode: 'HTML' }
     );
     return;
   }
@@ -65,9 +69,9 @@ export async function handleClassSelection(ctx: Context) {
   // Show class selection
   const page = await getClassPage(0);
 
-  await ctx.reply(page.text, {
+  await ctx.reply(markdownToTelegramHtml(page.text), {
     reply_markup: page.keyboard,
-    parse_mode: 'Markdown',
+    parse_mode: 'HTML',
   });
 }
 
@@ -81,9 +85,9 @@ export async function handleClassCallback(ctx: Context) {
   if (data.startsWith('classpage:')) {
     const page = await getClassPage(Number(data.slice('classpage:'.length)));
     await ctx.answerCallbackQuery();
-    await ctx.editMessageText(page.text, {
+    await ctx.editMessageText(markdownToTelegramHtml(page.text), {
       reply_markup: page.keyboard,
-      parse_mode: 'Markdown',
+      parse_mode: 'HTML',
     });
     return;
   }
@@ -123,14 +127,16 @@ export async function handleClassCallback(ctx: Context) {
   await ctx.answerCallbackQuery(`Выбран класс: ${gameClass.name}`);
   
   await ctx.editMessageText(
-    `✅ Вы выбрали класс: ${gameClass.icon} **${gameClass.name}**\n\n` +
-    `📜 ${gameClass.description}\n\n` +
-    `💪 Характеристики:\n` +
-    `❤️ HP: ${gameClass.base_hp}\n` +
-    `⚔️ Атака: ${gameClass.base_attack}\n` +
-    `🛡️ Защита: ${gameClass.base_defense}\n\n` +
-    `🎮 Теперь начните восхождение по башне!\n` +
-    `Используйте команды: атака, защита`,
-    { parse_mode: 'Markdown' }
+    markdownToTelegramHtml(
+      `✅ Вы выбрали класс: ${gameClass.icon} **${gameClass.name}**\n\n` +
+      `📜 ${gameClass.description}\n\n` +
+      `💪 Характеристики:\n` +
+      `❤️ HP: ${gameClass.base_hp}\n` +
+      `${ce(CUSTOM_EMOJI.attack, '⚔️')} Атака: ${gameClass.base_attack}\n` +
+      `${ce(CUSTOM_EMOJI.defense, '🛡️')} Защита: ${gameClass.base_defense}\n\n` +
+      `🎮 Теперь начните восхождение по башне!\n` +
+      `Используйте команды: атака, защита`
+    ),
+    { parse_mode: 'HTML' }
   );
 }

@@ -1,6 +1,7 @@
 import { db } from '../database/db';
 import { InlineKeyboard } from 'grammy';
 import { lootService, Item } from './LootService';
+import { CUSTOM_EMOJI, ce } from './CustomEmoji';
 
 export interface MerchantOffer {
   item: Item;
@@ -223,7 +224,7 @@ export class MerchantService {
 
     return {
       success: true,
-      message: `✅ Вы продали: **${item.name}** за ${sellPrice} золота!`,
+      message: `✅ Вы продали: **${item.name}** за ${ce(CUSTOM_EMOJI.gold, '💰')} ${sellPrice} золота!`,
       gold: sellPrice,
     };
   }

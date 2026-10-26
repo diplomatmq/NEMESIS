@@ -212,5 +212,6 @@ export function formatBossHealthBar(currentHp: number, maxHp: number): string {
 export function markdownToTelegramHtml(message: string): string {
   return message
     .replace(/\*\*(.+?)\*\*/gs, '<b>$1</b>')
-    .replace(/~~(.+?)~~/gs, '<s>$1</s>');
+    .replace(/~~(.+?)~~/gs, '<s>$1</s>')
+    .replace(/\*([^*\n]+)\*/g, '<i>$1</i>');
 }

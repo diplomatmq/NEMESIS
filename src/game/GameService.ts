@@ -14,7 +14,7 @@ import {
   isCooldownExemptTelegramUser,
 } from './CooldownService';
 import { combatEngine, Enemy } from './CombatEngine';
-import { PREDICTION_ACTION_BIAS } from './BossSystem';
+import { PREDICTION_ACTION_BIAS, stripCustomEmoji } from './BossSystem';
 import { behaviorTracker } from './BehaviorTracker';
 import { lootService } from './LootService';
 import { classService } from './ClassService';
@@ -23,6 +23,7 @@ import { potionService } from './PotionService';
 import { ActionType, CombatResult } from '../types/game.types';
 import { db } from '../database/db';
 import { formatBossHealthBar, formatHealthBar, formatMobHealthBar } from './HealthBar';
+import { CUSTOM_EMOJI, ce } from './CustomEmoji';
 import { InlineKeyboard } from 'grammy';
 import { trailService } from './TrailService';
 import { dailyMarketService } from './DailyMarketService';
@@ -173,7 +174,7 @@ export class GameService {
       actionLower === 'd';
     if (isCombatAction && !progress.class_id) {
       return {
-        message: '🎭 Сначала выберите класс командой /class, затем начинайте бой.',
+        message: `${ce(CUSTOM_EMOJI.class, '🎭')} Сначала выберите класс командой /class, затем начинайте бой.`,
         consumesCooldown: false,
       };
     }
@@ -355,7 +356,7 @@ export class GameService {
         const soulDropped = Math.random() < dropChance;
         
         if (soulDropped) {
-          const soul = { name: enemy.name, floor: currentFloor, boss_config: enemy.boss_config };
+          const soul = { name: stripCustomEmoji(enemy.name), floor: currentFloor, boss_config: enemy.boss_config };
           
           // If both boss soul slots are full, force sacrifice choice
           if (souls.length >= 2) {
@@ -472,7 +473,7 @@ export class GameService {
             ? [...progress.necro_boss_souls]
             : [];
           if (enemy.isBoss && storedSouls.length < 2) {
-            storedSouls.push({ name: enemy.name, floor: currentFloor });
+            storedSouls.push({ name: stripCustomEmoji(enemy.name), floor: currentFloor });
           }
           if (storedSouls.length > 0 && Math.random() < 0.15) {
             rewardKeyboard = new InlineKeyboard();
@@ -496,12 +497,12 @@ export class GameService {
       // Clear combat state FOR THIS CHAT
       await CombatStateModel.delete(userId, seasonId, chatId);
 
-      combatResult.message += `\n🏆 **Этаж ${currentFloor} пройден!**\n`;
+      combatResult.message += `\n${ce(CUSTOM_EMOJI.floor, '🏰')} **Этаж ${currentFloor} пройден!**\n`;
       combatResult.message += `⬆️ Переход на этаж ${newChatFloor} (в этом чате).\n`;
       if (isNewRecord) {
-        combatResult.message += `🌍 Новый глобальный рекорд: этаж ${newChatFloor}!\n`;
+        combatResult.message += `${ce(CUSTOM_EMOJI.planet, '🌍')} Новый глобальный рекорд: этаж ${newChatFloor}!\n`;
       } else {
-        combatResult.message += `🌍 Глобальный максимум: этаж ${previousMaxFloor}\n`;
+        combatResult.message += `${ce(CUSTOM_EMOJI.planet, '🌍')} Глобальный максимум: этаж ${previousMaxFloor}\n`;
       }
 
       if (!enemy.isBoss && Math.random() < 0.1) {
@@ -536,7 +537,7 @@ export class GameService {
       await CombatStateModel.delete(userId, seasonId, chatId);
       
       combatResult.message += `\n💀 **Вы пали в бою...**\n`;
-      combatResult.message += `⚰️ Возрождение на этаже ${progress.checkpoint_floor}.\n`;
+      combatResult.message += `${ce(CUSTOM_EMOJI.checkpoint, '🚩')} Возрождение на этаже ${progress.checkpoint_floor}.\n`;
       combatResult.message += `💚 HP восстановлено.\n`;
     }
 
@@ -554,7 +555,7 @@ export class GameService {
   private generateCooldownMessage(cooldownInfo: CooldownInfo): string {
     const timeLeft = cooldownService.formatRemainingTime(cooldownInfo.remainingSeconds!);
     
-    return `⚔️ Вы ещё не готовы к следующему действию.\n\n⏳ КД: ${timeLeft}\n\n⭐ Пропустить КД за 1 Telegram Star`;
+    return `${ce(CUSTOM_EMOJI.attack, '⚔️')} Вы ещё не готовы к следующему действию.\n\n⏳ КД: ${timeLeft}\n\n⭐ Пропустить КД за 1 Telegram Star`;
   }
 
   async getPlayerStatus(
@@ -606,7 +607,7 @@ export class GameService {
       const enemyHealthBar = enemy.isBoss
         ? formatBossHealthBar(enemy.hp, enemy.maxHp)
         : formatMobHealthBar(enemy.hp, enemy.maxHp);
-      combatInfo = `\n⚔️ **В бою:** ${enemy.name}\n` +
+      combatInfo = `\n${ce(CUSTOM_EMOJI.attack, '⚔️')} **В бою:** ${enemy.name}\n` +
                    `🩸 HP противника: ${enemyHealthBar}\n`;
     }
 
@@ -669,23 +670,23 @@ export class GameService {
     let chatInfo = '';
     if (chatProgress) {
       const chatType = chatProgress.is_primary_chat ? '⭐ Основной' : '📎 Дополнительный (-50% наград)';
-      chatInfo = `\n🏠 Чат: ${chatType}\n` +
-                 `🏰 Этаж в чате: ${chatProgress.current_floor}\n` +
-                 `🏆 Макс. этаж в чате: ${chatProgress.highest_floor_reached}`;
+      chatInfo = `\n${ce(CUSTOM_EMOJI.home, '🏠')} Чат: ${chatType}\n` +
+                 `${ce(CUSTOM_EMOJI.floor, '🏰')} Этаж в чате: ${chatProgress.current_floor}\n` +
+                 `${ce(CUSTOM_EMOJI.floor, '🏰')} Макс. этаж в чате: ${chatProgress.highest_floor_reached}`;
     }
 
-    const message = `📊 **Статус игрока**\n\n` +
-      `👤 ${user.first_name}\n` +
-      `🎭 Класс: ${className}\n` +
-      `🏆 Сезон: ${season.season_number}\n\n` +
-      `🌍 **Глобальный прогресс:**\n` +
-      `🏰 Этаж (рекорд): ${progress.floor}\n` +
-      `🚩 Checkpoint: ${progress.checkpoint_floor}\n` +
+    const message = `${ce(CUSTOM_EMOJI.status, '📊')} **Статус игрока**\n\n` +
+      `${ce(CUSTOM_EMOJI.user, '👤')} ${user.first_name}\n` +
+      `${ce(CUSTOM_EMOJI.class, '🎭')} Класс: ${className}\n` +
+      `${ce(CUSTOM_EMOJI.season, '🏆')} Сезон: ${season.season_number}\n\n` +
+      `${ce(CUSTOM_EMOJI.planet, '🌍')} **Глобальный прогресс:**\n` +
+      `${ce(CUSTOM_EMOJI.floor, '🏰')} Этаж (рекорд): ${progress.floor}\n` +
+      `${ce(CUSTOM_EMOJI.checkpoint, '🚩')} Checkpoint: ${progress.checkpoint_floor}\n` +
       `❤️ HP: ${formatHealthBar(progress.hp, progress.max_hp)}\n` +
-      `⚔️ Атака: ${progress.attack}\n` +
-      `🛡️ Защита: ${progress.defense}\n` +
+      `${ce(CUSTOM_EMOJI.attack, '⚔️')} Атака: ${progress.attack}\n` +
+      `${ce(CUSTOM_EMOJI.defense, '🛡️')} Защита: ${progress.defense}\n` +
       `⭐ Уровень: ${PlayerProgressModel.calculateLevel(progress.highest_floor_reached)}\n` +
-      `💰 Золото: ${progress.gold}\n` +
+      `${ce(CUSTOM_EMOJI.gold, '💰')} Золото: ${progress.gold}\n` +
       necromancerInfo +
       chatInfo +
       combatInfo +
@@ -697,7 +698,8 @@ export class GameService {
       .text('🏪 Маркет', `status:market:${telegramUserId}`)
       .text('🎒 Инвентарь', `status:inventory:${telegramUserId}`)
       .row()
-      .text('⚔️ Экипировка', `status:equipment:${telegramUserId}`);
+      .text('⚔️ Экипировка', `status:equipment:${telegramUserId}`)
+      .text('♻️ Сброс', `status:reset:${telegramUserId}`);
 
     // Add slots button only in private chats
     if (isPrivateChat) {
@@ -705,6 +707,188 @@ export class GameService {
     }
 
     return { message, keyboard };
+  }
+
+  async getResetMenu(
+    telegramUserId: number
+  ): Promise<{ message: string; keyboard: InlineKeyboard }> {
+    const user = await UserModel.findByTelegramId(telegramUserId);
+    if (!user) {
+      return {
+        message: 'Пользователь не найден. Отправьте /start в личном чате с ботом.',
+        keyboard: new InlineKeyboard(),
+      };
+    }
+
+    const season = await SeasonModel.getOrCreateCurrentSeason();
+    const progress = await PlayerProgressModel.find(user.id, season.id);
+    if (!progress) {
+      return {
+        message: 'Прогресс не найден. Начните игру!',
+        keyboard: new InlineKeyboard(),
+      };
+    }
+
+    if (progress.reset_used) {
+      return {
+        message:
+          `♻️ **Сброс недоступен**\n\n` +
+          `Вы уже использовали сброс в сезоне ${season.season_number}.\n` +
+          `Следующий сброс будет доступен в новом сезоне.`,
+        keyboard: new InlineKeyboard(),
+      };
+    }
+
+    const keyboard = new InlineKeyboard()
+      .text('♻️ Подтвердить сброс', `reset:confirm:${telegramUserId}`)
+      .row()
+      .text('❌ Отмена', `reset:cancel:${telegramUserId}`);
+
+    return {
+      message:
+        `⚠️ **Сброс прогресса**\n\n` +
+        `Сброс доступен **1 раз за сезон**.\n\n` +
+        `Будут сброшены до нуля:\n` +
+        `• класс — потребуется выбрать заново\n` +
+        `• этаж, рекорд, уровень, опыт\n` +
+        `• золото, инвентарь и экипировка\n` +
+        `• достижения и прочая статистика\n\n` +
+        `❗ Действие необратимо. Продолжить?`,
+      keyboard,
+    };
+  }
+
+  async resetPlayer(
+    telegramUserId: number
+  ): Promise<{ message: string; keyboard: InlineKeyboard }> {
+    const user = await UserModel.findByTelegramId(telegramUserId);
+    if (!user) {
+      return {
+        message: 'Пользователь не найден. Отправьте /start в личном чате с ботом.',
+        keyboard: new InlineKeyboard(),
+      };
+    }
+
+    const season = await SeasonModel.getOrCreateCurrentSeason();
+    const progress = await PlayerProgressModel.find(user.id, season.id);
+    if (!progress) {
+      return {
+        message: 'Прогресс не найден. Начните игру!',
+        keyboard: new InlineKeyboard(),
+      };
+    }
+
+    if (progress.reset_used) {
+      return {
+        message:
+          `♻️ **Сброс недоступен**\n\n` +
+          `Вы уже использовали сброс в сезоне ${season.season_number}.`,
+        keyboard: new InlineKeyboard(),
+      };
+    }
+
+    try {
+      await db.transaction(async (client) => {
+        // Lock the row so a double tap cannot spend the reset twice.
+        const locked = await client.query(
+          'SELECT reset_used FROM player_progress WHERE id = $1 FOR UPDATE',
+          [progress.id]
+        );
+        if (!locked.rows[0] || locked.rows[0].reset_used) {
+          throw new Error('RESET_ALREADY_USED');
+        }
+
+        await client.query(
+          `UPDATE player_progress
+           SET class_id = NULL,
+               floor = 1,
+               highest_floor_reached = 1,
+               hp = 100,
+               max_hp = 100,
+               attack = 10,
+               defense = 5,
+               crit_chance = 0,
+               dodge = 0,
+               lifesteal = 0,
+               ai_resist = 0,
+               equipment_effects = '[]'::jsonb,
+               gold = 0,
+               xp = 0,
+               level = 1,
+               checkpoint_floor = 1,
+               trail_modifier = 1,
+               necro_mob_souls = 0,
+               necro_boss_souls = '[]'::jsonb,
+               necro_pending_soul = NULL,
+               necro_sacrifice_available_at = NULL,
+               necro_debuff_games = 0,
+               necro_attack_bonus = 0,
+               necro_defense_bonus = 0,
+               necro_bonus_games = 0,
+               necro_summon_effect = NULL,
+               reset_used = true,
+               updated_at = NOW()
+           WHERE id = $1`,
+          [progress.id]
+        );
+
+        await client.query(
+          'DELETE FROM player_inventory WHERE player_progress_id = $1',
+          [progress.id]
+        );
+        await client.query(
+          'DELETE FROM player_equipment WHERE player_progress_id = $1',
+          [progress.id]
+        );
+        await client.query(
+          'DELETE FROM player_achievements WHERE player_progress_id = $1',
+          [progress.id]
+        );
+        await client.query(
+          'DELETE FROM trail_markets WHERE player_progress_id = $1',
+          [progress.id]
+        );
+        await client.query(
+          `UPDATE chat_progress
+           SET current_floor = 1, highest_floor_reached = 1, updated_at = NOW()
+           WHERE user_id = $1 AND season_id = $2`,
+          [user.id, season.id]
+        );
+        await client.query(
+          'DELETE FROM combat_state WHERE user_id = $1 AND season_id = $2',
+          [user.id, season.id]
+        );
+        await client.query(
+          'DELETE FROM trail_events WHERE user_id = $1 AND season_id = $2',
+          [user.id, season.id]
+        );
+        await client.query(
+          'DELETE FROM behavior_profiles WHERE user_id = $1 AND season_id = $2',
+          [user.id, season.id]
+        );
+        await client.query('DELETE FROM cooldowns WHERE user_id = $1', [user.id]);
+      });
+    } catch (error: any) {
+      if (error?.message === 'RESET_ALREADY_USED') {
+        return {
+          message:
+            `♻️ **Сброс недоступен**\n\n` +
+            `Вы уже использовали сброс в сезоне ${season.season_number}.`,
+          keyboard: new InlineKeyboard(),
+        };
+      }
+      throw error;
+    }
+
+    const keyboard = new InlineKeyboard().text('🎭 Выбрать класс', 'classpage:0');
+
+    return {
+      message:
+        `♻️ **Прогресс сброшен**\n\n` +
+        `Вся статистика обнулена. Сброс использован: 1 раз за сезон ${season.season_number}.\n\n` +
+        `Выберите класс заново и начните восхождение с начала.`,
+      keyboard,
+    };
   }
 
   async getInventory(
@@ -737,10 +921,10 @@ export class GameService {
     const potions = await potionService.getPlayerPotions(progress.id);
 
     let msg = `🎒 **Инвентарь**\n\n`;
-    msg += `💰 Золото: ${progress.gold}\n\n`;
+    msg += `${ce(CUSTOM_EMOJI.gold, '💰')} Золото: ${progress.gold}\n\n`;
 
     if (equipment) {
-      msg += `⚔️ **Экипировка:**\n`;
+      msg += `${ce(CUSTOM_EMOJI.attack, '⚔️')} **Экипировка:**\n`;
       if (equipment.weapon_id) msg += `  • Оружие: экипировано\n`;
       if (equipment.armor_id) msg += `  • Броня: экипирована\n`;
       if (equipment.shield_id) msg += `  • Щит: экипирован\n`;
@@ -1113,8 +1297,8 @@ export class GameService {
     
     return `✨ **Жертвоприношение успешно!**\n\n` +
       `🔮 Принесено в жертву: ${sacrificeName}\n` +
-      `⚔️ Получено: +${attackBonus} атаки (+${attackBonusPercent}%)\n` +
-      `🛡️ Получено: +${defenseBonus} защиты (+${defenseBonusPercent}%)\n` +
+      `${ce(CUSTOM_EMOJI.attack, '⚔️')} Получено: +${attackBonus} атаки (+${attackBonusPercent}%)\n` +
+      `${ce(CUSTOM_EMOJI.defense, '🛡️')} Получено: +${defenseBonus} защиты (+${defenseBonusPercent}%)\n` +
       `⏳ Действует: ${duration} боевых действия\n\n` +
       `💀 Сила мёртвых течёт в ваших венах!`;
   }

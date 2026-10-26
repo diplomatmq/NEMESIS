@@ -2,6 +2,7 @@ import { InlineKeyboard } from 'grammy';
 import { db } from '../database/db';
 import { lootService } from './LootService';
 import { merchantService } from './MerchantService';
+import { CUSTOM_EMOJI, ce } from './CustomEmoji';
 
 export type TrailOptionKind = 'combat' | 'market';
 
@@ -171,7 +172,7 @@ export class TrailService {
       if (item.special_effect) {
         message += `   🌟 *${item.special_effect}*\n`;
       }
-      message += `   💰 ${item.price} золота\n\n`;
+      message += `   ${ce(CUSTOM_EMOJI.gold, '💰')} ${item.price} золота\n\n`;
     }
     
     message += '\n💡 Выберите действие: купить, продать или обменять.';
@@ -251,7 +252,7 @@ export class TrailService {
         progressId,
       ]);
       await lootService.addItemToInventory(progressId, offer.id);
-      return `✅ Вы купили **${offer.name}** за ${offer.price} золота. Отказаться от сделки было нельзя.`;
+      return `✅ Вы купили **${offer.name}** за ${ce(CUSTOM_EMOJI.gold, '💰')} ${offer.price} золота. Отказаться от сделки было нельзя.`;
     }
 
     const owned = await db.query(
@@ -262,7 +263,7 @@ export class TrailService {
     if (owned.rows[0]) {
       await merchantService.sellItem(progressId, owned.rows[0].item_id);
       await lootService.addItemToInventory(progressId, offer.id);
-      return `🔁 Золота не хватило: ваш предмет был автоматически обменян на **${offer.name}**.`;
+      return `${ce(CUSTOM_EMOJI.gold, '💰')} 🔁 Золота не хватило: ваш предмет был автоматически обменян на **${offer.name}**.`;
     }
 
     await lootService.addItemToInventory(progressId, offer.id);
@@ -339,7 +340,7 @@ export class TrailService {
     let message = '🛒 **Купить предмет**\n\n';
     for (const [index, offer] of offers.entries()) {
       const rarityEmoji = this.getRarityEmoji(offer.rarity);
-      message += `${index + 1}. ${rarityEmoji} **${offer.name}** — ${offer.price} 💰\n`;
+      message += `${index + 1}. ${rarityEmoji} **${offer.name}** — ${offer.price} ${ce(CUSTOM_EMOJI.gold, '💰')}\n`;
     }
     
     return { message, keyboard };
@@ -397,7 +398,7 @@ export class TrailService {
     
     keyboard.text('« Назад', `trailmarket:${marketId}:mode:main`);
     
-    let message = '💰 **Продать предмет**\n\n';
+    let message = `${ce(CUSTOM_EMOJI.gold, '💰')} **Продать предмет**\n\n`;
     message += `📦 Страница ${safePage + 1}/${totalPages}\n\n`;
     message += 'Выберите предмет для продажи:';
     

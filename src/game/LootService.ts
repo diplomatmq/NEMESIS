@@ -3,6 +3,7 @@ import { PlayerProgressModel } from '../database/models/PlayerProgress';
 import { ItemRarity, ItemType } from '../types/game.types';
 import { potionService } from './PotionService';
 import { SeededRandom } from './SeededRandom';
+import { CUSTOM_EMOJI, ce } from './CustomEmoji';
 
 export interface Item {
   id: number;
@@ -128,17 +129,17 @@ export class LootService {
     let msg = '';
     
     if (rewardMultiplier < 1.0) {
-      msg += `\n💰 Награды уменьшены на ${Math.floor((1 - rewardMultiplier) * 100)}% (дополнительный чат)\n`;
+      msg += `\n${ce(CUSTOM_EMOJI.gold, '💰')} Награды уменьшены на ${Math.floor((1 - rewardMultiplier) * 100)}% (дополнительный чат)\n`;
     }
 
     if (isBoss) {
       msg += `\n🎁 **БОСС ПОВЕРЖЕН!**\n\n`;
     } else {
-      msg += `\n💰 Добыча:\n`;
+      msg += `\n${ce(CUSTOM_EMOJI.gold, '💰')} Добыча:\n`;
     }
 
     if (gold > 0) {
-      msg += `💰 +${gold} золота\n`;
+      msg += `${ce(CUSTOM_EMOJI.gold, '💰')} +${gold} золота\n`;
     }
 
     if (items.length > 0) {
@@ -147,8 +148,8 @@ export class LootService {
         const rarityEmoji = this.getRarityEmoji(item.rarity);
         msg += `${rarityEmoji} **${item.name}** (${item.slot})\n`;
         
-        if (item.attack_bonus > 0) msg += `   ⚔️ +${item.attack_bonus} ATK\n`;
-        if (item.defense_bonus > 0) msg += `   🛡️ +${item.defense_bonus} DEF\n`;
+        if (item.attack_bonus > 0) msg += `   ${ce(CUSTOM_EMOJI.attack, '⚔️')} +${item.attack_bonus} ATK\n`;
+        if (item.defense_bonus > 0) msg += `   ${ce(CUSTOM_EMOJI.defense, '🛡️')} +${item.defense_bonus} DEF\n`;
         if (item.hp_bonus > 0) msg += `   ❤️ +${item.hp_bonus} HP\n`;
       }
     }

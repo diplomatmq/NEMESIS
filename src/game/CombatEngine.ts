@@ -5,6 +5,7 @@ import { bossSystem, BossConfig, HEAL_INTERVAL_TURNS, HEAL_TOTAL_FRACTION } from
 import { SeededRandom } from './SeededRandom';
 import { formatBossHealthBar, formatHealthBar, formatMobHealthBar } from './HealthBar';
 import { specialEffects, EffectContext, IncomingEffectReport } from './SpecialEffects';
+import { CUSTOM_EMOJI, ce } from './CustomEmoji';
 
 export interface Enemy {
   id?: number;
@@ -313,7 +314,7 @@ export class CombatEngine {
           bossAbilityMessage += `💪 Босс слаб против вашего класса! +20% урона\n`;
         } else if (enemy.boss_config.resistance === playerClassCode) {
           playerDamage = Math.floor(playerDamage * 0.7);
-          bossAbilityMessage += `🛡️ Босс устойчив к вашему классу! -30% урона\n`;
+          bossAbilityMessage += `${ce(CUSTOM_EMOJI.defense, '🛡️')} Босс устойчив к вашему классу! -30% урона\n`;
         }
       }
 
@@ -329,6 +330,15 @@ export class CombatEngine {
         playerDamage += stackBonus;
         classAbilityMessage += `⚡ Накопленная сила (×${defenseStacks}): +${stackBonus} урона!\n`;
         enemy.defenseStacks = 0; // Reset stacks after attacking
+      }
+
+      // Tank specialization: high defense turns into extra damage
+      const defenseAttackRatio = effectiveDefense / Math.max(1, effectiveAttack);
+      if (defenseAttackRatio >= 1.5) {
+        const tankDamageBonus = Math.floor(
+          Math.min(effectiveDefense * 0.25, effectiveAttack * 0.50)
+        );
+        playerDamage += tankDamageBonus;
       }
 
       // Critical hit (applied ONCE at the end of damage calculation)
@@ -394,7 +404,7 @@ export class CombatEngine {
           const hpPercent = (player.hp / player.max_hp) * 100;
           damageReduction = hpPercent < 30 ? 0.45 : 0.35;
           const reductionPercent = Math.floor(damageReduction * 100);
-          classAbilityMessage += `⚔️ Берсерк: ярость боли поглотила ${reductionPercent}% урона!\n`;
+          classAbilityMessage += `${ce(CUSTOM_EMOJI.attack, '⚔️')} Берсерк: ярость боли поглотила ${reductionPercent}% урона!\n`;
           nextAttackBonus += Math.floor(effectiveAttack * 0.35);
           break;
         }
@@ -407,7 +417,7 @@ export class CombatEngine {
           const healAmount = Math.floor(player.max_hp * 0.02);
           defenseHealing = Math.max(0, Math.min(healAmount, healCap - usedHeal));
           enemy.guardianHealTotal = usedHeal + defenseHealing;
-          classAbilityMessage += `🛡 Страж: крепость поглотила 50% урона! Восстановлено ${defenseHealing} HP!\n`;
+          classAbilityMessage += `${ce(CUSTOM_EMOJI.defense, '🛡️')} Страж: крепость поглотила 50% урона! Восстановлено ${defenseHealing} HP!\n`;
           nextAttackBonus += Math.floor(effectiveAttack * 0.30);
           break;
         }
@@ -537,7 +547,7 @@ export class CombatEngine {
         if (Math.random() < defenseEffects.blockChance
           || Math.random() < defenseEffects.fullBlockChance) {
           fullBlock = true;
-          classAbilityMessage += '🛡 Экипировка полностью заблокировала удар!\n';
+          classAbilityMessage += `${ce(CUSTOM_EMOJI.defense, '🛡️')} Экипировка полностью заблокировала удар!\n`;
         }
       }
     }
@@ -545,10 +555,11 @@ export class CombatEngine {
     if (enemyAttacked) {
       if (!assassinBackstab && playerAction !== ActionType.DEFEND) {
         // Normal attack - armor reduces damage but can never absorb more than
-        // 40% of the base hit, no matter how high defense is.
+        // 40% of the base hit (55% for tank builds), no matter how high defense is.
+        const isTankBuild = effectiveDefense >= effectiveAttack * 1.5;
         const armorReduction = Math.min(
           Math.floor(effectiveDefense * 0.35),
-          Math.floor(baseEnemyAttack * 0.40)
+          Math.floor(baseEnemyAttack * (isTankBuild ? 0.55 : 0.40))
         );
         damageReduction = baseEnemyAttack > 0 ? armorReduction / baseEnemyAttack : 0;
       }
@@ -791,7 +802,7 @@ export class CombatEngine {
 
     // Player action
     if (playerAction === ActionType.ATTACK) {
-      msg += `<tg-emoji emoji-id="5408935401442267103">⚔️</tg-emoji> Вы атакуете!\n`;
+      msg += `${ce(CUSTOM_EMOJI.attack, '⚔️')} Вы атакуете!\n`;
       if (isCrit) {
         msg += `💥 КРИТИЧЕСКИЙ УДАР!\n`;
       }
@@ -801,7 +812,7 @@ export class CombatEngine {
       }
       msg += '\n';
     } else if (playerAction === ActionType.DEFEND) {
-      msg += `🛡️ Вы защищаетесь!\n\n`;
+      msg += `${ce(CUSTOM_EMOJI.defense, '🛡️')} Вы защищаетесь!\n\n`;
     }
 
     // Enemy action
@@ -814,7 +825,7 @@ export class CombatEngine {
           msg += `💔 Вы получаете ${enemyDamage} урона.\n`;
         }
       } else if (enemyAction === ActionType.DEFEND) {
-        msg += `🛡️ ${enemyName} защищается!\n`;
+        msg += `${ce(CUSTOM_EMOJI.defense, '🛡️')} ${enemyName} защищается!\n`;
         if (bossHealing && bossHealing > 0) {
           msg += `💚 ${enemyName} восстанавливает ${bossHealing} HP!\n`;
         }

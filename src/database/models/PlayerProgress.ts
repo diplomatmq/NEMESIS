@@ -30,6 +30,7 @@ export interface PlayerProgress {
   necro_defense_bonus: number;
   necro_bonus_games: number;
   necro_summon_effect?: { type: 'mobs' | 'boss'; name?: string; ability?: string } | null;
+  reset_used: boolean;
   created_at: Date;
   updated_at: Date;
 }

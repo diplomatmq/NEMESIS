@@ -3,7 +3,7 @@ import { config } from './config';
 import { db } from './database/db';
 import { redis } from './database/redis';
 import { handleStart } from './bot/handlers/start';
-import { handleGameAction, handleStatus, handleInventory, handleUsePotion, handlePotionCallback, handleTrailCallback, handleEquipCallback, handleEquipmentMenu, handleSacrificeCallback, handleSacrificeCallbackWithPayment, handleThroneCallback, handleStatusCallback, handleMarketCallback } from './bot/handlers/game';
+import { handleGameAction, handleStatus, handleInventory, handleUsePotion, handlePotionCallback, handleTrailCallback, handleEquipCallback, handleEquipmentMenu, handleSacrificeCallback, handleSacrificeCallbackWithPayment, handleThroneCallback, handleStatusCallback, handleMarketCallback, handleReset, handleResetCallback } from './bot/handlers/game';
 import { handleSuccessfulPayment, handlePreCheckoutQuery } from './bot/handlers/payment';
 import { handleClassSelection, handleClassCallback } from './bot/handlers/class';
 import { handleAchievements } from './bot/handlers/achievements';
@@ -63,6 +63,9 @@ bot.command('класс', handleClassSelection);
 bot.command('achievements', handleAchievements);
 bot.command('достижения', handleAchievements);
 
+bot.command('reset', handleReset);
+bot.command('сброс', handleReset);
+
 // Admin commands
 bot.command('dbstats', handleDbStats);
 bot.command('top', handleTop);
@@ -78,6 +81,7 @@ bot.on('callback_query:data', async (ctx) => {
   await handleThroneCallback(ctx);
   await handlePotionCallback(ctx);
   await handleStatusCallback(ctx);
+  await handleResetCallback(ctx);
   await handleMarketCallback(ctx);
 });
 

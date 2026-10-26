@@ -202,7 +202,7 @@ export class ClassService {
 
   getClassLifesteal(classCode: string): number {
     if (classCode === 'vampire') {
-      return 0.18; // 18% lifesteal (ранее 20%)
+      return 0.15; // 15% lifesteal (ранее 18%)
     }
     return 0;
   }

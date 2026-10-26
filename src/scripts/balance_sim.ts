@@ -81,7 +81,7 @@ const CATALOGUE: CatalogueItem[] = [
   { name: 'Серп кровопийцы', slot: 'weapon', level: 10, hp: 0, atk: 45, def: 0, crit: 0, dodge: 0, ls: 5, ai: 0, classes: ['vampire'], effect: 'low_hp_lifesteal' },
   { name: 'Клинок палача', slot: 'weapon', level: 10, hp: 0, atk: 55, def: 0, crit: 0, dodge: 0, ls: 0, ai: 0, classes: ['berserker'], effect: 'execute_damage' },
   { name: 'Катана тени', slot: 'weapon', level: 10, hp: 0, atk: 40, def: 0, crit: 0, dodge: 10, ls: 0, ai: 0, classes: ['assassin'], effect: 'after_defend_attack' },
-  { name: 'Клинок вампира', slot: 'weapon', level: 10, hp: 0, atk: 70, def: 0, crit: 0, dodge: 0, ls: 7, ai: 0, classes: ['vampire'] },
+  { name: 'Клинок вампира', slot: 'weapon', level: 10, hp: 0, atk: 70, def: 0, crit: 0, dodge: 0, ls: 5, ai: 0, classes: ['vampire'] },
   { name: 'Меч Бездны', slot: 'weapon', level: 10, hp: 0, atk: 85, def: 0, crit: 10, dodge: 0, ls: 0, ai: 0, classes: ['assassin', 'arcanist'], effect: 'ignore defense' },
   { name: 'Гримуар отражений', slot: 'weapon', level: 15, hp: 0, atk: 40, def: 0, crit: 0, dodge: 0, ls: 0, ai: 0, classes: ['arcanist'], effect: 'reflect_boost' },
   { name: 'Клинок вероятности', slot: 'weapon', level: 15, hp: 0, atk: 50, def: 0, crit: 5, dodge: 0, ls: 0, ai: 0, classes: ['jester'], effect: 'crit_bonus' },

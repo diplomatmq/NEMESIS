@@ -238,7 +238,7 @@ export async function handleInventory(ctx: Context) {
   }
 
   const inventory = await gameService.getInventory(ctx.from.id, ctx.chat.id);
-  await ctx.reply(inventory, { parse_mode: 'Markdown' });
+  await ctx.reply(markdownToTelegramHtml(inventory), { parse_mode: 'HTML' });
 }
 
 export async function handleEquipCallback(ctx: Context) {
@@ -405,7 +405,7 @@ export async function handleStatusCallback(ctx: Context) {
   const data = ctx.callbackQuery.data;
   
   // Parse status menu callbacks
-  const statusMatch = /^status:(market|inventory|equipment|slots):(\d+)$/.exec(data);
+  const statusMatch = /^status:(market|inventory|equipment|slots|reset):(\d+)$/.exec(data);
   if (!statusMatch) return;
   
   const [, action, userId] = statusMatch;
@@ -420,14 +420,14 @@ export async function handleStatusCallback(ctx: Context) {
     if (action === 'market') {
       const result = await gameService.getDailyMarket(ctx.from.id, 0);
       await ctx.answerCallbackQuery();
-      await ctx.reply(result.message, {
+      await ctx.reply(markdownToTelegramHtml(result.message), {
         reply_markup: result.keyboard,
-        parse_mode: 'Markdown',
+        parse_mode: 'HTML',
       });
     } else if (action === 'inventory') {
       const inventory = await gameService.getInventory(ctx.from.id, ctx.chat!.id);
       await ctx.answerCallbackQuery();
-      await ctx.reply(inventory, { parse_mode: 'Markdown' });
+      await ctx.reply(markdownToTelegramHtml(inventory), { parse_mode: 'HTML' });
     } else if (action === 'equipment') {
       const result = await gameService.getEquipmentMenu(ctx.from.id);
       await ctx.answerCallbackQuery();
@@ -446,7 +446,65 @@ export async function handleStatusCallback(ctx: Context) {
         console.error('[SLOTS] Error handling slots button:', error);
         await ctx.answerCallbackQuery(`❌ Ошибка: ${error.message}`);
       }
+    } else if (action === 'reset') {
+      const result = await gameService.getResetMenu(ctx.from.id);
+      await ctx.answerCallbackQuery();
+      await ctx.reply(markdownToTelegramHtml(result.message), {
+        reply_markup: result.keyboard,
+        parse_mode: 'HTML',
+      });
     }
+  } catch (error: any) {
+    await ctx.answerCallbackQuery(error.message || '❌ Ошибка');
+  }
+}
+
+/**
+ * Handle /reset - asks for confirmation before wiping the player's progress.
+ */
+export async function handleReset(ctx: Context) {
+  if (!ctx.from) return;
+
+  try {
+    const result = await gameService.getResetMenu(ctx.from.id);
+    await ctx.reply(markdownToTelegramHtml(result.message), {
+      reply_markup: result.keyboard,
+      parse_mode: 'HTML',
+    });
+  } catch (error: any) {
+    await ctx.reply(`❌ Ошибка: ${error.message || 'Неизвестная ошибка'}`);
+  }
+}
+
+/**
+ * Handle reset confirmation callbacks (confirm / cancel).
+ */
+export async function handleResetCallback(ctx: Context) {
+  if (!ctx.from || !ctx.callbackQuery?.data) return;
+
+  const match = /^reset:(confirm|cancel):(\d+)$/.exec(ctx.callbackQuery.data);
+  if (!match) return;
+
+  const [, action, userId] = match;
+
+  if (Number(userId) !== ctx.from.id) {
+    await ctx.answerCallbackQuery('❌ Это не ваше меню!');
+    return;
+  }
+
+  if (action === 'cancel') {
+    await ctx.answerCallbackQuery('Отменено');
+    await ctx.editMessageText('❌ Сброс отменён.', { parse_mode: 'HTML' }).catch(() => {});
+    return;
+  }
+
+  try {
+    const result = await gameService.resetPlayer(ctx.from.id);
+    await ctx.answerCallbackQuery('Прогресс сброшен');
+    await ctx.editMessageText(markdownToTelegramHtml(result.message), {
+      reply_markup: result.keyboard,
+      parse_mode: 'HTML',
+    });
   } catch (error: any) {
     await ctx.answerCallbackQuery(error.message || '❌ Ошибка');
   }
@@ -482,9 +540,9 @@ export async function handleMarketCallback(ctx: Context) {
       const result = await gameService.getDailyMarket(ctx.from.id, page);
       await ctx.answerCallbackQuery();
       if (ctx.callbackQuery.message) {
-        await ctx.editMessageText(result.message, {
+        await ctx.editMessageText(markdownToTelegramHtml(result.message), {
           reply_markup: result.keyboard,
-          parse_mode: 'Markdown',
+          parse_mode: 'HTML',
         });
       }
     } else if (buyMatch) {
@@ -497,9 +555,9 @@ export async function handleMarketCallback(ctx: Context) {
         // Refresh market to show updated gold
         const market = await gameService.getDailyMarket(ctx.from.id, 0);
         if (ctx.callbackQuery.message) {
-          await ctx.editMessageText(market.message, {
+          await ctx.editMessageText(markdownToTelegramHtml(market.message), {
             reply_markup: market.keyboard,
-            parse_mode: 'Markdown',
+            parse_mode: 'HTML',
           });
         }
       } else {

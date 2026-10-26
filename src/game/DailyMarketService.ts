@@ -2,6 +2,7 @@ import { db } from '../database/db';
 import { InlineKeyboard } from 'grammy';
 import { lootService, Item } from './LootService';
 import { SeededRandom } from './SeededRandom';
+import { CUSTOM_EMOJI, ce } from './CustomEmoji';
 
 export interface MarketItem {
   item: Item;
@@ -179,7 +180,7 @@ export class DailyMarketService {
     const pageItems = items.slice(safePage * pageSize, (safePage + 1) * pageSize);
     
     let msg = `🏪 **Ежедневный Маркет**\n\n`;
-    msg += `💰 Ваше золото: ${playerGold}\n`;
+    msg += `${ce(CUSTOM_EMOJI.gold, '💰')} Ваше золото: ${playerGold}\n`;
     msg += `📅 Обновление: завтра в 00:00\n\n`;
     msg += `📦 **Товары (стр. ${safePage + 1}/${totalPages}):**\n\n`;
     

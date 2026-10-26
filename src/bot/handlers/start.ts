@@ -3,6 +3,7 @@ import { UserModel } from '../../database/models/User';
 import { SeasonModel } from '../../database/models/Season';
 import { PlayerProgressModel } from '../../database/models/PlayerProgress';
 import { getClassPage } from './class';
+import { markdownToTelegramHtml } from '../../game/HealthBar';
 
 export async function handleStart(ctx: Context) {
   if (!ctx.from) {
@@ -40,7 +41,8 @@ export async function handleStart(ctx: Context) {
       `• /status - посмотреть свой прогресс\n` +
       `• /inventory - открыть инвентарь\n` +
       `• /class - выбрать класс\n` +
-      `• /achievements - достижения\n\n` +
+      `• /achievements - достижения\n` +
+      `• /reset - сбросить прогресс (1 раз за сезон)\n\n` +
       `⏳ Между действиями - КД 10 минут.\n` +
       `⭐ Можно пропустить КД за 1 Telegram Star.`
     );
@@ -59,8 +61,8 @@ export async function handleStart(ctx: Context) {
     await ctx.reply(
       `🎉 Добро пожаловать в NEMESIS!\n\n` +
       `Вы начинаете восхождение по башне из 500 этажей.\n\n` +
-      page.text,
-      { reply_markup: page.keyboard, parse_mode: 'Markdown' }
+      markdownToTelegramHtml(page.text),
+      { reply_markup: page.keyboard, parse_mode: 'HTML' }
     );
   }
 }

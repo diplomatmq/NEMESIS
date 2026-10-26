@@ -1,4 +1,5 @@
 import { db } from '../database/db';
+import { CUSTOM_EMOJI, ce } from './CustomEmoji';
 
 export interface Achievement {
   id: number;
@@ -108,7 +109,7 @@ export class AchievementService {
     msg += `${achievement.description}\n\n`;
     
     if (achievement.reward_gold > 0) {
-      msg += `💰 Награда: +${achievement.reward_gold} золота\n`;
+      msg += `${ce(CUSTOM_EMOJI.gold, '💰')} Награда: +${achievement.reward_gold} золота\n`;
     }
     
     if (achievement.reward_title) {
@@ -123,8 +124,8 @@ export class AchievementService {
 
     const categories: Record<string, string> = {
       progress: '📈 Прогресс',
-      combat: '⚔️ Боевые',
-      economy: '💰 Экономика',
+      combat: `${ce(CUSTOM_EMOJI.attack, '⚔️')} Боевые`,
+      economy: `${ce(CUSTOM_EMOJI.gold, '💰')} Экономика`,
       items: '📦 Предметы',
       special: '⭐ Особые',
     };

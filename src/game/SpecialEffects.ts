@@ -1,4 +1,5 @@
 import { ActionType } from '../types/game.types';
+import { CUSTOM_EMOJI, ce } from './CustomEmoji';
 
 /**
  * Combat handlers for the `special_effect_code` of equipped items.
@@ -93,7 +94,7 @@ export class SpecialEffectsService {
       multiply(1.10, '🔥 Клык Берсерка: ярость крови +10% урона!');
     }
     if (this.has(ctx, 'low_hp_attack') && hp < 50) {
-      multiply(1.15, '⚔️ Меч берсерка: сила растёт с раной +15% урона!');
+      multiply(1.15, `${ce(CUSTOM_EMOJI.attack, '⚔️')} Меч берсерка: сила растёт с раной +15% урона!`);
     }
     if (this.has(ctx, 'rage') && hp < 50) {
       multiply(1.15, '❤️ Сердце Ярости: +15% урона!');
@@ -162,7 +163,7 @@ export class SpecialEffectsService {
       multiply(1.25, '🎲 Клинок вероятности: +25% урона при крите!');
     }
     if (this.has(ctx, 'greed')) {
-      multiply(1.15, '💰 Кольцо Жадности: +15% урона!');
+      multiply(1.15, `${ce(CUSTOM_EMOJI.gold, '💰')} Кольцо Жадности: +15% урона!`);
     }
     if (this.has(ctx, 'time_strike')) {
       multiply(1.05, '⏱ Хроносапоги: +5% урона!');
@@ -224,7 +225,7 @@ export class SpecialEffectsService {
       report.messages.push('🩸 Серп кровопийцы: +5% лечения!');
     }
     if (this.has(ctx, 'attack_regeneration')) {
-      report.healPercent += 0.02;
+      report.healPercent += 0.01;
     }
 
     return report;
@@ -245,7 +246,7 @@ export class SpecialEffectsService {
 
     if (this.has(ctx, 'damage_reduction')) {
       report.damageReduction += 0.03;
-      report.messages.push('🛡 Броня стражника: -3% урона!');
+      report.messages.push(`${ce(CUSTOM_EMOJI.defense, '🛡️')} Броня стражника: -3% урона!`);
     }
     if (this.has(ctx, 'fortress')) {
       report.damageReduction += 0.05;
@@ -257,7 +258,7 @@ export class SpecialEffectsService {
     }
     if (this.has(ctx, 'last_stand_def') && hp < 25) {
       report.damageReduction += 0.05;
-      report.messages.push('🛡 Щит последнего рубежа: -5% урона!');
+      report.messages.push(`${ce(CUSTOM_EMOJI.defense, '🛡️')} Щит последнего рубежа: -5% урона!`);
     }
     if (this.has(ctx, 'low_hp_defense') && hp < 30) {
       report.damageReduction += 0.08;
@@ -278,7 +279,7 @@ export class SpecialEffectsService {
 
     if (this.has(ctx, '+5% block') || this.has(ctx, 'block')) {
       report.blockChance += 0.05;
-      report.messages.push('🛡 Щит стражника: +5% блока!');
+      report.messages.push(`${ce(CUSTOM_EMOJI.defense, '🛡️')} Щит стражника: +5% блока!`);
     }
     if (this.has(ctx, 'perfect_block')) {
       report.fullBlockChance += 0.08;
@@ -286,7 +287,7 @@ export class SpecialEffectsService {
     }
     if (this.has(ctx, 'perfect_parry')) {
       report.nextAttackBonusPercent += 0.15;
-      report.messages.push('🛡 Щит идеального момента: +15% к следующей атаке!');
+      report.messages.push(`${ce(CUSTOM_EMOJI.defense, '🛡️')} Щит идеального момента: +15% к следующей атаке!`);
     }
     if (this.has(ctx, 'defend_dodge')) {
       report.dodgeBonus += 0.20;
@@ -413,7 +414,7 @@ export class SpecialEffectsService {
     if (this.has(ctx, 'emergency_shield') && hp < 25 && !ctx.usedOnce.includes('emergency_shield')) {
       ctx.usedOnce.push('emergency_shield');
       report.absorbFlat += Math.floor(ctx.playerMaxHp * 0.15);
-      report.messages.push('🛡 Броня Короля: аварийный щит поглотил удар!');
+      report.messages.push(`${ce(CUSTOM_EMOJI.defense, '🛡️')} Броня Короля: аварийный щит поглотил удар!`);
     }
     if (this.has(ctx, 'last_hope') && hp < 15 && !ctx.usedOnce.includes('last_hope')) {
       ctx.usedOnce.push('last_hope');
@@ -456,7 +457,7 @@ export class SpecialEffectsService {
     let source = '';
     if (this.has(ctx, 'ability_block')) {
       chance = Math.max(chance, 0.15);
-      source = '🛡 Щит Пустоты';
+      source = `${ce(CUSTOM_EMOJI.defense, '🛡️')} Щит Пустоты`;
     }
     if (this.has(ctx, 'ability_evasion')) {
       chance = Math.max(chance, 0.12);

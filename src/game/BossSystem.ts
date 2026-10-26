@@ -51,9 +51,80 @@ export interface BossConfig {
   phases?: BossPhase[];
   ai_type: 'aggressive' | 'defensive' | 'adaptive' | 'chaotic' | 'tactical';
   icon: string;
+  custom_emoji_id?: string;
   loot_multiplier: number;
   weakness?: string; // Класс, против которого слабее
   resistance?: string; // Класс, против которого сильнее
+}
+
+/**
+ * Custom Telegram emoji for the named bosses of season one, in floor order
+ * (floors 10..500). Rendered as `<tg-emoji>` in HTML-parsed messages; the plain
+ * `icon` stays as the fallback for contexts that cannot render custom emoji.
+ */
+export const BOSS_CUSTOM_EMOJI_IDS = [
+  '5348045014431739394', // 1. Страж Врат
+  '5348335551789444239', // 2. Костяной Дракон
+  '5348137038401026107', // 3. Владыка Теней
+  '5348468017170788803', // 4. Повелитель Пламени
+  '5348404550439056055', // 5. Ледяной Колосс
+  '5348310280201872028', // 6. Королева Пауков
+  '5348149502396115174', // 7. Гниющий Друид
+  '5348296244248752881', // 8. Железный Голем
+  '5348289110308073886', // 9. Громовой Виверн
+  '5348352113183335592', // 10. Архимаг Предела
+  '5404377715291762442', // 11. Песчаный Пожиратель
+  '5402333534197164353', // 12. Рыцарь Пепла
+  '5404654611833335972', // 13. Морская Ведьма
+  '5402511431742564469', // 14. Минотавр Лабиринта
+  '5404516477095159566', // 15. Хранитель Часов
+  '5404447714668759419', // 16. Алый Палач
+  '5404750509863121542', // 17. Некромант-Король
+  '5402280822063540246', // 18. Призрачный Адмирал
+  '5402490579676347665', // 19. Химера Бездны
+  '5402376346431172288', // 20. Вулканический Титан
+  '5404663227537729315', // 21. Сфинкс Забвения
+  '5402482719886190814', // 22. Чумной Епископ
+  '5402172288239976795', // 23. Лунный Охотник
+  '5402619213946856996', // 24. Башенный Разрушитель
+  '5402496227558339259', // 25. Дракон Миражей
+  '5402328594984773503', // 26. Морозный Лич
+  '5402626824628904838', // 27. Король Гоблинов
+  '5402161903009051468', // 28. Змей Девяти Клыков
+  '5402426863836510511', // 29. Стальной Самурай
+  '5402165910213534730', // 30. Колдунья Багрового Дождя
+  '5404688533485040422', // 31. Пожиратель Звёзд
+  '5402166455674380352', // 32. Титан Корней
+  '5402416663289178568', // 33. Владыка Зеркал
+  '5404844462272718910', // 34. Граф Ноктюрн
+  '5402227680433188090', // 35. Оракул Пустоты
+  '5404722944763014377', // 36. Демон-Кузнец
+  '5402428792276822970', // 37. Повелитель Миазмов
+  '5404602586894475756', // 38. Феникс Пепла
+  '5402553956213760939', // 39. Кристальный Страж
+  '5404574068311631546', // 40. Ведьмак Бездны
+  '5404774806493122288', // 41. Левиафан Небес
+  '5404721265430802065', // 42. Ткач Судеб
+  '5404759829942153140', // 43. Император Мёртвых
+  '5402547204525172981', // 44. Сердце Бури
+  '5404555733096247662', // 45. Архидемон Врат
+  '5404719336990484482', // 46. Астральный Колосс
+  '5402443287791446840', // 47. Повелитель Хаоса
+  '5402591391148714847', // 48. Последний Рыцарь
+  '5404650772132573327', // 49. Апокалипсис
+  '5402455064591770909', // 50. Вершинный Судья
+];
+
+/** Renders a boss icon as custom emoji when one is assigned, else the plain icon. */
+export function formatBossIcon(config: Pick<BossConfig, 'icon' | 'custom_emoji_id'>): string {
+  return config.custom_emoji_id
+    ? `<tg-emoji emoji-id="${config.custom_emoji_id}">${config.icon}</tg-emoji>`
+    : config.icon;
+}
+
+/** Removes custom-emoji markup for plain-text contexts such as button labels. */
+export function stripCustomEmoji(text: string): string {
+  return text.replace(/<tg-emoji[^>]*>(.*?)<\/tg-emoji>/gs, '$1');
 }
 
 export class BossSystem {
@@ -300,6 +371,7 @@ export class BossSystem {
           ],
           ai_type: aiType as BossConfig['ai_type'],
           icon: ['👹', '🐉', '💀', '🔥', '❄️'][index % 5],
+          custom_emoji_id: BOSS_CUSTOM_EMOJI_IDS[index],
           loot_multiplier: 1.5 + level * 0.1,
           weakness,
         };
@@ -580,7 +652,7 @@ export class BossSystem {
     
     return {
       id: undefined,
-      name: `${config.icon} ${config.name}`,
+      name: `${formatBossIcon(config)} ${config.name}`,
       hp: config.base_hp,
       maxHp: config.base_hp,
       attack: config.base_attack,
@@ -672,7 +744,7 @@ export class BossSystem {
       return {
         action: chosen.action ?? ActionType.ATTACK,
         ability: chosen,
-        message: `${config.icon} ${boss.name} использует ${chosen.icon} ${chosen.name}!`,
+        message: `${boss.name} использует ${chosen.icon} ${chosen.name}!`,
       };
     }
 
@@ -690,7 +762,7 @@ export class BossSystem {
     if (predictedEnemyAction !== undefined && base.action !== predictedEnemyAction
       && Math.random() < PREDICTION_FALLBACK_CHANCE) {
       const actionText = predictedEnemyAction === ActionType.ATTACK ? 'атакует' : 'защищается';
-      return { action: predictedEnemyAction, message: `${config.icon} ${boss.name} ${actionText}!` };
+      return { action: predictedEnemyAction, message: `${boss.name} ${actionText}!` };
     }
 
     return base;
@@ -710,7 +782,7 @@ export class BossSystem {
         // Всегда атакует
         return {
           action: ActionType.ATTACK,
-          message: `${config.icon} ${config.name} яростно атакует!`,
+          message: `${formatBossIcon(config)} ${config.name} яростно атакует!`,
         };
       
       case 'defensive': {
@@ -719,7 +791,7 @@ export class BossSystem {
         if (turnCount % 2 === 0) {
           return {
             action: ActionType.ATTACK,
-            message: `${config.icon} ${config.name} атакует!`,
+            message: `${formatBossIcon(config)} ${config.name} атакует!`,
           };
         }
         // The stance respects its cooldown here too. If it is still recharging
@@ -728,14 +800,14 @@ export class BossSystem {
         if (!stance) {
           return {
             action: ActionType.ATTACK,
-            message: `${config.icon} ${config.name} атакует!`,
+            message: `${formatBossIcon(config)} ${config.name} атакует!`,
           };
         }
         abilityCooldowns[stance.name] = turnCount;
         return {
           action: ActionType.DEFEND,
           ability: stance,
-          message: `${config.icon} ${config.name} принимает защитную стойку!`,
+          message: `${formatBossIcon(config)} ${config.name} принимает защитную стойку!`,
         };
       }
       
@@ -744,12 +816,12 @@ export class BossSystem {
         if (Math.random() < 0.6) {
           return {
             action: playerAction === ActionType.ATTACK ? ActionType.DEFEND : ActionType.ATTACK,
-            message: `${config.icon} ${config.name} адаптируется к вашей тактике!`,
+            message: `${formatBossIcon(config)} ${config.name} адаптируется к вашей тактике!`,
           };
         } else {
           return {
             action: ActionType.ATTACK,
-            message: `${config.icon} ${config.name} атакует!`,
+            message: `${formatBossIcon(config)} ${config.name} атакует!`,
           };
         }
       
@@ -757,23 +829,23 @@ export class BossSystem {
         // Случайное
         return {
           action: Math.random() > 0.5 ? ActionType.ATTACK : ActionType.DEFEND,
-          message: `${config.icon} ${config.name} непредсказуем!`,
+          message: `${formatBossIcon(config)} ${config.name} непредсказуем!`,
         };
       
       case 'tactical':
         // Умный выбор
         if (hpPercent > 70) {
-          return { action: ActionType.ATTACK, message: `${config.icon} ${config.name} агрессивно наступает!` };
+          return { action: ActionType.ATTACK, message: `${formatBossIcon(config)} ${config.name} агрессивно наступает!` };
         } else if (hpPercent > 30) {
-          return { action: playerAction === ActionType.ATTACK ? ActionType.DEFEND : ActionType.ATTACK, message: `${config.icon} ${config.name} действует тактично!` };
+          return { action: playerAction === ActionType.ATTACK ? ActionType.DEFEND : ActionType.ATTACK, message: `${formatBossIcon(config)} ${config.name} действует тактично!` };
         } else {
-          return { action: ActionType.ATTACK, message: `${config.icon} ${config.name} в отчаянии!` };
+          return { action: ActionType.ATTACK, message: `${formatBossIcon(config)} ${config.name} в отчаянии!` };
         }
       
       default:
         return {
           action: ActionType.ATTACK,
-          message: `${config.icon} ${config.name} атакует!`,
+          message: `${formatBossIcon(config)} ${config.name} атакует!`,
         };
     }
   }

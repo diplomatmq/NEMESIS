@@ -4,6 +4,7 @@ import { UserModel } from '../../database/models/User';
 import { ChatModel } from '../../database/models/Chat';
 import { SeasonModel } from '../../database/models/Season';
 import { PlayerProgressModel } from '../../database/models/PlayerProgress';
+import { markdownToTelegramHtml } from '../../game/HealthBar';
 
 export async function handleAchievements(ctx: Context) {
   if (!ctx.from || !ctx.chat) {
@@ -34,5 +35,5 @@ export async function handleAchievements(ctx: Context) {
   let message = achievementService.formatAchievementsList(achievements);
   message += `\n\n📊 Прогресс: ${counts.unlocked}/${counts.total}`;
 
-  await ctx.reply(message, { parse_mode: 'Markdown' });
+  await ctx.reply(markdownToTelegramHtml(message), { parse_mode: 'HTML' });
 }
