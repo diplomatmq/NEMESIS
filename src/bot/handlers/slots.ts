@@ -209,8 +209,8 @@ export async function handleDiceMessage(ctx: Context) {
 
     await ctx.reply(result.message, { parse_mode: 'Markdown' });
 
-    // If jackpot, also send item details
-    if (result.isJackpot && result.item) {
+    // If a win dropped an item, also send item details
+    if (result.item) {
       await ctx.reply(
         `🎉 **Поздравляем!**\n\n` +
         `Предмет добавлен в ваш инвентарь!\n` +

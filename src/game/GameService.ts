@@ -15,7 +15,7 @@ import {
   isCooldownExemptTelegramUser,
 } from './CooldownService';
 import { combatEngine, Enemy } from './CombatEngine';
-import { bossSystem, PREDICTION_ACTION_BIAS, formatBossIcon, stripCustomEmoji } from './BossSystem';
+import { bossSystem, PREDICTION_ACTION_BIAS, formatBossIcon, stripCustomEmoji, soulDisplayName } from './BossSystem';
 import { behaviorTracker } from './BehaviorTracker';
 import { lootService } from './LootService';
 import { classService } from './ClassService';
@@ -28,6 +28,7 @@ import { CUSTOM_EMOJI, ce } from './CustomEmoji';
 import { InlineKeyboard } from 'grammy';
 import { trailService } from './TrailService';
 import { dailyMarketService } from './DailyMarketService';
+import { merchantService } from './MerchantService';
 
 export interface GameContext {
   telegramUserId: number;
@@ -48,6 +49,7 @@ export interface ActionResult {
   combatResult?: CombatResult;
   keyboard?: InlineKeyboard;
   privateMessage?: string;
+  adminNotification?: string;
 }
 
 export class GameService {
@@ -162,7 +164,7 @@ export class GameService {
 
     const actionLower = action.toLowerCase().trim();
 
-    if (await trailService.getEvent(userId, seasonId)) {
+    if (await trailService.getEvent(userId, seasonId, chatId)) {
       return { message: '🧭 Сначала выберите вариант найденного следа на кнопках выше.', consumesCooldown: false };
     }
 
@@ -212,6 +214,7 @@ export class GameService {
     let combatState = await CombatStateModel.find(userId, seasonId, chatId);
     let enemy: Enemy;
     let currentFloor = chatProgress.current_floor;
+    let adminNotification: string | undefined;
 
     if (combatState) {
       // Continue existing combat IN THIS CHAT
@@ -366,7 +369,7 @@ export class GameService {
         const soulDropped = Math.random() < dropChance;
         
         if (soulDropped) {
-          const soul = { name: stripCustomEmoji(enemy.name), floor: currentFloor, boss_config: enemy.boss_config };
+          const soul = { name: soulDisplayName(enemy), floor: currentFloor, boss_config: enemy.boss_config };
           
           // If both boss soul slots are full, force sacrifice choice
           if (souls.length >= 2) {
@@ -374,7 +377,7 @@ export class GameService {
             souls.forEach((existingSoul, index) => {
               const soulEmojiId = existingSoul.boss_config?.custom_emoji_id;
               rewardKeyboard!.text(
-                `${soulEmojiId ? '' : '☠️ '}Заменить ${existingSoul.name}`,
+                `${soulEmojiId ? '' : '☠️ '}Заменить ${soulDisplayName(existingSoul)}`,
                 `sacrifice:replace:${index}`
               ).icon(soulEmojiId).row();
             });
@@ -439,6 +442,17 @@ export class GameService {
       }
       
       combatResult.message += loot.message;
+
+      // A caught NFT is a real-world reward granted by hand, so the admins are
+      // notified while the counter is already stored on the player.
+      if (loot.nftCaught) {
+        const playerName = context.username ? `@${context.username}` : context.firstName;
+        adminNotification =
+          `${ce(CUSTOM_EMOJI.nft, '🎖')} <b>Выпал NFT!</b>\n` +
+          `Игрок: ${playerName} (id: ${context.telegramUserId})\n` +
+          `Босс: ${enemy.name}\n` +
+          `Этаж: ${currentFloor}`;
+      }
 
       // Advance floor in chat progress first
       const previousMaxFloor = progress.highest_floor_reached;
@@ -509,14 +523,14 @@ export class GameService {
             ? [...progress.necro_boss_souls]
             : [];
           if (enemy.isBoss && storedSouls.length < 2) {
-            storedSouls.push({ name: stripCustomEmoji(enemy.name), floor: currentFloor, boss_config: enemy.boss_config });
+            storedSouls.push({ name: soulDisplayName(enemy), floor: currentFloor, boss_config: enemy.boss_config });
           }
           if (storedSouls.length > 0 && Math.random() < 0.15) {
             rewardKeyboard = new InlineKeyboard();
             storedSouls.slice(0, 2).forEach((soul, index) => {
               const soulEmojiId = soul.boss_config?.custom_emoji_id;
               rewardKeyboard!.text(
-                `${soulEmojiId ? '' : '☠️ '}Отдать ${soul.name}`,
+                `${soulEmojiId ? '' : '☠️ '}Отдать ${soulDisplayName(soul)}`,
                 `throne:sacrifice:${index}`
               ).icon(soulEmojiId).row();
             });
@@ -550,7 +564,7 @@ export class GameService {
           newChatFloor
         );
         combatResult.message += `\n${trail.message}`;
-        return { message: combatResult.message, combatResult, keyboard: trail.keyboard };
+        return { message: combatResult.message, combatResult, keyboard: trail.keyboard, adminNotification };
       }
     } else {
       // Combat continues - update combat state with new enemy HP
@@ -586,6 +600,7 @@ export class GameService {
       message: combatResult.message,
       combatResult,
       keyboard: rewardKeyboard,
+      adminNotification,
     };
   }
 
@@ -667,7 +682,7 @@ export class GameService {
           if (bossSouls.length > 0) {
             necromancerInfo += `👹 Души боссов: ${bossSouls.length}/2\n`;
             bossSouls.forEach((soul, idx) => {
-              necromancerInfo += `  ${idx + 1}. ${formatBossIcon(soul.boss_config ?? {})} ${soul.name} (этаж ${soul.floor})\n`;
+              necromancerInfo += `  ${idx + 1}. ${formatBossIcon(soul.boss_config ?? {})} ${soulDisplayName(soul)} (этаж ${soul.floor})\n`;
             });
           } else {
             necromancerInfo += `👹 Души боссов: 0/2\n`;
@@ -724,6 +739,7 @@ export class GameService {
       `${ce(CUSTOM_EMOJI.defense, '🛡️')} Защита: ${progress.defense}\n` +
       `⭐ Уровень: ${PlayerProgressModel.calculateLevel(progress.highest_floor_reached)}\n` +
       `${ce(CUSTOM_EMOJI.gold, '💰')} Золото: ${progress.gold}\n` +
+      `${ce(CUSTOM_EMOJI.nft, '🎖')} NFT поймано: ${progress.nfts_caught ?? 0}\n` +
       necromancerInfo +
       chatInfo +
       combatInfo +
@@ -1094,9 +1110,7 @@ export class GameService {
     const progress = await PlayerProgressModel.find(user.id, season.id);
     if (!progress) return 'Прогресс не найден.';
     const equipped = await lootService.equipItem(progress.id, itemId);
-    return equipped
-      ? '✅ Предмет экипирован.'
-      : '❌ Нельзя экипировать этот предмет: его нет в инвентаре, он несовместим с классом или ещё недоступен по уровню.';
+    return equipped.success ? '✅ Предмет экипирован.' : `❌ Нельзя экипировать этот предмет: ${equipped.reason}`;
   }
 
   async getEquipmentMenu(
@@ -1231,9 +1245,8 @@ export class GameService {
       const removed = await lootService.unequipItem(progress.id, slot);
       return removed ? '✅ Предмет снят.' : '❌ Не удалось снять предмет.';
     }
-    return (await lootService.equipItem(progress.id, itemId))
-      ? '✅ Предмет надет.'
-      : '❌ Этот предмет нельзя надеть.';
+    const result = await lootService.equipItem(progress.id, itemId);
+    return result.success ? '✅ Предмет надет.' : `❌ ${result.reason}`;
   }
 
   async getPotionMenu(
@@ -1343,7 +1356,7 @@ export class GameService {
     }
     bosses.forEach((boss, index) => {
       const soulEmojiId = boss.boss_config?.custom_emoji_id;
-      keyboard.text(`${soulEmojiId ? '' : '☠️ '}${boss.name} · ${boss.floor} этаж`, `sacrifice:boss:${index}`).icon(soulEmojiId).row();
+      keyboard.text(`${soulEmojiId ? '' : '☠️ '}${soulDisplayName(boss)} · ${boss.floor} этаж`, `sacrifice:boss:${index}`).icon(soulEmojiId).row();
       keyboard.text('⭐ Пропустить КД за 5 Stars', `sacrifice:skip:boss:${index}`).row();
     });
     if (!keyboard.inline_keyboard.length) {
@@ -1384,7 +1397,7 @@ export class GameService {
     } else {
       // Boss soul: bonus scales with floor
       const floor = bosses[bossIndex!].floor;
-      sacrificeName = `${bosses[bossIndex!].name} (этаж ${floor})`;
+      sacrificeName = `${formatBossIcon(bosses[bossIndex!].boss_config ?? {})} ${soulDisplayName(bosses[bossIndex!])} (этаж ${floor})`;
       
       if (floor <= 100) {
         attackBonusPercent = 12;
@@ -1468,7 +1481,7 @@ export class GameService {
       [progress.id, bossIndex + 1, JSON.stringify(pendingSoul)]
     );
     
-    return `☠️ Душа ${replacedSoul.name} принесена в жертву.\n✨ Душа ${pendingSoul.name} поглощена!`;
+    return `☠️ Душа ${formatBossIcon(replacedSoul.boss_config ?? {})} ${soulDisplayName(replacedSoul)} принесена в жертву.\n✨ Душа ${formatBossIcon(pendingSoul.boss_config ?? {})} ${soulDisplayName(pendingSoul)} поглощена!`;
   }
 
   async declineBossSoul(telegramUserId: number): Promise<void> {
@@ -1602,6 +1615,45 @@ export class GameService {
     if (!progress) return { success: false, message: 'Прогресс не найден.' };
     
     return await dailyMarketService.buyItem(progress.id, itemIndex);
+  }
+
+  /**
+   * Sell menu of the daily market: the player's inventory with sell prices.
+   */
+  async getDailyMarketSellMenu(
+    telegramUserId: number,
+    page: number = 0
+  ): Promise<{ message: string; keyboard: InlineKeyboard }> {
+    const user = await UserModel.findByTelegramId(telegramUserId);
+    if (!user) throw new Error('Пользователь не найден.');
+
+    const season = await SeasonModel.getCurrentSeason();
+    if (!season) throw new Error('Сезон не найден.');
+
+    const progress = await PlayerProgressModel.find(user.id, season.id);
+    if (!progress) throw new Error('Прогресс не найден.');
+
+    const inventory = await lootService.getInventory(progress.id);
+    return dailyMarketService.generateSellMenu(inventory, progress.gold, page, telegramUserId);
+  }
+
+  /**
+   * Sell one item from the daily market.
+   */
+  async sellFromDailyMarket(
+    telegramUserId: number,
+    itemId: number
+  ): Promise<{ success: boolean; message: string }> {
+    const user = await UserModel.findByTelegramId(telegramUserId);
+    if (!user) return { success: false, message: 'Пользователь не найден.' };
+
+    const season = await SeasonModel.getCurrentSeason();
+    if (!season) return { success: false, message: 'Сезон не найден.' };
+
+    const progress = await PlayerProgressModel.find(user.id, season.id);
+    if (!progress) return { success: false, message: 'Прогресс не найден.' };
+
+    return await merchantService.sellItem(progress.id, itemId);
   }
 
   private getRarityEmoji(rarity: string): string {

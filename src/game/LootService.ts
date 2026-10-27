@@ -29,10 +29,37 @@ export interface LootDrop {
   items: Item[];
   gold: number;
   message: string;
+  nftCaught?: boolean;
 }
 
+/** Chance that a defeated boss yields the ultra-rare NFT (0.001%). */
+export const NFT_DROP_CHANCE = 0.00001;
+
+/** Chance that a common mob drops an item (~15%). */
+export const MOB_ITEM_DROP_CHANCE = 0.15;
+
+/** Outcome of an equip attempt; carries the reason when it is rejected. */
+export type EquipResult = { success: true } | { success: false; reason: string };
+
 export class LootService {
-  
+
+  /** Boss drop rarity table, ordered from rarest to most common. */
+  private static readonly BOSS_RARITY_CHANCES: Array<{ rarity: ItemRarity; chance: number }> = [
+    { rarity: ItemRarity.MYTHIC, chance: 0.0003 },      // 0.03%
+    { rarity: ItemRarity.LEGENDARY, chance: 0.003 },    // 0.3%
+    { rarity: ItemRarity.EPIC, chance: 0.07 },          // 7%
+    { rarity: ItemRarity.RARE, chance: 0.20 },          // 20%
+    { rarity: ItemRarity.UNCOMMON, chance: 0.35 },      // 35%
+    { rarity: ItemRarity.COMMON, chance: 0.3767 },      // 37.67%
+  ];
+
+  /** Mob drops stay low tier: mostly common, occasionally uncommon. */
+  private static readonly MOB_RARITY_CHANCES: Array<{ rarity: ItemRarity; chance: number }> = [
+    { rarity: ItemRarity.RARE, chance: 0.05 },          // 5%
+    { rarity: ItemRarity.UNCOMMON, chance: 0.30 },      // 30%
+    { rarity: ItemRarity.COMMON, chance: 0.65 },        // 65%
+  ];
+
   async generateLootS1(
     floor: number, 
     isBoss: boolean, 
@@ -42,6 +69,7 @@ export class LootService {
   ): Promise<LootDrop> {
     const drops: Item[] = [];
     let gold = 0;
+    let nftCaught = false;
 
     if (isBoss) {
       // Boss gold
@@ -63,47 +91,65 @@ export class LootService {
       
       // Boss always gives a potion
       await potionService.addPotionToInventory(playerProgressId, 'medium', 1);
+
+      // Ultra-rare NFT, rolled independently from the item slots.
+      if (Math.random() < NFT_DROP_CHANCE) {
+        nftCaught = true;
+        await db.query(
+          'UPDATE player_progress SET nfts_caught = nfts_caught + 1, updated_at = NOW() WHERE id = $1',
+          [playerProgressId]
+        );
+      }
     } else {
-      // Regular mob - only gold, NO ITEMS
+      // Regular mob - gold plus a modest chance for an item
       gold = Math.floor((10 + (floor * 2)) * rewardMultiplier);
-      
+
+      if (Math.random() < MOB_ITEM_DROP_CHANCE) {
+        const mobItem = await this.rollMobItem(floor);
+        if (mobItem) {
+          drops.push(mobItem);
+        }
+      }
+
       // 20% chance for small potion
       if (Math.random() < 0.2) {
         await potionService.addPotionToInventory(playerProgressId, 'small', 1);
       }
     }
 
-    const message = this.generateLootMessage(drops, gold, isBoss, rewardMultiplier);
+    const message = this.generateLootMessage(drops, gold, isBoss, rewardMultiplier, nftCaught);
 
     return {
       items: drops,
       gold,
       message,
+      nftCaught,
     };
   }
 
   /**
-   * Roll for boss item drop with rarity-based chances
-   * Mythic: 0.01%, Legendary: 0.1%, Epic: 5%, Rare: 15%, Uncommon: 35%, Common: 44.99%
+   * Roll for a boss item drop with rarity-based chances.
    */
   private async rollBossItem(floor: number): Promise<Item | null> {
+    return this.rollItem(floor, LootService.BOSS_RARITY_CHANCES);
+  }
+
+  /** Roll for a mob item drop; mobs never drop the top rarities. */
+  private async rollMobItem(floor: number): Promise<Item | null> {
+    return this.rollItem(floor, LootService.MOB_RARITY_CHANCES);
+  }
+
+  private async rollItem(
+    floor: number,
+    rarityChances: Array<{ rarity: ItemRarity; chance: number }>
+  ): Promise<Item | null> {
     const level = Math.floor(floor / 10) + 1;
-    
-    // Rarity drop chances (lower = rarer)
-    const rarityChances: Array<{ rarity: ItemRarity; chance: number }> = [
-      { rarity: ItemRarity.MYTHIC, chance: 0.0001 },      // 0.01%
-      { rarity: ItemRarity.LEGENDARY, chance: 0.001 },    // 0.1%
-      { rarity: ItemRarity.EPIC, chance: 0.05 },          // 5%
-      { rarity: ItemRarity.RARE, chance: 0.15 },          // 15%
-      { rarity: ItemRarity.UNCOMMON, chance: 0.35 },      // 35%
-      { rarity: ItemRarity.COMMON, chance: 0.4499 },      // 44.99%
-    ];
 
     // Roll for rarity
     const roll = Math.random();
     let cumulativeChance = 0;
     let selectedRarity: ItemRarity = ItemRarity.COMMON;
-    
+
     for (const { rarity, chance } of rarityChances) {
       cumulativeChance += chance;
       if (roll < cumulativeChance) {
@@ -125,7 +171,13 @@ export class LootService {
   }
 
 
-  private generateLootMessage(items: Item[], gold: number, isBoss: boolean, rewardMultiplier: number): string {
+  private generateLootMessage(
+    items: Item[],
+    gold: number,
+    isBoss: boolean,
+    rewardMultiplier: number,
+    nftCaught: boolean = false
+  ): string {
     let msg = '';
     
     if (rewardMultiplier < 1.0) {
@@ -152,6 +204,11 @@ export class LootService {
         if (item.defense_bonus > 0) msg += `   ${ce(CUSTOM_EMOJI.defense, '🛡️')} +${item.defense_bonus} DEF\n`;
         if (item.hp_bonus > 0) msg += `   ❤️ +${item.hp_bonus} HP\n`;
       }
+    }
+
+    if (nftCaught) {
+      const nft = ce(CUSTOM_EMOJI.nft, '🎖');
+      msg += `\n\n${nft} 🎉 **ВЫ СЛОВИЛИ NFT!** 🎉 ${nft}\n`;
     }
 
     return msg;
@@ -226,27 +283,31 @@ export class LootService {
     return result.rows[0] || null;
   }
 
-  async equipItem(playerProgressId: number, itemId: number): Promise<boolean> {
+  async equipItem(playerProgressId: number, itemId: number): Promise<EquipResult> {
     const item = await this.getItem(itemId);
-    if (!item) return false;
+    if (!item) return { success: false, reason: 'Предмет не найден.' };
 
     const owned = await db.query(
       `SELECT 1 FROM player_inventory
        WHERE player_progress_id = $1 AND item_id = $2 AND quantity > 0`,
       [playerProgressId, itemId]
     );
-    if (!owned.rows[0] ||
-        !['weapon', 'shield', 'helmet', 'armor', 'boots', 'accessory'].includes(item.slot)) {
-      return false;
+    if (!owned.rows[0]) {
+      return { success: false, reason: 'Этого предмета нет в инвентаре.' };
+    }
+    if (!['weapon', 'shield', 'helmet', 'armor', 'boots', 'accessory'].includes(item.slot)) {
+      return { success: false, reason: 'Этот предмет нельзя надеть.' };
     }
 
     const progress = await db.query(
       'SELECT highest_floor_reached FROM player_progress WHERE id = $1',
       [playerProgressId]
     );
-    if (!progress.rows[0] ||
-        PlayerProgressModel.calculateLevel(Number(progress.rows[0].highest_floor_reached)) < item.level_required) {
-      return false;
+    const playerLevel = progress.rows[0]
+      ? PlayerProgressModel.calculateLevel(Number(progress.rows[0].highest_floor_reached))
+      : 0;
+    if (playerLevel < item.level_required) {
+      return { success: false, reason: `Нужен уровень ${item.level_required}, у вас ${playerLevel}.` };
     }
 
     if (item.item_type === ItemType.CLASS_EXCLUSIVE) {
@@ -258,7 +319,7 @@ export class LootService {
       );
       // Check if player has the right class for this item
       if (!player.rows[0]?.class_id || Number(player.rows[0].class_id) !== Number(item.class_id)) {
-        return false;
+        return { success: false, reason: 'Предмет доступен только определённому классу.' };
       }
     }
 
@@ -287,7 +348,7 @@ export class LootService {
     // Recalculate player stats
     await this.recalculateStats(playerProgressId);
 
-    return true;
+    return { success: true };
   }
 
   async unequipItem(playerProgressId: number, slot: string): Promise<boolean> {

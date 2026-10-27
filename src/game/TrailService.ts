@@ -40,8 +40,8 @@ export class TrailService {
     const result = await db.query(
       `INSERT INTO trail_events (user_id, season_id, chat_id, floor, options)
        VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT (user_id, season_id) DO UPDATE
-       SET chat_id = EXCLUDED.chat_id, floor = EXCLUDED.floor,
+       ON CONFLICT (user_id, season_id, chat_id) DO UPDATE
+       SET floor = EXCLUDED.floor,
            options = EXCLUDED.options, created_at = NOW()
        RETURNING id`,
       [userId, seasonId, chatId, floor, JSON.stringify(shuffled)]
@@ -55,11 +55,11 @@ export class TrailService {
     };
   }
 
-  async getEvent(userId: number, seasonId: number): Promise<TrailEvent | null> {
+  async getEvent(userId: number, seasonId: number, chatId: number): Promise<TrailEvent | null> {
     const result = await db.query(
       `SELECT id, floor, options FROM trail_events
-       WHERE user_id = $1 AND season_id = $2`,
-      [userId, seasonId]
+       WHERE user_id = $1 AND season_id = $2 AND chat_id = $3`,
+      [userId, seasonId, chatId]
     );
     return result.rows[0] || null;
   }

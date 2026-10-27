@@ -10,6 +10,7 @@ export const CUSTOM_EMOJI = {
   defense: '5354883723353435504',
   gold: '5318912792428814144',
   home: '5235882793900188063',
+  nft: '5348368099051600803',
 } as const;
 
 export function ce(id: string, fallback: string): string {

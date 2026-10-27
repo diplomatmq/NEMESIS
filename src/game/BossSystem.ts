@@ -128,6 +128,16 @@ export function stripCustomEmoji(text: string): string {
   return text.replace(/<tg-emoji[^>]*>(.*?)<\/tg-emoji>/gs, '$1');
 }
 
+/**
+ * Plain boss name of a stored soul, without any emoji. Souls saved before the
+ * catalogue name was available kept the fallback emoji inline ("👹 Имя"), so a
+ * leading symbol run is trimmed in that case.
+ */
+export function soulDisplayName(soul: { name?: string; boss_config?: { name?: string } }): string {
+  if (soul.boss_config?.name) return soul.boss_config.name;
+  return (soul.name ?? '').replace(/^[^\p{L}\p{N}]+/u, '').trim();
+}
+
 export class BossSystem {
   
   // Предопределённые способности боссов

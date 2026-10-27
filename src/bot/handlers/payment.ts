@@ -2,6 +2,7 @@ import { Context } from 'grammy';
 import { paymentService } from '../../payment/PaymentService';
 import { gameService } from '../../game/GameService';
 import { markdownToTelegramHtml } from '../../game/HealthBar';
+import { notifyAdmins } from './admin';
 
 export async function handleSuccessfulPayment(ctx: Context) {
   if (!ctx.message?.successful_payment || !ctx.from || !ctx.chat) {
@@ -84,6 +85,10 @@ export async function handleSuccessfulPayment(ctx: Context) {
       ),
       { parse_mode: 'HTML' }
     );
+
+    if ('adminNotification' in actionResult && actionResult.adminNotification) {
+      await notifyAdmins(ctx.api, actionResult.adminNotification);
+    }
 
   } catch (error) {
     console.error(`❌ Error executing paid action:`, error);

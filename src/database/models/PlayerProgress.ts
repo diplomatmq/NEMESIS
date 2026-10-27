@@ -39,6 +39,7 @@ export interface PlayerProgress {
   reset_used: boolean;
   boss_pins: BossPin[];
   active_pin?: BossPin | null;
+  nfts_caught: number;
   created_at: Date;
   updated_at: Date;
 }

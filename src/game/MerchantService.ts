@@ -188,17 +188,7 @@ export class MerchantService {
     const item = inventory.rows[0];
     const quantity = item.quantity;
 
-    // Calculate sell price (50% of base value)
-    const rarityValues: Record<string, number> = {
-      common: 25,
-      uncommon: 50,
-      rare: 100,
-      epic: 200,
-      legendary: 400,
-      mythic: 800,
-    };
-
-    const sellPrice = rarityValues[item.rarity] || 25;
+    const sellPrice = this.getSellPrice(item.rarity);
 
     // Remove one item
     if (quantity > 1) {
@@ -227,6 +217,19 @@ export class MerchantService {
       message: `✅ Вы продали: **${item.name}** за ${ce(CUSTOM_EMOJI.gold, '💰')} ${sellPrice} золота!`,
       gold: sellPrice,
     };
+  }
+
+  /** Gold a player receives for selling one item of the given rarity. */
+  getSellPrice(rarity: string): number {
+    const rarityValues: Record<string, number> = {
+      common: 25,
+      uncommon: 50,
+      rare: 100,
+      epic: 200,
+      legendary: 400,
+      mythic: 800,
+    };
+    return rarityValues[rarity] || 25;
   }
 
   private getRarityEmoji(rarity: string): string {

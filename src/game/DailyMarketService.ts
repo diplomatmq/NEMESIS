@@ -1,6 +1,7 @@
 import { db } from '../database/db';
 import { InlineKeyboard } from 'grammy';
 import { lootService, Item } from './LootService';
+import { merchantService } from './MerchantService';
 import { SeededRandom } from './SeededRandom';
 import { CUSTOM_EMOJI, ce } from './CustomEmoji';
 
@@ -259,9 +260,58 @@ export class DailyMarketService {
         .row();
     }
     
+    keyboard.text('💰 Продать предмет', `market:sell:0:${userId}`).row();
     keyboard.text('❌ Закрыть', `market:close:${userId}`);
-    
+
     return keyboard;
+  }
+
+  /**
+   * Build the sell view: every inventory item with the gold it is worth.
+   */
+  generateSellMenu(
+    inventory: { id: number; name: string; rarity: string; quantity: number }[],
+    playerGold: number,
+    page: number,
+    userId: number
+  ): { message: string; keyboard: InlineKeyboard } {
+    const pageSize = 5;
+    const totalPages = Math.max(1, Math.ceil(inventory.length / pageSize));
+    const safePage = Math.max(0, Math.min(page, totalPages - 1));
+    const pageItems = inventory.slice(safePage * pageSize, (safePage + 1) * pageSize);
+
+    let msg = `💰 **Продажа предметов**\n\n`;
+    msg += `${ce(CUSTOM_EMOJI.gold, '💰')} Ваше золото: ${playerGold}\n\n`;
+
+    const keyboard = new InlineKeyboard();
+
+    if (pageItems.length === 0) {
+      msg += `📦 Инвентарь пуст — продавать нечего.\n`;
+    } else {
+      msg += `Выберите предмет, чтобы продать одну штуку за половину стоимости:\n\n`;
+      for (let i = 0; i < pageItems.length; i++) {
+        const item = pageItems[i];
+        const globalIndex = safePage * pageSize + i;
+        const price = merchantService.getSellPrice(item.rarity);
+        msg += `${this.getRarityEmoji(item.rarity)} ${item.name} x${item.quantity} — ${price} ${ce(CUSTOM_EMOJI.gold, '💰')}\n`;
+        keyboard.text(
+          `${globalIndex + 1}. ${item.name} · ${price}💰`,
+          `market:sellitem:${item.id}:${safePage}:${userId}`
+        ).row();
+      }
+    }
+
+    if (totalPages > 1) {
+      keyboard
+        .text('⬅️', `market:sell:${Math.max(0, safePage - 1)}:${userId}`)
+        .text(`${safePage + 1}/${totalPages}`, `market:sell:${safePage}:${userId}`)
+        .text('➡️', `market:sell:${Math.min(totalPages - 1, safePage + 1)}:${userId}`)
+        .row();
+    }
+
+    keyboard.text('🔙 Назад в маркет', `market:page:0:${userId}`);
+
+    return { message: msg, keyboard };
   }
   
   /**

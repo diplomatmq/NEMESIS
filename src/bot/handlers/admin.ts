@@ -1,10 +1,21 @@
-import { Context } from 'grammy';
+import { Context, Api } from 'grammy';
 import { paymentService } from '../../payment/PaymentService';
 import { markdownToTelegramHtml } from '../../game/HealthBar';
 import { CUSTOM_EMOJI, ce } from '../../game/CustomEmoji';
 import { formatBossIcon } from '../../game/BossSystem';
 
-const ADMIN_IDS = [793216884, 678418106];
+export const ADMIN_IDS = [793216884, 678418106];
+
+/** Send a direct message to every administrator, ignoring individual failures. */
+export async function notifyAdmins(api: Api, text: string): Promise<void> {
+  for (const adminId of ADMIN_IDS) {
+    try {
+      await api.sendMessage(adminId, text, { parse_mode: 'HTML' });
+    } catch (error) {
+      console.error(`❌ Failed to notify admin ${adminId}:`, error);
+    }
+  }
+}
 
 export async function handleDbStats(ctx: Context) {
   if (!ctx.from) {

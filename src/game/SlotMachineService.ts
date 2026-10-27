@@ -19,6 +19,26 @@ export class SlotMachineService {
   private readonly STARS_PER_SPIN = 2;
   private readonly SESSION_DURATION_MINUTES = 30;
   private readonly JACKPOT_VALUE = 64; // 777 in slot machine terms
+  private readonly TRIPLE_VALUES = new Set([1, 22, 43]); // BAR, grapes, lemon
+
+  /** Rarity table for the 777 jackpot. */
+  private readonly JACKPOT_RARITY_CHANCES: Array<{ rarity: string; chance: number }> = [
+    { rarity: 'mythic', chance: 0.0001 },    // 0.01%
+    { rarity: 'legendary', chance: 0.01 },   // 1%
+    { rarity: 'epic', chance: 0.10 },        // 10%
+    { rarity: 'rare', chance: 0.22 },        // 22%
+    { rarity: 'uncommon', chance: 0.32 },    // 32%
+    { rarity: 'common', chance: 0.3499 },    // 34.99%
+  ];
+
+  /** Rarity table for triple combos; intentionally lower than the jackpot. */
+  private readonly TRIPLE_RARITY_CHANCES: Array<{ rarity: string; chance: number }> = [
+    { rarity: 'legendary', chance: 0.003 },  // 0.3%
+    { rarity: 'epic', chance: 0.06 },        // 6%
+    { rarity: 'rare', chance: 0.16 },        // 16%
+    { rarity: 'uncommon', chance: 0.30 },    // 30%
+    { rarity: 'common', chance: 0.477 },     // 47.7%
+  ];
 
   async createSession(telegramUserId: number, spins: number): Promise<{ sessionId: number; starsRequired: number }> {
     const starsRequired = spins * this.STARS_PER_SPIN;
@@ -65,6 +85,7 @@ export class SlotMachineService {
     success: boolean;
     message: string;
     isJackpot: boolean;
+    isTriple?: boolean;
     item?: {
       id: number;
       name: string;
@@ -98,25 +119,33 @@ export class SlotMachineService {
       [newRemaining, session.id]
     );
 
-    // Check for jackpot (777)
+    // Check for jackpot (777) or a triple combo (BAR / grapes / lemon)
     const isJackpot = diceValue === this.JACKPOT_VALUE;
+    const isTriple = !isJackpot && this.TRIPLE_VALUES.has(diceValue);
 
-    if (isJackpot) {
-      // Give random item
-      const item = await this.giveRandomItem(telegramUserId);
-      
+    if (isJackpot || isTriple) {
+      // Triple combos drop items too, but with a lower rarity table than the jackpot
+      const item = await this.giveRandomItem(
+        telegramUserId,
+        isJackpot ? this.JACKPOT_RARITY_CHANCES : this.TRIPLE_RARITY_CHANCES
+      );
+
       if (newRemaining === 0) {
         await this.completeSession(session.id);
       }
 
+      const combo = isJackpot ? '777' : this.getTripleLabel(diceValue);
+      const header = isJackpot ? '🎰 **ДЖЕКПОТ!** 🎰' : '🎰 **ТРИ В РЯД!** 🎰';
+
       return {
         success: true,
-        message: `🎰 **ДЖЕКПОТ!** 🎰\n\n` +
-          `🎲 Выпало: **777** (${diceValue})\n` +
+        message: `${header}\n\n` +
+          `🎲 Выпало: **${combo}** (${diceValue})\n` +
           `🎁 Вы получили: **${item.name}**\n` +
           `✨ Редкость: ${this.getRarityEmoji(item.rarity)} ${item.rarity}\n\n` +
           `⏳ Осталось попыток: **${newRemaining}**`,
-        isJackpot: true,
+        isJackpot,
+        isTriple,
         item,
       };
     } else {
@@ -158,7 +187,10 @@ export class SlotMachineService {
       `⚠️ Следующая попытка обмана приведёт к более серьёзным последствиям!`;
   }
 
-  private async giveRandomItem(telegramUserId: number): Promise<{
+  private async giveRandomItem(
+    telegramUserId: number,
+    rarityChances: Array<{ rarity: string; chance: number }>
+  ): Promise<{
     id: number;
     name: string;
     rarity: string;
@@ -173,22 +205,17 @@ export class SlotMachineService {
     const season = await SeasonModel.getOrCreateCurrentSeason();
     const progress = await PlayerProgressModel.findOrCreate(user.id, season.id);
 
-    // Roll for item rarity with custom chances
+    // Roll for item rarity using the table for this kind of win
     const roll = Math.random();
-    let rarity: string;
+    let rarity = 'common';
+    let cumulativeChance = 0;
 
-    if (roll < 0.00001) {
-      rarity = 'mythic'; // 0.001%
-    } else if (roll < 0.001) {
-      rarity = 'legendary'; // 0.1%
-    } else if (roll < 0.05) {
-      rarity = 'epic'; // 5%
-    } else if (roll < 0.2) {
-      rarity = 'rare'; // 15%
-    } else if (roll < 0.55) {
-      rarity = 'uncommon'; // 35%
-    } else {
-      rarity = 'common'; // 44.99%
+    for (const { rarity: candidate, chance } of rarityChances) {
+      cumulativeChance += chance;
+      if (roll < cumulativeChance) {
+        rarity = candidate;
+        break;
+      }
     }
 
     // Get random item of that rarity
@@ -232,6 +259,15 @@ export class SlotMachineService {
        DO UPDATE SET quantity = inventory.quantity + 1`,
       [playerProgressId, itemId]
     );
+  }
+
+  private getTripleLabel(diceValue: number): string {
+    switch (diceValue) {
+      case 1: return 'BAR BAR BAR';
+      case 22: return '🍇🍇🍇';
+      case 43: return '🍋🍋🍋';
+      default: return `${diceValue}`;
+    }
   }
 
   private getRarityEmoji(rarity: string): string {

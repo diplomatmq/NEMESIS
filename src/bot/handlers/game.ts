@@ -7,9 +7,26 @@ import { SeasonModel } from '../../database/models/Season';
 import { PlayerProgressModel } from '../../database/models/PlayerProgress';
 import { InvoiceService } from '../../payment/InvoiceService';
 import { markdownToTelegramHtml } from '../../game/HealthBar';
+import { stripCustomEmoji } from '../../game/BossSystem';
+import { notifyAdmins } from './admin';
 
 // Users waiting to type a pin number after opening the pin menu.
 const pendingPinSelections = new Map<number, { timestamp: number }>();
+
+/**
+ * Callback alerts (answerCallbackQuery) are shown as plain text: no parse mode
+ * is applied, so markdown markers would appear literally and custom-emoji tags
+ * would be displayed as raw HTML. Reduce a game message to clean plain text.
+ */
+function formatAlert(message: string): string {
+  return stripCustomEmoji(message)
+    .replace(/\*\*(.+?)\*\*/gs, '$1')
+    .replace(/~~(.+?)~~/gs, '$1')
+    .replace(/\*([^*\n]+)\*/g, '$1')
+    .replace(/`/g, '')
+    .trim()
+    .slice(0, 190);
+}
 
 export async function handleGameAction(ctx: Context, invoiceService: InvoiceService) {
   if (!ctx.from || !ctx.chat || !ctx.message?.text) {
@@ -63,6 +80,9 @@ export async function handleGameAction(ctx: Context, invoiceService: InvoiceServ
     });
     if (result.privateMessage) {
       await ctx.api.sendMessage(ctx.from.id, result.privateMessage);
+    }
+    if (result.adminNotification) {
+      await notifyAdmins(ctx.api, result.adminNotification);
     }
   } catch (error: any) {
     console.error('Error in handleGameAction:', error);
@@ -208,7 +228,7 @@ export async function handleTrailCallback(ctx: Context) {
     }
 
     if (result) {
-      await ctx.answerCallbackQuery(result.message.slice(0, 190));
+      await ctx.answerCallbackQuery(formatAlert(result.message));
       if (ctx.callbackQuery.message) {
         await ctx.editMessageText(markdownToTelegramHtml(result.message), {
           parse_mode: 'HTML',
@@ -218,7 +238,7 @@ export async function handleTrailCallback(ctx: Context) {
     }
   } catch (error: any) {
     console.error('Error in handleTrailCallback:', error);
-    await ctx.answerCallbackQuery(error.message || '❌ Ошибка');
+    await ctx.answerCallbackQuery(formatAlert(error.message || '❌ Ошибка'));
   }
 }
 
@@ -249,7 +269,7 @@ export async function handleEquipCallback(ctx: Context) {
   const match = /^equip:(\d+)$/.exec(ctx.callbackQuery.data);
   if (!match) return;
   const message = await gameService.equipItem(ctx.from.id, Number(match[1]));
-  await ctx.answerCallbackQuery(message.slice(0, 190));
+  await ctx.answerCallbackQuery(formatAlert(message));
 }
 
 export async function handleEquipmentMenu(ctx: Context) {
@@ -283,7 +303,7 @@ export async function handleEquipmentMenu(ctx: Context) {
         }
       }
     } catch (error: any) {
-      await ctx.answerCallbackQuery(error.message || '❌ Ошибка');
+      await ctx.answerCallbackQuery(formatAlert(error.message || '❌ Ошибка'));
     }
     return;
   }
@@ -294,7 +314,7 @@ export async function handleEquipmentMenu(ctx: Context) {
       Number(item![1]),
       item![2]
     );
-    await ctx.answerCallbackQuery(result.slice(0, 190));
+    await ctx.answerCallbackQuery(formatAlert(result));
     if (ctx.callbackQuery.message) {
       const refreshed = await gameService.getEquipmentMenu(ctx.from.id, item![2], Number(item![3]));
       await ctx.editMessageText(refreshed.message, {
@@ -303,7 +323,7 @@ export async function handleEquipmentMenu(ctx: Context) {
       });
     }
   } catch (error: any) {
-    await ctx.answerCallbackQuery(error.message || '❌ Ошибка');
+    await ctx.answerCallbackQuery(formatAlert(error.message || '❌ Ошибка'));
   }
 }
 
@@ -322,8 +342,8 @@ export async function handleSacrificeCallback(ctx: Context) {
   const replaceMatch = /^sacrifice:replace:(\d+)$/.exec(data);
   if (replaceMatch) {
     const message = await gameService.replaceBossSoul(ctx.from.id, Number(replaceMatch[1]));
-    await ctx.answerCallbackQuery(message.slice(0, 190));
-    await ctx.editMessageText(message);
+    await ctx.answerCallbackQuery(formatAlert(message));
+    await ctx.editMessageText(markdownToTelegramHtml(message), { parse_mode: 'HTML' });
     return;
   }
   
@@ -337,8 +357,8 @@ export async function handleSacrificeCallback(ctx: Context) {
 
   const [, target, index] = data.split(':');
   const message = await gameService.sacrifice(ctx.from.id, target as 'mobs' | 'boss', index ? Number(index) : undefined);
-  await ctx.answerCallbackQuery(message.slice(0, 190));
-  await ctx.editMessageText(message);
+  await ctx.answerCallbackQuery(formatAlert(message));
+  await ctx.editMessageText(markdownToTelegramHtml(message), { parse_mode: 'HTML' });
 }
 
 export async function handleSacrificeCallbackWithPayment(
@@ -374,8 +394,8 @@ export async function handleThroneCallback(ctx: Context) {
   const match = /^throne:sacrifice:(\d+)$/.exec(data);
   if (!match) return;
   const result = await gameService.sacrifice(ctx.from.id, 'boss', Number(match[1]));
-  await ctx.answerCallbackQuery(result.slice(0, 190));
-  await ctx.editMessageText(result);
+  await ctx.answerCallbackQuery(formatAlert(result));
+  await ctx.editMessageText(markdownToTelegramHtml(result), { parse_mode: 'HTML' });
 }
 
 export async function handleUsePotion(ctx: Context) {
@@ -447,7 +467,7 @@ export async function handleStatusCallback(ctx: Context) {
         await handleSlotsButton(ctx);
       } catch (error: any) {
         console.error('[SLOTS] Error handling slots button:', error);
-        await ctx.answerCallbackQuery(`❌ Ошибка: ${error.message}`);
+        await ctx.answerCallbackQuery(formatAlert(`❌ Ошибка: ${error.message}`));
       }
     } else if (action === 'reset') {
       const result = await gameService.getResetMenu(ctx.from.id);
@@ -468,7 +488,7 @@ export async function handleStatusCallback(ctx: Context) {
       });
     }
   } catch (error: any) {
-    await ctx.answerCallbackQuery(error.message || '❌ Ошибка');
+    await ctx.answerCallbackQuery(formatAlert(error.message || '❌ Ошибка'));
   }
 }
 
@@ -543,12 +563,12 @@ export async function handleResetCallback(ctx: Context) {
       parse_mode: 'HTML',
     });
   } catch (error: any) {
-    await ctx.answerCallbackQuery(error.message || '❌ Ошибка');
+    await ctx.answerCallbackQuery(formatAlert(error.message || '❌ Ошибка'));
   }
 }
 
 /**
- * Handle daily market callbacks (pagination, buy, close)
+ * Handle daily market callbacks (pagination, buy, sell, close)
  */
 export async function handleMarketCallback(ctx: Context) {
   if (!ctx.from || !ctx.callbackQuery?.data) return;
@@ -559,12 +579,14 @@ export async function handleMarketCallback(ctx: Context) {
   // Parse market callbacks
   const pageMatch = /^market:page:(\d+):(\d+)$/.exec(data);
   const buyMatch = /^market:buy:(\d+):(\d+)$/.exec(data);
+  const sellPageMatch = /^market:sell:(\d+):(\d+)$/.exec(data);
+  const sellItemMatch = /^market:sellitem:(\d+):(\d+):(\d+)$/.exec(data);
   const closeMatch = /^market:close:(\d+)$/.exec(data);
   
-  if (!pageMatch && !buyMatch && !closeMatch) return;
+  if (!pageMatch && !buyMatch && !sellPageMatch && !sellItemMatch && !closeMatch) return;
   
   // Check authorization
-  const userId = pageMatch?.[2] || buyMatch?.[2] || closeMatch?.[1];
+  const userId = pageMatch?.[2] || buyMatch?.[2] || sellPageMatch?.[2] || sellItemMatch?.[3] || closeMatch?.[1];
   if (Number(userId) !== ctx.from.id) {
     await ctx.answerCallbackQuery('❌ Это не ваше меню!');
     return;
@@ -588,7 +610,7 @@ export async function handleMarketCallback(ctx: Context) {
       const result = await gameService.buyFromDailyMarket(ctx.from.id, itemIndex);
       
       if (result.success) {
-        await ctx.answerCallbackQuery(result.message.slice(0, 190));
+        await ctx.answerCallbackQuery(formatAlert(result.message));
         // Refresh market to show updated gold
         const market = await gameService.getDailyMarket(ctx.from.id, 0);
         if (ctx.callbackQuery.message) {
@@ -598,7 +620,31 @@ export async function handleMarketCallback(ctx: Context) {
           });
         }
       } else {
-        await ctx.answerCallbackQuery(result.message.slice(0, 190));
+        await ctx.answerCallbackQuery(formatAlert(result.message));
+      }
+    } else if (sellPageMatch) {
+      // Open the sell view / change its page
+      const page = Number(sellPageMatch[1]);
+      const result = await gameService.getDailyMarketSellMenu(ctx.from.id, page);
+      await ctx.answerCallbackQuery();
+      if (ctx.callbackQuery.message) {
+        await ctx.editMessageText(markdownToTelegramHtml(result.message), {
+          reply_markup: result.keyboard,
+          parse_mode: 'HTML',
+        });
+      }
+    } else if (sellItemMatch) {
+      // Sell one item and refresh the sell view
+      const itemId = Number(sellItemMatch[1]);
+      const page = Number(sellItemMatch[2]);
+      const result = await gameService.sellFromDailyMarket(ctx.from.id, itemId);
+      await ctx.answerCallbackQuery(formatAlert(result.message));
+      const menu = await gameService.getDailyMarketSellMenu(ctx.from.id, page);
+      if (ctx.callbackQuery.message) {
+        await ctx.editMessageText(markdownToTelegramHtml(menu.message), {
+          reply_markup: menu.keyboard,
+          parse_mode: 'HTML',
+        });
       }
     } else if (closeMatch) {
       // Close market
@@ -608,6 +654,6 @@ export async function handleMarketCallback(ctx: Context) {
       }
     }
   } catch (error: any) {
-    await ctx.answerCallbackQuery(error.message || '❌ Ошибка');
+    await ctx.answerCallbackQuery(formatAlert(error.message || '❌ Ошибка'));
   }
 }
