@@ -15,7 +15,7 @@ import {
   isCooldownExemptTelegramUser,
 } from './CooldownService';
 import { combatEngine, Enemy } from './CombatEngine';
-import { PREDICTION_ACTION_BIAS, formatBossIcon, stripCustomEmoji } from './BossSystem';
+import { bossSystem, PREDICTION_ACTION_BIAS, formatBossIcon, stripCustomEmoji } from './BossSystem';
 import { behaviorTracker } from './BehaviorTracker';
 import { lootService } from './LootService';
 import { classService } from './ClassService';
@@ -217,6 +217,15 @@ export class GameService {
       // Continue existing combat IN THIS CHAT
       enemy = combatState.enemy_data;
       currentFloor = combatState.floor;
+
+      // Fights saved before boss emoji metadata existed carry no boss_config,
+      // so they would render a plain name. Rehydrate it from the catalogue.
+      if (enemy.isBoss && !enemy.boss_config) {
+        const bossConfig = bossSystem.getBossConfig(currentFloor, seasonId);
+        enemy.boss_config = bossConfig;
+        enemy.name = `${formatBossIcon(bossConfig)} ${bossConfig.name}`;
+        await CombatStateModel.update(combatState.id, { enemy_data: enemy });
+      }
     } else {
       // Start new combat - generate enemy for current chat floor
       currentFloor = chatProgress.current_floor;

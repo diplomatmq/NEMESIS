@@ -238,7 +238,7 @@ export class PaymentService {
       FROM player_progress pp
       JOIN users u ON pp.user_id = u.id
       LEFT JOIN classes c ON pp.class_id = c.id
-      WHERE pp.season_id = (SELECT id FROM seasons WHERE is_current = true)
+      WHERE pp.season_id = (SELECT id FROM seasons WHERE is_active = true)
       ORDER BY pp.highest_floor_reached DESC, pp.attack DESC
       LIMIT $1`,
       [limit]
@@ -258,21 +258,22 @@ export class PaymentService {
   }>> {
     const result = await db.query(
       `SELECT 
-        ROW_NUMBER() OVER (ORDER BY pp.highest_floor_reached DESC, pp.attack DESC) as rank,
+        ROW_NUMBER() OVER (ORDER BY cp.highest_floor_reached DESC, pp.attack DESC) as rank,
         u.telegram_id,
         u.username,
         u.first_name,
-        pp.highest_floor_reached as floor,
+        cp.highest_floor_reached as floor,
         pp.attack as total_attack,
         pp.active_pin,
         COALESCE(c.name, 'Без класса') as class_name
       FROM player_progress pp
       JOIN users u ON pp.user_id = u.id
       LEFT JOIN classes c ON pp.class_id = c.id
-      JOIN combat_state cs ON pp.user_id = cs.user_id AND pp.season_id = cs.season_id
-      WHERE pp.season_id = (SELECT id FROM seasons WHERE is_current = true)
-        AND cs.chat_id = $1
-      ORDER BY pp.highest_floor_reached DESC, pp.attack DESC
+      JOIN chat_progress cp ON cp.user_id = pp.user_id AND cp.season_id = pp.season_id
+      JOIN chats ch ON ch.id = cp.chat_id
+      WHERE pp.season_id = (SELECT id FROM seasons WHERE is_active = true)
+        AND ch.telegram_chat_id = $1
+      ORDER BY cp.highest_floor_reached DESC, pp.attack DESC
       LIMIT $2`,
       [chatId, limit]
     );
