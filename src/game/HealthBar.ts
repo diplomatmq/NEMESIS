@@ -215,7 +215,7 @@ export function formatBossHealthBar(currentHp: number, maxHp: number): string {
  * ability and item descriptions may contain a bare "<" (for example
  * "при HP < 30%"), which Telegram's HTML parser rejects as an unsupported tag.
  */
-const ALLOWED_HTML_TAG = /<\/?(?:b|s|i|u|code|pre|tg-emoji)\b[^>]*>/gi;
+const ALLOWED_HTML_TAG = /<\/?(?:b|s|i|u|code|pre|tg-emoji|a)\b[^>]*>/gi;
 
 export function markdownToTelegramHtml(message: string): string {
   const withMarkdown = message

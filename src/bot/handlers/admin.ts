@@ -69,8 +69,8 @@ export async function handleTop(ctx: Context) {
     } else {
       globalTop.forEach(player => {
         const medal = player.rank === 1 ? '🥇' : player.rank === 2 ? '🥈' : player.rank === 3 ? '🥉' : '🏅';
-        const name = player.username 
-          ? `@${player.username}` 
+        const name = player.username
+          ? `<a href="https://t.me/${player.username}">${player.username}</a>`
           : player.first_name || `User ${player.telegram_id}`;
         const pin = player.active_pin ? `${formatBossIcon(player.active_pin.boss_config ?? {})} ` : '';
         message += `${medal} **#${player.rank}** ${pin}${name}\n`;
@@ -82,8 +82,8 @@ export async function handleTop(ctx: Context) {
       message += `\n💬 **Топ этого чата:**\n`;
       chatTop.forEach(player => {
         const medal = player.rank === 1 ? '🥇' : player.rank === 2 ? '🥈' : player.rank === 3 ? '🥉' : '🏅';
-        const name = player.username 
-          ? `@${player.username}` 
+        const name = player.username
+          ? `<a href="https://t.me/${player.username}">${player.username}</a>`
           : player.first_name || `User ${player.telegram_id}`;
         const pin = player.active_pin ? `${formatBossIcon(player.active_pin.boss_config ?? {})} ` : '';
         message += `${medal} **#${player.rank}** ${pin}${name}\n`;
@@ -91,7 +91,10 @@ export async function handleTop(ctx: Context) {
       });
     }
 
-    await ctx.reply(markdownToTelegramHtml(message), { parse_mode: 'HTML' });
+    await ctx.reply(markdownToTelegramHtml(message), {
+      parse_mode: 'HTML',
+      link_preview_options: { is_disabled: true },
+    });
   } catch (error) {
     console.error('❌ Error getting top players:', error);
     await ctx.reply('❌ Ошибка получения топа игроков');
