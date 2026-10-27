@@ -135,6 +135,18 @@ export class GameService {
       await cooldownService.set(user!.id, chat.id);
     }
 
+    // A caught NFT is handed out by the admins manually, so they are notified
+    // with the player's details.
+    let adminNotification: string | undefined;
+    if (actionResult.nftDrop) {
+      const playerName = context.username ? `@${context.username}` : (context.firstName ?? 'Игрок');
+      adminNotification =
+        `${ce(CUSTOM_EMOJI.nft, '🎖')} <b>Выпал NFT!</b>\n` +
+        `Игрок: ${playerName} (id: ${context.telegramUserId})\n` +
+        `Босс: ${actionResult.nftDrop.bossName}\n` +
+        `Этаж: ${actionResult.nftDrop.floor}`;
+    }
+
     return {
       success: true,
       message: actionResult.message,
@@ -142,6 +154,7 @@ export class GameService {
       combatResult: actionResult.combatResult,
       keyboard: actionResult.keyboard,
       privateMessage: actionResult.privateMessage,
+      adminNotification,
     };
   }
 
@@ -159,6 +172,7 @@ export class GameService {
     keyboard?: InlineKeyboard;
     privateMessage?: string;
     consumesCooldown?: boolean;
+    nftDrop?: { bossName: string; floor: number };
   }> {
     let rewardKeyboard: InlineKeyboard | undefined;
 
@@ -214,7 +228,7 @@ export class GameService {
     let combatState = await CombatStateModel.find(userId, seasonId, chatId);
     let enemy: Enemy;
     let currentFloor = chatProgress.current_floor;
-    let adminNotification: string | undefined;
+    let nftDrop: { bossName: string; floor: number } | undefined;
 
     if (combatState) {
       // Continue existing combat IN THIS CHAT
@@ -443,15 +457,11 @@ export class GameService {
       
       combatResult.message += loot.message;
 
-      // A caught NFT is a real-world reward granted by hand, so the admins are
-      // notified while the counter is already stored on the player.
+      // A caught NFT is a real-world reward granted by hand. The counter is
+      // stored here; the admin notification itself is assembled by the caller,
+      // which has the player's Telegram details.
       if (loot.nftCaught) {
-        const playerName = context.username ? `@${context.username}` : context.firstName;
-        adminNotification =
-          `${ce(CUSTOM_EMOJI.nft, '🎖')} <b>Выпал NFT!</b>\n` +
-          `Игрок: ${playerName} (id: ${context.telegramUserId})\n` +
-          `Босс: ${enemy.name}\n` +
-          `Этаж: ${currentFloor}`;
+        nftDrop = { bossName: enemy.name, floor: currentFloor };
       }
 
       // Advance floor in chat progress first
@@ -564,7 +574,7 @@ export class GameService {
           newChatFloor
         );
         combatResult.message += `\n${trail.message}`;
-        return { message: combatResult.message, combatResult, keyboard: trail.keyboard, adminNotification };
+        return { message: combatResult.message, combatResult, keyboard: trail.keyboard, nftDrop };
       }
     } else {
       // Combat continues - update combat state with new enemy HP
@@ -600,7 +610,7 @@ export class GameService {
       message: combatResult.message,
       combatResult,
       keyboard: rewardKeyboard,
-      adminNotification,
+      nftDrop,
     };
   }
 

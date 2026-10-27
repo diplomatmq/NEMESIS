@@ -133,7 +133,10 @@ export function stripCustomEmoji(text: string): string {
  * catalogue name was available kept the fallback emoji inline ("👹 Имя"), so a
  * leading symbol run is trimmed in that case.
  */
-export function soulDisplayName(soul: { name?: string; boss_config?: { name?: string } }): string {
+export function soulDisplayName(soul: {
+  name?: string;
+  boss_config?: { name?: string; icon?: string; custom_emoji_id?: string };
+}): string {
   if (soul.boss_config?.name) return soul.boss_config.name;
   return (soul.name ?? '').replace(/^[^\p{L}\p{N}]+/u, '').trim();
 }
