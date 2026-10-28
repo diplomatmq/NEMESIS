@@ -7,10 +7,11 @@ import { handleGameAction, handleStatus, handleInventory, handleUsePotion, handl
 import { handleSuccessfulPayment, handlePreCheckoutQuery } from './bot/handlers/payment';
 import { handleClassSelection, handleClassCallback } from './bot/handlers/class';
 import { handleAchievements } from './bot/handlers/achievements';
-import { handleDbStats, handleTop } from './bot/handlers/admin';
+import { handleDbStats, handleTop, handleSeasonStart } from './bot/handlers/admin';
 import { handleSlotSpinCount, handleDiceMessage, handleSlotPayment } from './bot/handlers/slots';
 import { InvoiceService } from './payment/InvoiceService';
 import { gameService } from './game/GameService';
+import { seasonService } from './game/SeasonService';
 
 // Validate configuration
 if (!config.bot.token) {
@@ -69,6 +70,7 @@ bot.command('сброс', handleReset);
 // Admin commands
 bot.command('dbstats', handleDbStats);
 bot.command('top', handleTop);
+bot.command('sstart', handleSeasonStart);
 
 // Callback query handlers
 bot.on('callback_query:data', async (ctx) => {
@@ -153,6 +155,16 @@ async function start() {
       );
     }
     console.log('✅ Database connected');
+
+    // Publish the end-of-season report once a tournament's end date passes.
+    // The check is idempotent, so running it periodically is safe.
+    const runSeasonCheck = () => {
+      seasonService.checkAndFinalize(bot.api).catch((error) => {
+        console.error('❌ Season finalization check failed:', error);
+      });
+    };
+    runSeasonCheck();
+    setInterval(runSeasonCheck, 5 * 60 * 1000);
 
     // Start bot
     console.log('🚀 Starting bot...');

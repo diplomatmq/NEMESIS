@@ -40,6 +40,10 @@ export interface PlayerProgress {
   boss_pins: BossPin[];
   active_pin?: BossPin | null;
   nfts_caught: number;
+  boss_fail_floor?: number | null;
+  boss_fail_stacks: number;
+  total_wins: number;
+  total_deaths: number;
   created_at: Date;
   updated_at: Date;
 }

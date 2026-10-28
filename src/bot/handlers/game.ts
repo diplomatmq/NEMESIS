@@ -8,6 +8,7 @@ import { PlayerProgressModel } from '../../database/models/PlayerProgress';
 import { InvoiceService } from '../../payment/InvoiceService';
 import { markdownToTelegramHtml } from '../../game/HealthBar';
 import { stripCustomEmoji } from '../../game/BossSystem';
+import { seasonService } from '../../game/SeasonService';
 import { notifyAdmins } from './admin';
 
 // Users waiting to type a pin number after opening the pin menu.
@@ -428,7 +429,7 @@ export async function handleStatusCallback(ctx: Context) {
   const data = ctx.callbackQuery.data;
   
   // Parse status menu callbacks
-  const statusMatch = /^status:(market|inventory|equipment|slots|reset|pin):(\d+)$/.exec(data);
+  const statusMatch = /^status:(market|inventory|equipment|slots|reset|pin|stats):(\d+)$/.exec(data);
   if (!statusMatch) return;
   
   const [, action, userId] = statusMatch;
@@ -486,6 +487,10 @@ export async function handleStatusCallback(ctx: Context) {
         reply_markup: result.keyboard,
         parse_mode: 'HTML',
       });
+    } else if (action === 'stats') {
+      const stats = await seasonService.getSeasonStats(ctx.from.id);
+      await ctx.answerCallbackQuery();
+      await ctx.reply(markdownToTelegramHtml(stats), { parse_mode: 'HTML' });
     }
   } catch (error: any) {
     await ctx.answerCallbackQuery(formatAlert(error.message || '❌ Ошибка'));

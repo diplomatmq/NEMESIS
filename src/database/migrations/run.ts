@@ -75,9 +75,12 @@ async function runMigrations() {
       { name: '034_player_pins', file: '034_player_pins.sql', order: 34 },
       { name: '035_trail_events_per_chat', file: '035_trail_events_per_chat.sql', order: 35 },
       { name: '036_player_nfts', file: '036_player_nfts.sql', order: 36 },
+      { name: '037_lower_item_level_requirements', file: '037_lower_item_level_requirements.sql', order: 37 },
+      { name: '038_boss_retry_weakening', file: '038_boss_retry_weakening.sql', order: 38 },
+      { name: '039_seasons', file: '039_seasons.sql', order: 39 },
     ];
 
-    const EXPECTED_MIGRATION_COUNT = 37;
+    const EXPECTED_MIGRATION_COUNT = 40;
     if (migrations.length !== EXPECTED_MIGRATION_COUNT) {
       console.error(`❌ ERROR: Expected ${EXPECTED_MIGRATION_COUNT} migrations, but found ${migrations.length}`);
       console.error(`   This means migrations are missing from the array!`);

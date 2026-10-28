@@ -25,11 +25,11 @@ export async function handleSlotsButton(ctx: Context) {
   if (existingSession) {
     console.log(`[SLOTS] Found existing session for user ${ctx.from.id}`);
     await ctx.reply(
-      `🎰 **У вас уже есть активная сессия!**\n\n` +
-      `⏳ Осталось попыток: **${existingSession.spins_remaining}**\n` +
+      `${ce(CUSTOM_EMOJI.slot, '🎰')} <b>У вас уже есть активная сессия!</b>\n\n` +
+      `⏳ Осталось попыток: <b>${existingSession.spins_remaining}</b>\n` +
       `⏰ Истекает: <code>${existingSession.expires_at.toLocaleString('ru-RU')}</code>\n\n` +
-      `🎲 Отправьте игровой автомат 🎰 для прокрутки!`,
-      { parse_mode: 'HTML' }
+      `🎲 Отправьте игровой автомат ${ce(CUSTOM_EMOJI.slot, '🎰')} для прокрутки!`,
+      { parse_mode: 'HTML', link_preview_options: { is_disabled: true } }
     );
     return;
   }
@@ -38,17 +38,23 @@ export async function handleSlotsButton(ctx: Context) {
   // Mark user as pending slot request
   pendingSlotRequests.set(ctx.from.id, { timestamp: Date.now() });
 
+  const casino = ce(CUSTOM_EMOJI.slot, '🎰');
+
   await ctx.reply(
-    `🎰 **Добро пожаловать в Лоты!**\n\n` +
-    `💫 Получите шанс выиграть редкие предметы!\n\n` +
-    `❓ **Как играть:**\n` +
-    `1️⃣ Напишите количество прокруток (например: 10)\n` +
-    `2️⃣ Оплатите инвойс (2⭐ за прокрутку)\n` +
-    `3️⃣ Отправьте игровые автоматы 🎰\n` +
-    `4️⃣ Если выпадет **777** (значение 64) - получите предмет!\n\n` +
-    `⚠️ **Внимание:** Пересылка сообщений = **-2 попытки**\n\n` +
+    `${casino} <b>Добро пожаловать в Лоты!</b>\n\n` +
+    `💫 Крутите слот и выбивайте редкие предметы из инвентаря!\n\n` +
+    `❓ <b>Как играть:</b>\n` +
+    `${ce(CUSTOM_EMOJI.num1, '1️⃣')} Укажите количество прокруток (например: 10)\n` +
+    `${ce(CUSTOM_EMOJI.num2, '2️⃣')} Оплатите инвойс — 2⭐ за прокрутку\n` +
+    `${ce(CUSTOM_EMOJI.num3, '3️⃣')} Отправьте слот-автомат ${casino}\n` +
+    `${ce(CUSTOM_EMOJI.num4, '4️⃣')} Соберите три одинаковых символа — предмет ваш!\n` +
+    `${ce(CUSTOM_EMOJI.num5, '5️⃣')} Джекпот <b>777</b> платит больше всех, но <b>BAR</b>, виноград и лимон тоже дают приз\n\n` +
+    `⚠️ <b>Внимание:</b> Пересылка сообщений = <b>-2 попытки</b>\n\n` +
     `✏️ Отправьте количество прокруток:`,
-    { parse_mode: 'Markdown' }
+    {
+      parse_mode: 'HTML',
+      link_preview_options: { is_disabled: true },
+    }
   );
   console.log(`[SLOTS] Welcome message sent to user ${ctx.from.id}`);
 }
@@ -108,9 +114,9 @@ export async function handleSlotSpinCount(ctx: Context) {
     await ctx.reply(
       markdownToTelegramHtml(
         `${ce(CUSTOM_EMOJI.gold, '💰')} **Оплатите сессию:**\n\n` +
-        `🎰 Прокруток: **${spins}**\n` +
+        `${ce(CUSTOM_EMOJI.slot, '🎰')} Прокруток: **${spins}**\n` +
         `⭐ Стоимость: **${starsRequired} звёзд**\n\n` +
-        `После оплаты вы сможете отправить ${spins} игровых автоматов 🎰`
+        `После оплаты вы сможете отправить ${spins} игровых автоматов ${ce(CUSTOM_EMOJI.slot, '🎰')}`
       ),
       {
         parse_mode: 'HTML',
@@ -167,11 +173,11 @@ export async function handleSlotPayment(ctx: Context, payload: string) {
   });
 
   await ctx.reply(
-    `✅ **Оплата принята!**\n\n` +
-    `🎰 У вас есть **${sessionInfo.spins} попыток**\n\n` +
+    `✅ <b>Оплата принята!</b>\n\n` +
+    `${ce(CUSTOM_EMOJI.slot, '🎰')} У вас есть <b>${sessionInfo.spins} попыток</b>\n\n` +
     `⏰ Сессия активна 30 минут\n` +
-    `🎯 Цель: выбить **777** (значение 64)`,
-    { parse_mode: 'Markdown' }
+    `🎯 Соберите три одинаковых символа — джекпот <b>777</b> платит больше всех`,
+    { parse_mode: 'HTML', link_preview_options: { is_disabled: true } }
   );
 
   // Keep session info for 30 minutes

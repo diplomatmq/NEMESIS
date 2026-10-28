@@ -40,6 +40,9 @@ const DEFENSE_BASE_BONUS = 0.30;
 const MAX_STORED_DEFENSE_BONUS = 1.00;
 
 
+/** Floors above this have no authored content and reuse the catalogue at random. */
+const ENDLESS_POOL_FLOOR = 500;
+
 const MOB_ZONES: Array<[string, string, string]> = [
   ['Пещерный гоблин', 'Слабый скелет', 'Крысиный разведчик'],
   ['Каменный голем', 'Пещерный паук', 'Разбойник тоннелей'],
@@ -860,6 +863,10 @@ export class CombatEngine {
     difficultyModifier = 1,
     randomizeName = false
   ): Enemy {
+    if (floor > ENDLESS_POOL_FLOOR) {
+      return this.generateEndlessEnemy(floor, seasonId, difficultyModifier);
+    }
+
     const level = Math.floor(floor / 10) + 1;
     const isBoss = floor % 10 === 0;
     
@@ -895,6 +902,46 @@ export class CombatEngine {
       maxHp: Math.max(1, Math.floor(baseHp * hpVariance * difficultyModifier)),
       attack: Math.max(1, Math.floor(baseAttack * attackVariance * difficultyModifier)),
       defense: Math.max(1, Math.floor(baseDefense * defenseVariance * difficultyModifier)),
+      level,
+      isBoss: false,
+    };
+  }
+
+  /**
+   * Endless tower. Past floor 500 there is no authored content left, so the
+   * whole first five hundred floors become a pool: any mob or any named boss
+   * may show up, picked at random, while the stats still follow the floor the
+   * player is actually standing on.
+   */
+  private generateEndlessEnemy(floor: number, seasonId: number, difficultyModifier: number): Enemy {
+    const level = Math.floor(floor / 10) + 1;
+    const rng = SeededRandom.forFloor(floor, seasonId);
+    const sourceFloor = rng.nextInt(1, ENDLESS_POOL_FLOOR);
+
+    if (sourceFloor % 10 === 0) {
+      const boss = bossSystem.generateEndlessBossEnemy(sourceFloor, floor, seasonId);
+      boss.hp = Math.max(1, Math.floor(boss.hp * difficultyModifier));
+      boss.maxHp = boss.hp;
+      boss.attack = Math.max(1, Math.floor(boss.attack * difficultyModifier));
+      boss.defense = Math.max(1, Math.floor(boss.defense * difficultyModifier));
+      boss.boss_config.base_hp = boss.maxHp;
+      boss.boss_config.base_attack = boss.attack;
+      boss.boss_config.base_defense = boss.defense;
+      return boss;
+    }
+
+    const zone = MOB_ZONES[Math.min(MOB_ZONES.length - 1, Math.floor((sourceFloor - 1) / 10))];
+    const baseHp = 50 + (level * 25);
+    const baseAttack = 8 + (level * 3);
+    const baseDefense = 2 + (level * 1.5);
+    const hp = Math.max(1, Math.floor(baseHp * rng.nextFloat(0.9, 1.1) * difficultyModifier));
+
+    return {
+      name: `${rng.choose(zone)} ${level} ур.`,
+      hp,
+      maxHp: hp,
+      attack: Math.max(1, Math.floor(baseAttack * rng.nextFloat(0.9, 1.1) * difficultyModifier)),
+      defense: Math.max(1, Math.floor(baseDefense * rng.nextFloat(0.9, 1.1) * difficultyModifier)),
       level,
       isBoss: false,
     };

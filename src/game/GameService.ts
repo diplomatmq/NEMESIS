@@ -30,6 +30,12 @@ import { trailService } from './TrailService';
 import { dailyMarketService } from './DailyMarketService';
 import { merchantService } from './MerchantService';
 
+/** Every death at the hands of the same boss shaves 5% off its stats. */
+const BOSS_FAIL_WEAKENING_STEP = 0.05;
+
+/** Weakening stacks stop helping once 80% of the boss's stats are gone. */
+const BOSS_FAIL_WEAKENING_CAP = 0.80;
+
 export interface GameContext {
   telegramUserId: number;
   telegramChatId: number;
@@ -229,6 +235,7 @@ export class GameService {
     let enemy: Enemy;
     let currentFloor = chatProgress.current_floor;
     let nftDrop: { bossName: string; floor: number } | undefined;
+    let bossWeakenPercent = 0;
 
     if (combatState) {
       // Continue existing combat IN THIS CHAT
@@ -255,6 +262,25 @@ export class GameService {
         rareFloorVariant ||
         (progress.trail_modifier !== undefined && progress.trail_modifier !== 1)
       );
+
+      // A boss that already killed the player comes back weakened: each death
+      // adds another 5% until the boss is finally defeated. Any other boss is
+      // fought at full strength.
+      if (enemy.isBoss && progress.boss_fail_stacks > 0 && progress.boss_fail_floor === currentFloor) {
+        const penalty = Math.min(progress.boss_fail_stacks * BOSS_FAIL_WEAKENING_STEP, BOSS_FAIL_WEAKENING_CAP);
+        const factor = 1 - penalty;
+        enemy.hp = Math.max(1, Math.floor(enemy.hp * factor));
+        enemy.maxHp = enemy.hp;
+        enemy.attack = Math.max(1, Math.floor(enemy.attack * factor));
+        enemy.defense = Math.max(1, Math.floor(enemy.defense * factor));
+        if (enemy.boss_config) {
+          enemy.boss_config.base_hp = enemy.maxHp;
+          enemy.boss_config.base_attack = enemy.attack;
+          enemy.boss_config.base_defense = enemy.defense;
+        }
+        bossWeakenPercent = Math.round(penalty * 100);
+      }
+
       const playerClassCode = progress.class_id
         ? (await classService.getClassById(progress.class_id))?.code
         : undefined;
@@ -358,6 +384,12 @@ export class GameService {
       const actionText = predictedEnemyAction === ActionType.ATTACK ? 'атакует' : 'защищается';
       combatResult.message =
         `🧠 Тактик предполагает: враг, вероятнее всего, ${actionText}.\n` + combatResult.message;
+    }
+
+    if (bossWeakenPercent > 0) {
+      combatResult.message =
+        `📉 Босс ослаблен на ${bossWeakenPercent}% (поражений подряд: ${progress.boss_fail_stacks}).\n` +
+        combatResult.message;
     }
 
     // Record action for behavior tracking
@@ -469,6 +501,12 @@ export class GameService {
       const newChatFloor = currentFloor + 1;
       await ChatProgressModel.updateFloor(chatProgress.id, newChatFloor);
 
+      // Count the cleared floor towards the season-long class winrate.
+      await db.query(
+        'UPDATE player_progress SET total_wins = total_wins + 1, updated_at = NOW() WHERE id = $1',
+        [progress.id]
+      );
+
       // The global floor is a record, not the position of the last chat. It is
       // only written when this chat beats the all-time maximum, so playing an
       // under-levelled chat can never roll the global floor back.
@@ -494,6 +532,15 @@ export class GameService {
 
       // Boss kill achievement
       if (enemy.isBoss) {
+        // The boss is finally down: forget every accumulated weakening so the
+        // next boss starts at full strength.
+        if (progress.boss_fail_floor !== null || (progress.boss_fail_stacks || 0) > 0) {
+          await db.query(
+            'UPDATE player_progress SET boss_fail_floor = NULL, boss_fail_stacks = 0, updated_at = NOW() WHERE id = $1',
+            [progress.id]
+          );
+        }
+
         // Every named boss permanently drops its custom emoji as a pin the
         // first time it is defeated. Repeated kills never duplicate it.
         const pinEmojiId = enemy.boss_config?.custom_emoji_id;
@@ -587,6 +634,24 @@ export class GameService {
 
     // If player defeated, respawn at checkpoint
     if (combatResult.playerDefeated) {
+      // Count the loss towards the season-long class winrate.
+      await db.query(
+        'UPDATE player_progress SET total_deaths = total_deaths + 1, updated_at = NOW() WHERE id = $1',
+        [progress.id]
+      );
+
+      // Remember which boss beat the player. Each consecutive death to the same
+      // boss weakens it on the next attempt; killing it clears the counter.
+      if (enemy.isBoss) {
+        const stacks = progress.boss_fail_floor === currentFloor ? (progress.boss_fail_stacks || 0) + 1 : 1;
+        await db.query(
+          'UPDATE player_progress SET boss_fail_floor = $2, boss_fail_stacks = $3, updated_at = NOW() WHERE id = $1',
+          [progress.id, currentFloor, stacks]
+        );
+        const nextPenalty = Math.min(stacks * BOSS_FAIL_WEAKENING_STEP, BOSS_FAIL_WEAKENING_CAP);
+        combatResult.message += `\n📉 В следующий раз босс будет ослаблен на ${Math.round(nextPenalty * 100)}%.\n`;
+      }
+
       // Reset this chat to the checkpoint. The global floor is a record and
       // must not move backwards.
       await ChatProgressModel.updateFloor(chatProgress.id, progress.checkpoint_floor);
@@ -765,6 +830,12 @@ export class GameService {
       .text('📌 Пин', `status:pin:${telegramUserId}`)
       .row()
       .text('♻️ Сброс', `status:reset:${telegramUserId}`);
+
+    // The statistics button unlocks once the first tournament has ended.
+    const finishedSeason = await SeasonModel.getLastFinishedSeason();
+    if (finishedSeason) {
+      keyboard.row().text('📊 Статистика', `status:stats:${telegramUserId}`);
+    }
 
     // Add slots button only in private chats
     if (isPrivateChat) {
@@ -975,6 +1046,8 @@ export class GameService {
                necro_summon_effect = NULL,
                boss_pins = '[]'::jsonb,
                active_pin = NULL,
+               total_wins = 0,
+               total_deaths = 0,
                reset_used = true,
                updated_at = NOW()
            WHERE id = $1`,

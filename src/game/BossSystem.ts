@@ -662,8 +662,38 @@ export class BossSystem {
   }
 
   generateBossEnemy(floor: number, seasonId: number): Enemy & { boss_config: BossConfig; current_phase?: BossPhase } {
-    const config = this.getBossConfigS1(floor, seasonId);
-    
+    return this.buildBossEnemy(this.getBossConfigS1(floor, seasonId));
+  }
+
+  /**
+   * Endless tower (floors past the catalogue). The identity of a boss from the
+   * fixed 1..500 catalogue is reused, but its stats are rebuilt for the current
+   * floor so the difficulty keeps following the tower instead of exploding.
+   */
+  generateEndlessBossEnemy(
+    sourceFloor: number,
+    floor: number,
+    seasonId: number
+  ): Enemy & { boss_config: BossConfig; current_phase?: BossPhase } {
+    const source = this.getBossConfigS1(sourceFloor, seasonId);
+    const level = Math.floor(floor / 10);
+    const tuning = this.getBossFloorTuning(floor);
+    const baseHp = 300 + level * 150;
+    const baseAttack = level <= 10 ? 20 + level * 7 : Math.round(90 + (level - 10) * 2.7);
+    const baseDefense = level <= 10 ? 6 + level * 2 : Math.round(26 + (level - 10) * 0.9);
+
+    return this.buildBossEnemy({
+      ...source,
+      floor,
+      level,
+      base_hp: Math.round(baseHp * tuning.hp),
+      base_attack: Math.round(baseAttack * tuning.attack),
+      base_defense: Math.round(baseDefense),
+      loot_multiplier: 1.5 + level * 0.5,
+    });
+  }
+
+  private buildBossEnemy(config: BossConfig): Enemy & { boss_config: BossConfig; current_phase?: BossPhase } {
     return {
       id: undefined,
       name: `${formatBossIcon(config)} ${config.name}`,

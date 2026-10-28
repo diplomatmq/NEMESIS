@@ -6,10 +6,14 @@ export interface Season {
   start_date: Date;
   end_date: Date;
   is_active: boolean;
+  is_finished: boolean;
   total_floors: number;
   zones_count: number;
   created_at: Date;
 }
+
+/** A tournament runs for exactly three weeks. */
+export const SEASON_DURATION_MS = 21 * 24 * 60 * 60 * 1000;
 
 export class SeasonModel {
   static async getCurrentSeason(): Promise<Season | null> {
@@ -47,20 +51,58 @@ export class SeasonModel {
 
   static async getOrCreateCurrentSeason(): Promise<Season> {
     let season = await this.getCurrentSeason();
-    
+
     if (!season) {
-      // Create first season
+      // The season that exists before an administrator runs /sstart is the
+      // test season 0: everyone's progress is kept, but it is never reported
+      // as a finished tournament.
       const now = new Date();
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-      const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-      
       season = await this.create({
-        season_number: 1,
-        start_date: startOfMonth,
-        end_date: endOfMonth,
+        season_number: 0,
+        start_date: now,
+        end_date: new Date(now.getTime() + SEASON_DURATION_MS),
       });
     }
-    
+
     return season;
+  }
+
+  static async getMaxSeasonNumber(): Promise<number> {
+    const result = await db.query('SELECT COALESCE(MAX(season_number), 0) AS max FROM seasons');
+    return Number(result.rows[0].max);
+  }
+
+  /** The most recently finished tournament, used for the player's statistics. */
+  static async getLastFinishedSeason(): Promise<Season | null> {
+    const result = await db.query(
+      'SELECT * FROM seasons WHERE is_finished = true ORDER BY season_number DESC LIMIT 1'
+    );
+    return result.rows[0] || null;
+  }
+
+  /** The active real season whose end date has already passed. */
+  static async getExpiredActiveSeason(): Promise<Season | null> {
+    // Season dates are stored as UTC wall-clock values, so they are compared
+    // against the current UTC time rather than the session's local time.
+    const result = await db.query(
+      `SELECT * FROM seasons
+       WHERE is_active = true AND is_finished = false AND season_number >= 1
+         AND end_date <= (NOW() AT TIME ZONE 'UTC')
+       ORDER BY season_number DESC LIMIT 1`
+    );
+    return result.rows[0] || null;
+  }
+
+  /**
+   * Flips the finished flag exactly once. Returns true only for the caller
+   * that actually performed the transition, so the announcement is not
+   * duplicated across processes.
+   */
+  static async markFinished(id: number): Promise<boolean> {
+    const result = await db.query(
+      'UPDATE seasons SET is_finished = true WHERE id = $1 AND is_finished = false RETURNING id',
+      [id]
+    );
+    return result.rows.length > 0;
   }
 }

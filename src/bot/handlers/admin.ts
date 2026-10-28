@@ -3,6 +3,7 @@ import { paymentService } from '../../payment/PaymentService';
 import { markdownToTelegramHtml } from '../../game/HealthBar';
 import { CUSTOM_EMOJI, ce } from '../../game/CustomEmoji';
 import { formatBossIcon } from '../../game/BossSystem';
+import { seasonService } from '../../game/SeasonService';
 
 export const ADMIN_IDS = [793216884, 678418106];
 
@@ -69,7 +70,7 @@ export async function handleTop(ctx: Context) {
     } else {
       globalTop.forEach(player => {
         const medal = player.rank === 1 ? '🥇' : player.rank === 2 ? '🥈' : player.rank === 3 ? '🥉' : '🏅';
-        const name = player.username
+        const name = player.username 
           ? `<a href="https://t.me/${player.username}">${player.username}</a>`
           : player.first_name || `User ${player.telegram_id}`;
         const pin = player.active_pin ? `${formatBossIcon(player.active_pin.boss_config ?? {})} ` : '';
@@ -82,8 +83,8 @@ export async function handleTop(ctx: Context) {
       message += `\n💬 **Топ этого чата:**\n`;
       chatTop.forEach(player => {
         const medal = player.rank === 1 ? '🥇' : player.rank === 2 ? '🥈' : player.rank === 3 ? '🥉' : '🏅';
-        const name = player.username
-          ? `<a href="https://t.me/${player.username}">${player.username}</a>`
+        const name = player.username 
+          ? `<a href="https://t.me/${player.username}">${player.username}</a>` 
           : player.first_name || `User ${player.telegram_id}`;
         const pin = player.active_pin ? `${formatBossIcon(player.active_pin.boss_config ?? {})} ` : '';
         message += `${medal} **#${player.rank}** ${pin}${name}\n`;
@@ -91,12 +92,36 @@ export async function handleTop(ctx: Context) {
       });
     }
 
-    await ctx.reply(markdownToTelegramHtml(message), {
-      parse_mode: 'HTML',
-      link_preview_options: { is_disabled: true },
-    });
+    await ctx.reply(markdownToTelegramHtml(message), { parse_mode: 'HTML' });
   } catch (error) {
     console.error('❌ Error getting top players:', error);
     await ctx.reply('❌ Ошибка получения топа игроков');
+  }
+}
+
+/**
+ * /sstart — starts a new tournament. Only administrators may call it, and only
+ * from a private chat with the bot.
+ */
+export async function handleSeasonStart(ctx: Context) {
+  if (!ctx.from) {
+    return;
+  }
+
+  if (!ADMIN_IDS.includes(ctx.from.id)) {
+    return;
+  }
+
+  if (ctx.chat?.type !== 'private') {
+    await ctx.reply('⚠️ Команда /sstart работает только в личных сообщениях с ботом.');
+    return;
+  }
+
+  try {
+    const result = await seasonService.startSeason(ctx.api);
+    await ctx.reply(result);
+  } catch (error: any) {
+    console.error('❌ Error starting season:', error);
+    await ctx.reply(`❌ Ошибка запуска сезона: ${error.message || 'Неизвестная ошибка'}`);
   }
 }
