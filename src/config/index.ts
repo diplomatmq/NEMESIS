@@ -35,7 +35,7 @@ export const config = {
 
   // Game configuration
   game: {
-    cooldownMinutes: parseInt(process.env.COOLDOWN_MINUTES || '10'),
+    cooldownMinutes: parseInt(process.env.COOLDOWN_MINUTES || '5'),
     starsPrice: parseInt(process.env.STARS_PRICE || '1'),
     totalFloors: 500,
     floorsPerZone: 10,

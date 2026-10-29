@@ -68,7 +68,7 @@ services:
       REDIS_PORT: 6379
       
       # Game configuration
-      COOLDOWN_MINUTES: ${COOLDOWN_MINUTES:-10}
+      COOLDOWN_MINUTES: ${COOLDOWN_MINUTES:-5}
       STARS_PRICE: ${STARS_PRICE:-1}
       
       # Server configuration

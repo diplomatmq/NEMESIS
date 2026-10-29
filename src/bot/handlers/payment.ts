@@ -1,10 +1,11 @@
 import { Context } from 'grammy';
 import { paymentService } from '../../payment/PaymentService';
+import { InvoiceService } from '../../payment/InvoiceService';
 import { gameService } from '../../game/GameService';
 import { markdownToTelegramHtml } from '../../game/HealthBar';
 import { notifyAdmins } from './admin';
 
-export async function handleSuccessfulPayment(ctx: Context) {
+export async function handleSuccessfulPayment(ctx: Context, invoiceService: InvoiceService) {
   if (!ctx.message?.successful_payment || !ctx.from || !ctx.chat) {
     return;
   }
@@ -77,14 +78,25 @@ export async function handleSuccessfulPayment(ctx: Context) {
 
     console.log(`✅ Payment processed successfully for user ${ctx.from.id}`);
 
-    // Send success message to the original chat where the action was initiated
-    await ctx.api.sendMessage(
-      pendingPayment.chat_id,
-      markdownToTelegramHtml(
-        `✅ Оплата успешна! КД пропущен.\n\n${actionResult.message}`
-      ),
-      { parse_mode: 'HTML' }
+    // Send the result to the original chat, as a reply to the message that
+    // started the action (when that message is known).
+    const replyTarget = invoiceService.takeReplyTarget(payload);
+    const resultText = markdownToTelegramHtml(
+      `✅ Оплата успешна! КД пропущен.\n\n${actionResult.message}`
     );
+    try {
+      await ctx.api.sendMessage(pendingPayment.chat_id, resultText, {
+        parse_mode: 'HTML',
+        reply_parameters: replyTarget !== undefined ? { message_id: replyTarget } : undefined,
+      });
+    } catch (sendError) {
+      // The original message may have been deleted, which breaks reply delivery.
+      // Fall back to a plain message without reply so the result still arrives.
+      console.error(`⚠️ Reply delivery failed, retrying without reply:`, sendError);
+      await ctx.api.sendMessage(pendingPayment.chat_id, resultText, {
+        parse_mode: 'HTML',
+      });
+    }
 
     if ('adminNotification' in actionResult && actionResult.adminNotification) {
       await notifyAdmins(ctx.api, actionResult.adminNotification);

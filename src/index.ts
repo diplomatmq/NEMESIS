@@ -119,7 +119,7 @@ bot.on('message:successful_payment', async (ctx) => {
   if (payload.startsWith('slot:')) {
     await handleSlotPayment(ctx, payload);
   } else {
-    await handleSuccessfulPayment(ctx);
+    await handleSuccessfulPayment(ctx, invoiceService);
   }
 });
 bot.on('pre_checkout_query', handlePreCheckoutQuery);

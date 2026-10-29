@@ -261,7 +261,7 @@ export class DailyMarketService {
     }
     
     keyboard.text('💰 Продать предмет', `market:sell:0:${userId}`).row();
-    keyboard.text('❌ Закрыть', `market:close:${userId}`);
+    keyboard.text('📊 Статус', `status:back:${userId}`).text('❌ Закрыть', `market:close:${userId}`);
 
     return keyboard;
   }
@@ -309,7 +309,7 @@ export class DailyMarketService {
         .row();
     }
 
-    keyboard.text('🔙 Назад в маркет', `market:page:0:${userId}`);
+    keyboard.text('🔙 Назад в маркет', `market:page:0:${userId}`).text('📊 Статус', `status:back:${userId}`);
 
     return { message: msg, keyboard };
   }

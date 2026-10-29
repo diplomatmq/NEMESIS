@@ -878,7 +878,9 @@ export class GameService {
     const keyboard = new InlineKeyboard()
       .text('♻️ Подтвердить сброс', `reset:confirm:${telegramUserId}`)
       .row()
-      .text('❌ Отмена', `reset:cancel:${telegramUserId}`);
+      .text('❌ Отмена', `reset:cancel:${telegramUserId}`)
+      .row()
+      .text('📊 Статус', `status:back:${telegramUserId}`);
 
     return {
       message:
@@ -923,7 +925,7 @@ export class GameService {
           `📌 **Пины**\n\n` +
           `У вас пока нет ни одного пина.\n` +
           `Побеждайте боссов — каждый даёт свой эмодзи в коллекцию.`,
-        keyboard: new InlineKeyboard(),
+        keyboard: new InlineKeyboard().text('📊 Статус', `status:back:${telegramUserId}`),
         hasPins: false,
       };
     }
@@ -937,7 +939,11 @@ export class GameService {
     });
     message += `\n✏️ Введите номер пина, чтобы он отображался рядом с вашим ником в /top.`;
 
-    return { message, keyboard: new InlineKeyboard(), hasPins: true };
+    return {
+      message,
+      keyboard: new InlineKeyboard().text('📊 Статус', `status:back:${telegramUserId}`),
+      hasPins: true,
+    };
   }
 
   async setPin(
@@ -1299,6 +1305,7 @@ export class GameService {
     }
     
     message += `\n💡 Нажмите на предмет чтобы надеть/снять.`;
+    keyboard.row().text('📊 Статус', `status:back:${telegramUserId}`);
     
     return {
       message,

@@ -1,4 +1,4 @@
-import { Context } from 'grammy';
+import { Context, InlineKeyboard } from 'grammy';
 import { gameService } from '../../game/GameService';
 import { trailService } from '../../game/TrailService';
 import { UserModel } from '../../database/models/User';
@@ -55,11 +55,12 @@ export async function handleGameAction(ctx: Context, invoiceService: InvoiceServ
     // If cooldown is active and payment needed
     if (result.needsPayment && result.cooldownInfo) {
       // Create invoice
-      const { keyboard } = await invoiceService.createSkipCooldownInvoice(
-        ctx.from.id,
-        ctx.chat.id,
-        action
-      );
+      const { keyboard } = await invoiceService.createSkipCooldownInvoice({
+        telegramUserId: ctx.from.id,
+        chatId: ctx.chat.id,
+        command: action,
+        replyToMessageId: ctx.message.message_id,
+      });
 
       await ctx.reply(markdownToTelegramHtml(result.message), {
         reply_markup: keyboard,
@@ -370,13 +371,14 @@ export async function handleSacrificeCallbackWithPayment(
   const match = /^sacrifice:skip:(mobs|boss)(?::(\d+))?$/.exec(ctx.callbackQuery.data);
   if (!match) return;
   const command = `sacrifice_skip:${match[1]}${match[2] ? `:${match[2]}` : ''}`;
-  const { keyboard } = await invoiceService.createSkipCooldownInvoice(
-    ctx.from.id,
-    ctx.chat.id,
+  const { keyboard } = await invoiceService.createSkipCooldownInvoice({
+    telegramUserId: ctx.from.id,
+    chatId: ctx.chat.id,
     command,
-    5,
-    'Пропуск КД жертвоприношения'
-  );
+    amount: 5,
+    title: 'Пропуск КД жертвоприношения',
+    replyToMessageId: ctx.callbackQuery.message?.message_id,
+  });
   await ctx.answerCallbackQuery();
   await ctx.reply('⏳ Ритуал ещё на cooldown. Пропустить его можно за 5 Telegram Stars.', {
     reply_markup: keyboard,
@@ -422,14 +424,15 @@ export async function handlePotionCallback(ctx: Context) {
 }
 
 /**
- * Handle status menu callbacks (market, inventory, equipment, slots)
+ * Handle status menu callbacks (market, inventory, equipment, slots).
+ * Sub-menus replace the /status message in place; the "Статус" button opens it again.
  */
 export async function handleStatusCallback(ctx: Context) {
   if (!ctx.from || !ctx.callbackQuery?.data) return;
   const data = ctx.callbackQuery.data;
   
   // Parse status menu callbacks
-  const statusMatch = /^status:(market|inventory|equipment|slots|reset|pin|stats):(\d+)$/.exec(data);
+  const statusMatch = /^status:(market|inventory|equipment|slots|reset|pin|stats|back):(\d+)$/.exec(data);
   if (!statusMatch) return;
   
   const [, action, userId] = statusMatch;
@@ -439,23 +442,45 @@ export async function handleStatusCallback(ctx: Context) {
     await ctx.answerCallbackQuery('❌ Это не ваше меню!');
     return;
   }
+
+  const chatId = ctx.chat?.id;
+  if (chatId === undefined) {
+    await ctx.answerCallbackQuery('❌ Чат недоступен.');
+    return;
+  }
   
   try {
-    if (action === 'market') {
+    if (action === 'back') {
+      const status = await gameService.getPlayerStatus(
+        ctx.from.id,
+        chatId,
+        ctx.chat?.type === 'private'
+      );
+      await ctx.answerCallbackQuery();
+      await ctx.editMessageText(markdownToTelegramHtml(status.message), {
+        reply_markup: status.keyboard,
+        parse_mode: 'HTML',
+        link_preview_options: { is_disabled: true },
+      });
+    } else if (action === 'market') {
       const result = await gameService.getDailyMarket(ctx.from.id, 0);
       await ctx.answerCallbackQuery();
-      await ctx.reply(markdownToTelegramHtml(result.message), {
+      await ctx.editMessageText(markdownToTelegramHtml(result.message), {
         reply_markup: result.keyboard,
         parse_mode: 'HTML',
       });
     } else if (action === 'inventory') {
-      const inventory = await gameService.getInventory(ctx.from.id, ctx.chat!.id);
+      const inventory = await gameService.getInventory(ctx.from.id, chatId);
+      const keyboard = new InlineKeyboard().text('📊 Статус', `status:back:${ctx.from.id}`);
       await ctx.answerCallbackQuery();
-      await ctx.reply(markdownToTelegramHtml(inventory), { parse_mode: 'HTML' });
+      await ctx.editMessageText(markdownToTelegramHtml(inventory), {
+        reply_markup: keyboard,
+        parse_mode: 'HTML',
+      });
     } else if (action === 'equipment') {
       const result = await gameService.getEquipmentMenu(ctx.from.id);
       await ctx.answerCallbackQuery();
-      await ctx.reply(result.message, {
+      await ctx.editMessageText(result.message, {
         reply_markup: result.keyboard,
         parse_mode: 'Markdown',
       });
@@ -473,7 +498,7 @@ export async function handleStatusCallback(ctx: Context) {
     } else if (action === 'reset') {
       const result = await gameService.getResetMenu(ctx.from.id);
       await ctx.answerCallbackQuery();
-      await ctx.reply(markdownToTelegramHtml(result.message), {
+      await ctx.editMessageText(markdownToTelegramHtml(result.message), {
         reply_markup: result.keyboard,
         parse_mode: 'HTML',
       });
@@ -483,14 +508,18 @@ export async function handleStatusCallback(ctx: Context) {
         pendingPinSelections.set(ctx.from.id, { timestamp: Date.now() });
       }
       await ctx.answerCallbackQuery();
-      await ctx.reply(markdownToTelegramHtml(result.message), {
+      await ctx.editMessageText(markdownToTelegramHtml(result.message), {
         reply_markup: result.keyboard,
         parse_mode: 'HTML',
       });
     } else if (action === 'stats') {
       const stats = await seasonService.getSeasonStats(ctx.from.id);
+      const keyboard = new InlineKeyboard().text('📊 Статус', `status:back:${ctx.from.id}`);
       await ctx.answerCallbackQuery();
-      await ctx.reply(markdownToTelegramHtml(stats), { parse_mode: 'HTML' });
+      await ctx.editMessageText(markdownToTelegramHtml(stats), {
+        reply_markup: keyboard,
+        parse_mode: 'HTML',
+      });
     }
   } catch (error: any) {
     await ctx.answerCallbackQuery(formatAlert(error.message || '❌ Ошибка'));
