@@ -4,6 +4,7 @@ import { SeasonModel } from '../../database/models/Season';
 import { PlayerProgressModel } from '../../database/models/PlayerProgress';
 import { getClassPage } from './class';
 import { markdownToTelegramHtml } from '../../game/HealthBar';
+import { config } from '../../config';
 
 export async function handleStart(ctx: Context) {
   if (!ctx.from) {
@@ -43,7 +44,7 @@ export async function handleStart(ctx: Context) {
       `• /class - выбрать класс\n` +
       `• /achievements - достижения\n` +
       `• /reset - сбросить прогресс (1 раз за сезон)\n\n` +
-      `⏳ Между действиями - КД 10 минут.\n` +
+      `⏳ Между действиями - КД ${config.game.cooldownMinutes} минут.\n` +
       `⭐ Можно пропустить КД за 1 Telegram Star.`
     );
   } else {

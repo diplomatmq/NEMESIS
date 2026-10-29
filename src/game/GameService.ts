@@ -1,4 +1,5 @@
 import { UserModel } from '../database/models/User';
+import { config } from '../config';
 import { ChatModel } from '../database/models/Chat';
 import { SeasonModel } from '../database/models/Season';
 import { 
@@ -668,7 +669,7 @@ export class GameService {
     }
 
     if (!isCooldownExempt) {
-      combatResult.message += `\n⏳ Следующее действие доступно через 10 минут.`;
+      combatResult.message += `\n⏳ Следующее действие доступно через ${config.game.cooldownMinutes} минут.`;
     }
 
     return {
