@@ -20,6 +20,14 @@ export class UserModel {
     return result.rows[0] || null;
   }
 
+  static async findByUsername(username: string): Promise<User | null> {
+    const result = await db.query(
+      'SELECT * FROM users WHERE LOWER(username) = LOWER($1) LIMIT 1',
+      [username]
+    );
+    return result.rows[0] || null;
+  }
+
   static async create(data: {
     telegram_id: number;
     username?: string;

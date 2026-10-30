@@ -4,6 +4,9 @@ import { markdownToTelegramHtml } from '../../game/HealthBar';
 import { CUSTOM_EMOJI, ce } from '../../game/CustomEmoji';
 import { formatBossIcon } from '../../game/BossSystem';
 import { seasonService } from '../../game/SeasonService';
+import { slotMachineService } from '../../game/SlotMachineService';
+import { referralService } from '../../game/ReferralService';
+import { UserModel } from '../../database/models/User';
 
 export const ADMIN_IDS = [793216884, 678418106];
 
@@ -31,14 +34,29 @@ export async function handleDbStats(ctx: Context) {
   try {
     const stats = await paymentService.getDatabaseStats();
 
-    const message = 
+    // Referral chats claim their share first (their full unpaid balance, even
+    // when it is still below the payout minimum); Soun and Egor split the rest.
+    const referrals = await referralService.getAllStatuses();
+    const referralObligations = referrals.reduce((sum, referral) => sum + referral.balance, 0);
+    const remainder = Math.max(0, stats.totalStars - referralObligations);
+    const sounShare = Math.floor(remainder * 0.75);
+    const egorShare = Math.floor(remainder * 0.25);
+
+    let message =
       `📊 **Статистика базы данных**\n\n` +
       `👥 **Игроков:** ${stats.totalPlayers}\n` +
       `💬 **Чатов:** ${stats.totalChats} (без личных)\n` +
       `⭐ **Всего звёзд:** ${stats.totalStars}\n\n` +
       `${ce(CUSTOM_EMOJI.gold, '💰')} **Распределение:**\n` +
-      `• Доля Soun: **${stats.sounShare}** ⭐ (75%)\n` +
-      `• Доля Егор: **${stats.egorShare}** ⭐ (25%)`;
+      `• Доля Soun: **${sounShare}** ⭐ (75%)\n` +
+      `• Доля Егор: **${egorShare}** ⭐ (25%)`;
+
+    if (referrals.length > 0) {
+      message += `\n\n📈 **Реферальные чаты** (к выводу: ${referralObligations} ⭐):\n`;
+      for (const referral of referrals) {
+        message += `• Чат ${referral.chat_telegram_id} — ${referral.percent}% — ${referral.balance} ⭐\n`;
+      }
+    }
 
     await ctx.reply(markdownToTelegramHtml(message), { parse_mode: 'HTML' });
   } catch (error) {
@@ -123,5 +141,53 @@ export async function handleSeasonStart(ctx: Context) {
   } catch (error: any) {
     console.error('❌ Error starting season:', error);
     await ctx.reply(`❌ Ошибка запуска сезона: ${error.message || 'Неизвестная ошибка'}`);
+  }
+}
+
+/**
+ * /giveitem <telegram_id|@username> [count] — grants random items to a player,
+ * used to compensate for a drop that failed after the spin was consumed.
+ * Administrators only.
+ */
+export async function handleGiveItem(ctx: Context) {
+  if (!ctx.from || !ADMIN_IDS.includes(ctx.from.id)) {
+    return;
+  }
+
+  const args = (ctx.message?.text ?? '').split(/\s+/).slice(1);
+  if (args.length === 0) {
+    await ctx.reply('Использование: /giveitem <telegram_id|@username> [кол-во]');
+    return;
+  }
+
+  const count = Math.min(Math.max(parseInt(args[1] ?? '1', 10) || 1, 1), 10);
+  const target = args[0].startsWith('@')
+    ? await UserModel.findByUsername(args[0].slice(1))
+    : await UserModel.findByTelegramId(Number(args[0]));
+
+  if (!target) {
+    await ctx.reply('❌ Игрок не найден в базе данных.');
+    return;
+  }
+
+  try {
+    const items = await slotMachineService.grantRandomItems(Number(target.telegram_id), count);
+
+    try {
+      const list = items.map((item) => `• ${item.name} (${item.rarity})`).join('\n');
+      await ctx.api.sendMessage(
+        Number(target.telegram_id),
+        `🎁 Компенсация\n\nВам выдан предмет за сбой в Лотах:\n${list}\n\nПроверьте инвентарь: /status`,
+        { link_preview_options: { is_disabled: true } }
+      );
+    } catch (error) {
+      console.error('⚠️ Failed to notify compensated player:', error);
+    }
+
+    const summary = items.map((item) => `${item.name} (${item.rarity})`).join(', ');
+    await ctx.reply(`✅ Выдано предметов: ${items.length}\n${summary}`);
+  } catch (error: any) {
+    console.error('❌ Error granting items:', error);
+    await ctx.reply(`❌ Ошибка выдачи: ${error.message || 'Неизвестная ошибка'}`);
   }
 }

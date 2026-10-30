@@ -81,9 +81,7 @@ export async function handleSuccessfulPayment(ctx: Context, invoiceService: Invo
     // Send the result to the original chat, as a reply to the message that
     // started the action (when that message is known).
     const replyTarget = invoiceService.takeReplyTarget(payload);
-    const resultText = markdownToTelegramHtml(
-      `✅ Оплата успешна! КД пропущен.\n\n${actionResult.message}`
-    );
+    const resultText = markdownToTelegramHtml(actionResult.message);
     try {
       await ctx.api.sendMessage(pendingPayment.chat_id, resultText, {
         parse_mode: 'HTML',

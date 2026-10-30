@@ -48,9 +48,7 @@ export class TrailService {
     );
 
     return {
-      message:
-        '\n🧭 **Выберите путь**\n' +
-        'Направление каждой кнопки определяется случайно. Отказаться от выбора нельзя.\n',
+      message: '\n🧭 **Выберите путь**\n',
       keyboard: this.createKeyboard(result.rows[0].id, shuffled),
     };
   }

@@ -185,8 +185,6 @@ export class PaymentService {
     totalPlayers: number;
     totalChats: number;
     totalStars: number;
-    sounShare: number;
-    egorShare: number;
   }> {
     // Get total players
     const playersResult = await db.query('SELECT COUNT(DISTINCT id) as count FROM users');
@@ -202,16 +200,10 @@ export class PaymentService {
     const starsResult = await db.query('SELECT COALESCE(SUM(stars_amount), 0) as total FROM payment_stats');
     const totalStars = parseInt(starsResult.rows[0].total);
 
-    // Calculate shares
-    const sounShare = Math.floor(totalStars * 0.75);
-    const egorShare = Math.floor(totalStars * 0.25);
-
     return {
       totalPlayers,
       totalChats,
       totalStars,
-      sounShare,
-      egorShare,
     };
   }
 

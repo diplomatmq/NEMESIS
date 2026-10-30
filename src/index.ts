@@ -7,8 +7,9 @@ import { handleGameAction, handleStatus, handleInventory, handleUsePotion, handl
 import { handleSuccessfulPayment, handlePreCheckoutQuery } from './bot/handlers/payment';
 import { handleClassSelection, handleClassCallback } from './bot/handlers/class';
 import { handleAchievements } from './bot/handlers/achievements';
-import { handleDbStats, handleTop, handleSeasonStart } from './bot/handlers/admin';
+import { handleDbStats, handleTop, handleSeasonStart, handleGiveItem } from './bot/handlers/admin';
 import { handleSlotSpinCount, handleDiceMessage, handleSlotPayment } from './bot/handlers/slots';
+import { handleNewRef, handleRef, handleReferralCallback, handleReferralTextInput } from './bot/handlers/referral';
 import { InvoiceService } from './payment/InvoiceService';
 import { gameService } from './game/GameService';
 import { seasonService } from './game/SeasonService';
@@ -72,6 +73,11 @@ bot.command('сброс', handleReset);
 bot.command('dbstats', handleDbStats);
 bot.command('top', handleTop);
 bot.command('sstart', handleSeasonStart);
+bot.command('giveitem', handleGiveItem);
+
+// Referral system
+bot.command('new_ref', handleNewRef);
+bot.command('ref', handleRef);
 
 // Callback query handlers
 bot.on('callback_query:data', async (ctx) => {
@@ -86,6 +92,7 @@ bot.on('callback_query:data', async (ctx) => {
   await handleStatusCallback(ctx);
   await handleResetCallback(ctx);
   await handleMarketCallback(ctx);
+  await handleReferralCallback(ctx);
 });
 
 // Game action handlers
@@ -97,6 +104,8 @@ bot.on('message:text', async (ctx) => {
   if (ctx.message.text && !ctx.message.text.startsWith('/')) {
     // Pin number entry takes priority over the slots spin count.
     if (await handlePinTextInput(ctx)) return;
+    // Referral wizard answers (admins configuring /new_ref).
+    if (await handleReferralTextInput(ctx)) return;
     if (ctx.chat.type === 'private') {
       await handleSlotSpinCount(ctx);
     }

@@ -112,22 +112,22 @@ export class SlotMachineService {
       };
     }
 
-    // Decrement spins
-    const newRemaining = session.spins_remaining - 1;
-    await db.query(
-      'UPDATE slot_sessions SET spins_remaining = $1 WHERE id = $2',
-      [newRemaining, session.id]
-    );
-
     // Check for jackpot (777) or a triple combo (BAR / grapes / lemon)
     const isJackpot = diceValue === this.JACKPOT_VALUE;
     const isTriple = !isJackpot && this.TRIPLE_VALUES.has(diceValue);
+    const newRemaining = session.spins_remaining - 1;
 
     if (isJackpot || isTriple) {
-      // Triple combos drop items too, but with a lower rarity table than the jackpot
+      // Triple combos drop items too, but with a lower rarity table than the jackpot.
+      // Grant the item before consuming the spin so a failed drop never costs a try.
       const item = await this.giveRandomItem(
         telegramUserId,
         isJackpot ? this.JACKPOT_RARITY_CHANCES : this.TRIPLE_RARITY_CHANCES
+      );
+
+      await db.query(
+        'UPDATE slot_sessions SET spins_remaining = $1 WHERE id = $2',
+        [newRemaining, session.id]
       );
 
       if (newRemaining === 0) {
@@ -149,6 +149,11 @@ export class SlotMachineService {
         item,
       };
     } else {
+      await db.query(
+        'UPDATE slot_sessions SET spins_remaining = $1 WHERE id = $2',
+        [newRemaining, session.id]
+      );
+
       if (newRemaining === 0) {
         await this.completeSession(session.id);
       }
@@ -187,6 +192,20 @@ export class SlotMachineService {
       `⚠️ Следующая попытка обмана приведёт к более серьёзным последствиям!`;
   }
 
+  /** Grants a player a number of random items (used for compensation). */
+  async grantRandomItems(telegramUserId: number, count: number): Promise<Array<{
+    id: number;
+    name: string;
+    rarity: string;
+    slot: string;
+  }>> {
+    const granted: Array<{ id: number; name: string; rarity: string; slot: string }> = [];
+    for (let i = 0; i < count; i++) {
+      granted.push(await this.giveRandomItem(telegramUserId, this.JACKPOT_RARITY_CHANCES));
+    }
+    return granted;
+  }
+
   private async giveRandomItem(
     telegramUserId: number,
     rarityChances: Array<{ rarity: string; chance: number }>
@@ -218,14 +237,14 @@ export class SlotMachineService {
       }
     }
 
-    // Get random item of that rarity
+    // Get random item of that rarity. Items are global (no season_id).
     const itemResult = await db.query(
       `SELECT id, name, rarity, slot 
        FROM items 
-       WHERE rarity = $1 AND season_id = $2
+       WHERE rarity = $1 AND slot != 'potion'
        ORDER BY RANDOM()
        LIMIT 1`,
-      [rarity, season.id]
+      [rarity]
     );
 
     if (itemResult.rows.length === 0) {
@@ -233,10 +252,9 @@ export class SlotMachineService {
       const fallbackResult = await db.query(
         `SELECT id, name, rarity, slot 
          FROM items 
-         WHERE season_id = $1
+         WHERE slot != 'potion'
          ORDER BY RANDOM()
-         LIMIT 1`,
-        [season.id]
+         LIMIT 1`
       );
       if (fallbackResult.rows.length === 0) {
         throw new Error('No items available');
@@ -253,10 +271,10 @@ export class SlotMachineService {
 
   private async addItemToInventory(playerProgressId: number, itemId: number): Promise<void> {
     await db.query(
-      `INSERT INTO inventory (player_progress_id, item_id, quantity)
+      `INSERT INTO player_inventory (player_progress_id, item_id, quantity)
        VALUES ($1, $2, 1)
        ON CONFLICT (player_progress_id, item_id) 
-       DO UPDATE SET quantity = inventory.quantity + 1`,
+       DO UPDATE SET quantity = player_inventory.quantity + 1`,
       [playerProgressId, itemId]
     );
   }

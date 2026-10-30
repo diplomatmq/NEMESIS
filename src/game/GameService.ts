@@ -190,7 +190,7 @@ export class GameService {
     const pendingTrail = await trailService.getEvent(userId, seasonId, chatId);
     if (pendingTrail) {
       return {
-        message: '🧭 Выберите вариант найденного следа:',
+        message: '\n🧭 **Выберите путь**\n',
         keyboard: trailService.buildKeyboard(pendingTrail.id, pendingTrail.options),
         consumesCooldown: false,
       };
