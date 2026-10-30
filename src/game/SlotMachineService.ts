@@ -270,13 +270,26 @@ export class SlotMachineService {
   }
 
   private async addItemToInventory(playerProgressId: number, itemId: number): Promise<void> {
-    await db.query(
-      `INSERT INTO player_inventory (player_progress_id, item_id, quantity)
-       VALUES ($1, $2, 1)
-       ON CONFLICT (player_progress_id, item_id) 
-       DO UPDATE SET quantity = player_inventory.quantity + 1`,
+    const existing = await db.query(
+      `SELECT id FROM player_inventory 
+       WHERE player_progress_id = $1 AND item_id = $2`,
       [playerProgressId, itemId]
     );
+
+    if (existing.rows.length > 0) {
+      await db.query(
+        `UPDATE player_inventory 
+         SET quantity = quantity + 1 
+         WHERE player_progress_id = $1 AND item_id = $2`,
+        [playerProgressId, itemId]
+      );
+    } else {
+      await db.query(
+        `INSERT INTO player_inventory (player_progress_id, item_id, quantity)
+         VALUES ($1, $2, 1)`,
+        [playerProgressId, itemId]
+      );
+    }
   }
 
   private getTripleLabel(diceValue: number): string {
