@@ -58,15 +58,15 @@ export class ReferralService {
     return result.rows[0] ? mapReferral(result.rows[0]) : null;
   }
 
-  /** Stars spent by players inside the chat within the given window. */
-  private async getRevenue(chatTelegramId: number, since: Date, until?: Date): Promise<number> {
+  /** Stars spent by players inside the chat (optionally up to a cutoff). */
+  private async getRevenue(chatTelegramId: number, until?: Date): Promise<number> {
     const result = await db.query(
       `SELECT COALESCE(SUM(p.amount), 0)::int AS total
        FROM payments p
        JOIN pending_payments pp ON pp.id = p.pending_payment_id
-       WHERE pp.chat_id = $1 AND p.currency = 'XTR' AND p.created_at >= $2
-         AND ($3::timestamp IS NULL OR p.created_at <= $3)`,
-      [chatTelegramId, since, until ?? null]
+       WHERE pp.chat_id = $1 AND p.currency = 'XTR'
+         AND ($2::timestamp IS NULL OR p.created_at <= $2)`,
+      [chatTelegramId, until ?? null]
     );
     return Number(result.rows[0].total);
   }
@@ -92,12 +92,8 @@ export class ReferralService {
 
   async getStatus(referral: ReferralChat): Promise<ReferralStatus> {
     const holdCutoff = new Date(Date.now() - HOLD_DAYS * 24 * 60 * 60 * 1000);
-    const revenue = await this.getRevenue(referral.chat_telegram_id, referral.created_at);
-    const vestedRevenue = await this.getRevenue(
-      referral.chat_telegram_id,
-      referral.created_at,
-      holdCutoff
-    );
+    const revenue = await this.getRevenue(referral.chat_telegram_id);
+    const vestedRevenue = await this.getRevenue(referral.chat_telegram_id, holdCutoff);
     const withdrawn = await this.getWithdrawn(referral.id);
     const pending = await this.hasPending(referral.id);
 
