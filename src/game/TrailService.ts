@@ -28,7 +28,8 @@ export class TrailService {
     userId: number,
     seasonId: number,
     chatId: number,
-    floor: number
+    floor: number,
+    ownerTelegramId: number
   ): Promise<TrailResult> {
     const options: TrailOption[] = [
       { label: 'Влево', kind: 'combat', modifier: 0.85 },
@@ -38,13 +39,15 @@ export class TrailService {
 
     const shuffled = options.sort(() => Math.random() - 0.5);
     const result = await db.query(
-      `INSERT INTO trail_events (user_id, season_id, chat_id, floor, options)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO trail_events (user_id, season_id, chat_id, floor, options, owner_telegram_id)
+       VALUES ($1, $2, $3, $4, $5, $6)
        ON CONFLICT (user_id, season_id, chat_id) DO UPDATE
        SET floor = EXCLUDED.floor,
-           options = EXCLUDED.options, created_at = NOW()
+           options = EXCLUDED.options,
+           owner_telegram_id = EXCLUDED.owner_telegram_id,
+           created_at = NOW()
        RETURNING id`,
-      [userId, seasonId, chatId, floor, JSON.stringify(shuffled)]
+      [userId, seasonId, chatId, floor, JSON.stringify(shuffled), ownerTelegramId]
     );
 
     return {
@@ -62,6 +65,59 @@ export class TrailService {
       [userId, seasonId, chatId]
     );
     return result.rows[0] || null;
+  }
+
+  /**
+   * Telegram id of the player a trail event belongs to, or null when the event
+   * no longer exists. Used to keep the direction buttons owner-only.
+   */
+  async getEventOwnerTelegramId(eventId: number): Promise<number | null> {
+    const result = await db.query(
+      `SELECT COALESCE(te.owner_telegram_id, u.telegram_id) AS owner
+       FROM trail_events te
+       JOIN users u ON u.id = te.user_id
+       WHERE te.id = $1`,
+      [eventId]
+    );
+    if (result.rows.length === 0) {
+      return null;
+    }
+    const owner = result.rows[0].owner;
+    return owner === null ? null : Number(owner);
+  }
+
+  /**
+   * One-time cleanup: trail events created before owner-scoping existed could
+   * be broken by another player pressing the buttons, leaving the owner stuck.
+   * Resolve each of them with a random option so the player can continue.
+   */
+  async migrateLegacyEvents(): Promise<number> {
+    const result = await db.query(
+      `SELECT te.id, te.floor, te.options, pp.id AS progress_id
+       FROM trail_events te
+       LEFT JOIN player_progress pp
+         ON pp.user_id = te.user_id AND pp.season_id = te.season_id
+       WHERE te.owner_telegram_id IS NULL`
+    );
+
+    let resolved = 0;
+    for (const row of result.rows) {
+      const options = row.options as TrailOption[];
+      const option = options[Math.floor(Math.random() * options.length)];
+
+      if (option?.kind === 'combat' && row.progress_id) {
+        await db.query(
+          `UPDATE player_progress SET trail_modifier = $1, updated_at = NOW()
+           WHERE id = $2`,
+          [option.modifier || 1, row.progress_id]
+        );
+      }
+
+      await db.query('DELETE FROM trail_events WHERE id = $1', [row.id]);
+      resolved++;
+    }
+
+    return resolved;
   }
 
   async resolveEvent(
@@ -169,6 +225,7 @@ export class TrailService {
       
       message += `${index + 1}. ${rarityEmoji} **${item.name}**\n`;
       message += `   📊 ${stats}\n`;
+      message += `   ⭐ Треб. ур.: ${item.level_required}\n`;
       if (item.special_effect) {
         message += `   🌟 *${item.special_effect}*\n`;
       }

@@ -131,6 +131,7 @@ export class GameService {
       chat.id,
       season.id,
       user!.id,
+      context.telegramUserId,
       isCooldownExempt
     );
 
@@ -172,6 +173,7 @@ export class GameService {
     chatId: number,
     seasonId: number,
     userId: number,
+    telegramUserId: number,
     isCooldownExempt: boolean
   ): Promise<{
     message: string;
@@ -619,7 +621,8 @@ export class GameService {
           userId,
           seasonId,
           chatId,
-          newChatFloor
+          newChatFloor,
+          telegramUserId
         );
         combatResult.message += `\n${trail.message}`;
         return { message: combatResult.message, combatResult, keyboard: trail.keyboard, nftDrop };

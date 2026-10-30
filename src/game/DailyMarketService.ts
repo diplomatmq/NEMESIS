@@ -205,6 +205,7 @@ export class DailyMarketService {
       
       msg += `${globalIndex + 1}. ${rarityEmoji} **${item.name}**\n`;
       msg += `   📊 ${stats}\n`;
+      msg += `   ⭐ Треб. ур.: ${item.level_required}\n`;
       
       if (item.special_effect) {
         msg += `   🌟 *${item.special_effect}*\n`;

@@ -119,11 +119,18 @@ export async function handleTrailCallback(ctx: Context) {
     let result;
     
     if (trailMatch) {
-      // Trail choice
+      // Trail choice. Only the player the buttons were sent to may pick a path,
+      // otherwise another member of the chat would consume the owner's event.
+      const eventId = Number(trailMatch[1]);
+      const ownerTelegramId = await trailService.getEventOwnerTelegramId(eventId);
+      if (ownerTelegramId !== null && ownerTelegramId !== ctx.from.id) {
+        await ctx.answerCallbackQuery('❌ Это не ваш выбор пути.');
+        return;
+      }
       result = await gameService.resolveTrail(
         ctx.from.id,
         ctx.chat.id,
-        Number(trailMatch[1]),
+        eventId,
         Number(trailMatch[2])
       );
     } else if (marketModeMatch) {

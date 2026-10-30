@@ -78,9 +78,10 @@ async function runMigrations() {
       { name: '037_lower_item_level_requirements', file: '037_lower_item_level_requirements.sql', order: 37 },
       { name: '038_boss_retry_weakening', file: '038_boss_retry_weakening.sql', order: 38 },
       { name: '039_seasons', file: '039_seasons.sql', order: 39 },
+      { name: '040_trail_event_owner', file: '040_trail_event_owner.sql', order: 40 },
     ];
 
-    const EXPECTED_MIGRATION_COUNT = 40;
+    const EXPECTED_MIGRATION_COUNT = 41;
     if (migrations.length !== EXPECTED_MIGRATION_COUNT) {
       console.error(`❌ ERROR: Expected ${EXPECTED_MIGRATION_COUNT} migrations, but found ${migrations.length}`);
       console.error(`   This means migrations are missing from the array!`);

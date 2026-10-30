@@ -12,6 +12,7 @@ import { handleSlotSpinCount, handleDiceMessage, handleSlotPayment } from './bot
 import { InvoiceService } from './payment/InvoiceService';
 import { gameService } from './game/GameService';
 import { seasonService } from './game/SeasonService';
+import { trailService } from './game/TrailService';
 
 // Validate configuration
 if (!config.bot.token) {
@@ -155,6 +156,17 @@ async function start() {
       );
     }
     console.log('✅ Database connected');
+
+    // One-time cleanup: legacy trail events (created before owner-scoping) could
+    // be broken by other players and leave their owners unable to continue.
+    try {
+      const resolvedTrails = await trailService.migrateLegacyEvents();
+      if (resolvedTrails > 0) {
+        console.log(`🧭 Auto-resolved ${resolvedTrails} legacy trail event(s)`);
+      }
+    } catch (error) {
+      console.error('⚠️ Legacy trail cleanup failed:', error);
+    }
 
     // Publish the end-of-season report once a tournament's end date passes.
     // The check is idempotent, so running it periodically is safe.
