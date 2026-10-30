@@ -131,7 +131,6 @@ export class GameService {
       chat.id,
       season.id,
       user!.id,
-      context.telegramUserId,
       isCooldownExempt
     );
 
@@ -173,7 +172,6 @@ export class GameService {
     chatId: number,
     seasonId: number,
     userId: number,
-    telegramUserId: number,
     isCooldownExempt: boolean
   ): Promise<{
     message: string;
@@ -187,8 +185,15 @@ export class GameService {
 
     const actionLower = action.toLowerCase().trim();
 
-    if (await trailService.getEvent(userId, seasonId, chatId)) {
-      return { message: '🧭 Сначала выберите вариант найденного следа на кнопках выше.', consumesCooldown: false };
+    // A pending path choice blocks combat. Re-send the direction buttons so the
+    // owner can always make the choice, even if the original message was lost.
+    const pendingTrail = await trailService.getEvent(userId, seasonId, chatId);
+    if (pendingTrail) {
+      return {
+        message: '🧭 Выберите вариант найденного следа:',
+        keyboard: trailService.buildKeyboard(pendingTrail.id, pendingTrail.options),
+        consumesCooldown: false,
+      };
     }
 
     const isCombatAction =
@@ -621,8 +626,7 @@ export class GameService {
           userId,
           seasonId,
           chatId,
-          newChatFloor,
-          telegramUserId
+          newChatFloor
         );
         combatResult.message += `\n${trail.message}`;
         return { message: combatResult.message, combatResult, keyboard: trail.keyboard, nftDrop };

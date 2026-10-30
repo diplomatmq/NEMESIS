@@ -28,8 +28,7 @@ export class TrailService {
     userId: number,
     seasonId: number,
     chatId: number,
-    floor: number,
-    ownerTelegramId: number
+    floor: number
   ): Promise<TrailResult> {
     const options: TrailOption[] = [
       { label: 'Влево', kind: 'combat', modifier: 0.85 },
@@ -39,15 +38,13 @@ export class TrailService {
 
     const shuffled = options.sort(() => Math.random() - 0.5);
     const result = await db.query(
-      `INSERT INTO trail_events (user_id, season_id, chat_id, floor, options, owner_telegram_id)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO trail_events (user_id, season_id, chat_id, floor, options)
+       VALUES ($1, $2, $3, $4, $5)
        ON CONFLICT (user_id, season_id, chat_id) DO UPDATE
        SET floor = EXCLUDED.floor,
-           options = EXCLUDED.options,
-           owner_telegram_id = EXCLUDED.owner_telegram_id,
-           created_at = NOW()
+           options = EXCLUDED.options, created_at = NOW()
        RETURNING id`,
-      [userId, seasonId, chatId, floor, JSON.stringify(shuffled), ownerTelegramId]
+      [userId, seasonId, chatId, floor, JSON.stringify(shuffled)]
     );
 
     return {
@@ -73,7 +70,7 @@ export class TrailService {
    */
   async getEventOwnerTelegramId(eventId: number): Promise<number | null> {
     const result = await db.query(
-      `SELECT COALESCE(te.owner_telegram_id, u.telegram_id) AS owner
+      `SELECT u.telegram_id AS owner
        FROM trail_events te
        JOIN users u ON u.id = te.user_id
        WHERE te.id = $1`,
@@ -82,22 +79,22 @@ export class TrailService {
     if (result.rows.length === 0) {
       return null;
     }
-    const owner = result.rows[0].owner;
-    return owner === null ? null : Number(owner);
+    return Number(result.rows[0].owner);
   }
 
   /**
-   * One-time cleanup: trail events created before owner-scoping existed could
-   * be broken by another player pressing the buttons, leaving the owner stuck.
-   * Resolve each of them with a random option so the player can continue.
+   * Resolve every pending trail event with a random option. Events whose
+   * buttons were lost (broken by another player, or created before
+   * owner-scoping existed) leave their owner unable to continue, so this
+   * unblocks them. Running it at every startup is safe: once resolved, the
+   * rows are gone.
    */
-  async migrateLegacyEvents(): Promise<number> {
+  async resolvePendingEvents(): Promise<number> {
     const result = await db.query(
       `SELECT te.id, te.floor, te.options, pp.id AS progress_id
        FROM trail_events te
        LEFT JOIN player_progress pp
-         ON pp.user_id = te.user_id AND pp.season_id = te.season_id
-       WHERE te.owner_telegram_id IS NULL`
+         ON pp.user_id = te.user_id AND pp.season_id = te.season_id`
     );
 
     let resolved = 0;
@@ -118,6 +115,10 @@ export class TrailService {
     }
 
     return resolved;
+  }
+
+  buildKeyboard(eventId: number, options: TrailOption[]): InlineKeyboard {
+    return this.createKeyboard(eventId, options);
   }
 
   async resolveEvent(

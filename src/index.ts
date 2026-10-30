@@ -157,15 +157,15 @@ async function start() {
     }
     console.log('✅ Database connected');
 
-    // One-time cleanup: legacy trail events (created before owner-scoping) could
-    // be broken by other players and leave their owners unable to continue.
+    // Unblock players whose pending path choice was left without usable buttons:
+    // resolve leftover trail events with a random direction.
     try {
-      const resolvedTrails = await trailService.migrateLegacyEvents();
+      const resolvedTrails = await trailService.resolvePendingEvents();
       if (resolvedTrails > 0) {
-        console.log(`🧭 Auto-resolved ${resolvedTrails} legacy trail event(s)`);
+        console.log(`🧭 Auto-resolved ${resolvedTrails} pending trail event(s)`);
       }
     } catch (error) {
-      console.error('⚠️ Legacy trail cleanup failed:', error);
+      console.error('⚠️ Trail cleanup failed:', error);
     }
 
     // Publish the end-of-season report once a tournament's end date passes.
