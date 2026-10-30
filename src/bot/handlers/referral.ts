@@ -1,5 +1,5 @@
 import { Context, InlineKeyboard } from 'grammy';
-import { referralService, MIN_WITHDRAWAL, REFERRAL_ADMIN_ID } from '../../game/ReferralService';
+import { referralService, MIN_WITHDRAWAL, HOLD_DAYS, REFERRAL_ADMIN_ID } from '../../game/ReferralService';
 import type { ReferralStatus } from '../../game/ReferralService';
 import { ADMIN_IDS } from './admin';
 
@@ -99,7 +99,11 @@ function buildRefView(statuses: ReferralStatus[]): { text: string; keyboard: Inl
   for (const status of statuses) {
     text += `💬 Чат: ${status.chat_telegram_id}\n`;
     text += `📊 Процент: ${status.percent}%\n`;
-    text += `💰 Накоплено: ${status.balance} ⭐\n`;
+    text += `💰 Накоплено: ${status.accrued} ⭐\n`;
+    if (status.held > 0) {
+      text += `🔒 На удержании (${HOLD_DAYS} дн.): ${status.held} ⭐\n`;
+    }
+    text += `✅ Доступно к выводу: ${status.balance} ⭐\n`;
     if (status.has_pending) {
       text += '⏳ Запрос на вывод ожидает одобрения\n';
     }

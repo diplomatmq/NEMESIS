@@ -3,6 +3,9 @@ import { db } from '../database/db';
 /** Minimum balance (in Stars) required to request a payout. */
 export const MIN_WITHDRAWAL = 1000;
 
+/** Stars become withdrawable only after this many days (anti-fraud hold). */
+export const HOLD_DAYS = 21;
+
 /** Telegram ID of the administrator who reviews payout requests. */
 export const REFERRAL_ADMIN_ID = 793216884;
 
@@ -17,7 +20,10 @@ export interface ReferralChat {
 export interface ReferralStatus extends ReferralChat {
   revenue: number;
   accrued: number;
+  vested: number;
+  held: number;
   withdrawn: number;
+  owed: number;
   balance: number;
   has_pending: boolean;
 }
@@ -52,14 +58,15 @@ export class ReferralService {
     return result.rows[0] ? mapReferral(result.rows[0]) : null;
   }
 
-  /** Stars spent by players inside the chat since the referral was created. */
-  private async getRevenue(chatTelegramId: number, since: Date): Promise<number> {
+  /** Stars spent by players inside the chat within the given window. */
+  private async getRevenue(chatTelegramId: number, since: Date, until?: Date): Promise<number> {
     const result = await db.query(
       `SELECT COALESCE(SUM(p.amount), 0)::int AS total
        FROM payments p
        JOIN pending_payments pp ON pp.id = p.pending_payment_id
-       WHERE pp.chat_id = $1 AND p.currency = 'XTR' AND p.created_at >= $2`,
-      [chatTelegramId, since]
+       WHERE pp.chat_id = $1 AND p.currency = 'XTR' AND p.created_at >= $2
+         AND ($3::timestamp IS NULL OR p.created_at <= $3)`,
+      [chatTelegramId, since, until ?? null]
     );
     return Number(result.rows[0].total);
   }
@@ -84,12 +91,23 @@ export class ReferralService {
   }
 
   async getStatus(referral: ReferralChat): Promise<ReferralStatus> {
+    const holdCutoff = new Date(Date.now() - HOLD_DAYS * 24 * 60 * 60 * 1000);
     const revenue = await this.getRevenue(referral.chat_telegram_id, referral.created_at);
+    const vestedRevenue = await this.getRevenue(
+      referral.chat_telegram_id,
+      referral.created_at,
+      holdCutoff
+    );
     const withdrawn = await this.getWithdrawn(referral.id);
     const pending = await this.hasPending(referral.id);
+
     const accrued = Math.floor((revenue * referral.percent) / 100);
-    const balance = Math.max(0, accrued - withdrawn);
-    return { ...referral, revenue, accrued, withdrawn, balance, has_pending: pending };
+    const vested = Math.floor((vestedRevenue * referral.percent) / 100);
+    const held = Math.max(0, accrued - vested);
+    const owed = Math.max(0, accrued - withdrawn);
+    const balance = Math.max(0, vested - withdrawn);
+
+    return { ...referral, revenue, accrued, vested, held, withdrawn, owed, balance, has_pending: pending };
   }
 
   async getStatusesForOwner(ownerTelegramId: number): Promise<ReferralStatus[]> {
@@ -111,12 +129,6 @@ export class ReferralService {
       statuses.push(await this.getStatus(mapReferral(row)));
     }
     return statuses;
-  }
-
-  /** Total Stars owed to chat owners (their current unpaid balances). */
-  async getTotalObligations(): Promise<number> {
-    const statuses = await this.getAllStatuses();
-    return statuses.reduce((sum, status) => sum + status.balance, 0);
   }
 
   async requestWithdrawal(referralId: number): Promise<{

@@ -37,7 +37,7 @@ export async function handleDbStats(ctx: Context) {
     // Referral chats claim their share first (their full unpaid balance, even
     // when it is still below the payout minimum); Soun and Egor split the rest.
     const referrals = await referralService.getAllStatuses();
-    const referralObligations = referrals.reduce((sum, referral) => sum + referral.balance, 0);
+    const referralObligations = referrals.reduce((sum, referral) => sum + referral.owed, 0);
     const remainder = Math.max(0, stats.totalStars - referralObligations);
     const sounShare = Math.floor(remainder * 0.75);
     const egorShare = Math.floor(remainder * 0.25);
@@ -54,7 +54,7 @@ export async function handleDbStats(ctx: Context) {
     if (referrals.length > 0) {
       message += `\n\n📈 **Реферальные чаты** (к выводу: ${referralObligations} ⭐):\n`;
       for (const referral of referrals) {
-        message += `• Чат ${referral.chat_telegram_id} — ${referral.percent}% — ${referral.balance} ⭐\n`;
+        message += `• Чат ${referral.chat_telegram_id} — ${referral.percent}% — ${referral.owed} ⭐\n`;
       }
     }
 
