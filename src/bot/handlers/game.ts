@@ -63,7 +63,7 @@ export async function handleGameAction(ctx: Context, invoiceService: InvoiceServ
       });
 
       await ctx.reply(markdownToTelegramHtml(result.message), {
-        reply_markup: keyboard,
+        reply_markup: result.keyboard ? keyboard.append(result.keyboard) : keyboard,
         parse_mode: 'HTML',
         reply_parameters: {
           message_id: ctx.message.message_id,

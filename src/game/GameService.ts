@@ -114,11 +114,19 @@ export class GameService {
       const cooldownInfo = await cooldownService.check(user!.id, chat.id);
       
       if (cooldownInfo.isActive) {
+        // A pending path choice does not consume a turn, so its buttons stay
+        // visible next to the cooldown payment prompt instead of being lost.
+        const pendingTrail = await trailService.getEvent(user!.id, season.id, chat.id);
         return {
           success: false,
-          message: this.generateCooldownMessage(cooldownInfo),
+          message:
+            this.generateCooldownMessage(cooldownInfo) +
+            (pendingTrail ? '\n\n🧭 **Выберите путь**\n' : ''),
           needsPayment: true,
           cooldownInfo,
+          keyboard: pendingTrail
+            ? trailService.buildKeyboard(pendingTrail.id, pendingTrail.options)
+            : undefined,
         };
       }
     }

@@ -82,9 +82,12 @@ export async function handleSuccessfulPayment(ctx: Context, invoiceService: Invo
     // started the action (when that message is known).
     const replyTarget = invoiceService.takeReplyTarget(payload);
     const resultText = markdownToTelegramHtml(actionResult.message);
+    // Keep the action's buttons (combat or path choice) attached after payment.
+    const resultKeyboard = 'keyboard' in actionResult ? actionResult.keyboard : undefined;
     try {
       await ctx.api.sendMessage(pendingPayment.chat_id, resultText, {
         parse_mode: 'HTML',
+        reply_markup: resultKeyboard,
         reply_parameters: replyTarget !== undefined ? { message_id: replyTarget } : undefined,
       });
     } catch (sendError) {
@@ -93,6 +96,7 @@ export async function handleSuccessfulPayment(ctx: Context, invoiceService: Invo
       console.error(`⚠️ Reply delivery failed, retrying without reply:`, sendError);
       await ctx.api.sendMessage(pendingPayment.chat_id, resultText, {
         parse_mode: 'HTML',
+        reply_markup: resultKeyboard,
       });
     }
 
