@@ -209,19 +209,12 @@ export class ChatProgressModel {
   static async findOrCreate(userId: number, chatId: number, seasonId: number): Promise<ChatProgress> {
     let chatProgress = await this.find(userId, chatId, seasonId);
     if (!chatProgress) {
-      // Check if this is the first chat for this user/season
-      const existingChats = await db.query(
-        'SELECT COUNT(*) as count FROM chat_progress WHERE user_id = $1 AND season_id = $2',
-        [userId, seasonId]
-      );
-      const isPrimary = existingChats.rows[0].count === 0;
-
       const result = await db.query(
         `INSERT INTO chat_progress (user_id, chat_id, season_id, is_primary_chat)
-         VALUES ($1, $2, $3, $4)
+         VALUES ($1, $2, $3, false)
          ON CONFLICT (user_id, chat_id, season_id) DO NOTHING
          RETURNING *`,
-        [userId, chatId, seasonId, isPrimary]
+        [userId, chatId, seasonId]
       );
       
       // If conflict occurred, fetch the existing record
@@ -236,39 +229,49 @@ export class ChatProgressModel {
       throw new Error(`Failed to create chat progress for user ${userId}, chat ${chatId}, season ${seasonId}`);
     }
 
-    // Repair records created before chat identity tracking was fixed. A user
-    // with only one chat must never see it as an additional chat.
-    if (!chatProgress.is_primary_chat) {
-      const otherChats = await db.query(
-        `SELECT COUNT(*) AS count
-         FROM chat_progress
-         WHERE user_id = $1 AND season_id = $2 AND id <> $3`,
-        [userId, seasonId, chatProgress.id]
-      );
-      if (Number(otherChats.rows[0].count) === 0) {
-        const result = await db.query(
-          `UPDATE chat_progress
-           SET is_primary_chat = true, updated_at = NOW()
-           WHERE id = $1
-           RETURNING *`,
-          [chatProgress.id]
-        );
-        chatProgress = result.rows[0];
-      }
-    }
+    // The primary chat is always the one with the highest floor, regardless of
+    // the order in which the chats were played.
+    await this.recalculatePrimaryChat(userId, seasonId);
+    chatProgress = (await this.find(userId, chatId, seasonId))!;
 
-    return chatProgress!;
+    return chatProgress;
+  }
+
+  /**
+   * Marks the chat with the highest floor as primary and every other chat as
+   * additional. Called on every access so legacy flags self-repair.
+   */
+  static async recalculatePrimaryChat(userId: number, seasonId: number): Promise<void> {
+    await db.query(
+      `UPDATE chat_progress AS cp
+       SET is_primary_chat = (cp.id = primary.id), updated_at = NOW()
+       FROM (
+         SELECT id FROM chat_progress
+         WHERE user_id = $1 AND season_id = $2
+         ORDER BY highest_floor_reached DESC, current_floor DESC, id ASC
+         LIMIT 1
+       ) AS primary
+       WHERE cp.user_id = $1 AND cp.season_id = $2
+         AND cp.is_primary_chat IS DISTINCT FROM (cp.id = primary.id)`,
+      [userId, seasonId]
+    );
   }
 
   static async updateFloor(id: number, floor: number): Promise<void> {
-    await db.query(
+    const result = await db.query(
       `UPDATE chat_progress 
        SET current_floor = $1, 
            highest_floor_reached = GREATEST(highest_floor_reached, $1),
            updated_at = NOW() 
-       WHERE id = $2`,
+       WHERE id = $2
+       RETURNING user_id, season_id`,
       [floor, id]
     );
+
+    // A chat that just pushed ahead becomes the primary one.
+    if (result.rows[0]) {
+      await this.recalculatePrimaryChat(result.rows[0].user_id, result.rows[0].season_id);
+    }
   }
 
   static async isPrimaryChat(userId: number, chatId: number, seasonId: number): Promise<boolean> {

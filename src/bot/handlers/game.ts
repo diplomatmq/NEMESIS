@@ -623,11 +623,12 @@ export async function handleMarketCallback(ctx: Context) {
   const sellPageMatch = /^market:sell:(\d+):(\d+)$/.exec(data);
   const sellItemMatch = /^market:sellitem:(\d+):(\d+):(\d+)$/.exec(data);
   const closeMatch = /^market:close:(\d+)$/.exec(data);
+  const rerollMatch = /^market:reroll:(\d+)$/.exec(data);
   
-  if (!pageMatch && !buyMatch && !sellPageMatch && !sellItemMatch && !closeMatch) return;
+  if (!pageMatch && !buyMatch && !sellPageMatch && !sellItemMatch && !closeMatch && !rerollMatch) return;
   
   // Check authorization
-  const userId = pageMatch?.[2] || buyMatch?.[2] || sellPageMatch?.[2] || sellItemMatch?.[3] || closeMatch?.[1];
+  const userId = pageMatch?.[2] || buyMatch?.[2] || sellPageMatch?.[2] || sellItemMatch?.[3] || closeMatch?.[1] || rerollMatch?.[1];
   if (Number(userId) !== ctx.from.id) {
     await ctx.answerCallbackQuery('❌ Это не ваше меню!');
     return;
@@ -684,6 +685,17 @@ export async function handleMarketCallback(ctx: Context) {
       if (ctx.callbackQuery.message) {
         await ctx.editMessageText(markdownToTelegramHtml(menu.message), {
           reply_markup: menu.keyboard,
+          parse_mode: 'HTML',
+        });
+      }
+    } else if (rerollMatch) {
+      // Free daily reroll of the whole market
+      const result = await gameService.rerollDailyMarket(ctx.from.id);
+      await ctx.answerCallbackQuery(formatAlert(result.message));
+      const market = await gameService.getDailyMarket(ctx.from.id, 0);
+      if (ctx.callbackQuery.message) {
+        await ctx.editMessageText(markdownToTelegramHtml(market.message), {
+          reply_markup: market.keyboard,
           parse_mode: 'HTML',
         });
       }

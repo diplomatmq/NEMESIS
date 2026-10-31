@@ -79,9 +79,10 @@ async function runMigrations() {
       { name: '038_boss_retry_weakening', file: '038_boss_retry_weakening.sql', order: 38 },
       { name: '039_seasons', file: '039_seasons.sql', order: 39 },
       { name: '040_referrals', file: '040_referrals.sql', order: 40 },
+      { name: '041_daily_market_reroll', file: '041_daily_market_reroll.sql', order: 41 },
     ];
 
-    const EXPECTED_MIGRATION_COUNT = 41;
+    const EXPECTED_MIGRATION_COUNT = 42;
     if (migrations.length !== EXPECTED_MIGRATION_COUNT) {
       console.error(`❌ ERROR: Expected ${EXPECTED_MIGRATION_COUNT} migrations, but found ${migrations.length}`);
       console.error(`   This means migrations are missing from the array!`);

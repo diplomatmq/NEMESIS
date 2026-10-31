@@ -1694,14 +1694,29 @@ export class GameService {
     if (!progress) throw new Error('Прогресс не найден.');
     
     const items = await dailyMarketService.getTodayMarket();
+    const canReroll = await dailyMarketService.canRerollToday();
     const { message, totalPages } = dailyMarketService.generateMarketMessage(
       items,
       progress.gold,
       page
     );
-    const keyboard = dailyMarketService.generateMarketKeyboard(items, page, telegramUserId);
+    const keyboard = dailyMarketService.generateMarketKeyboard(items, page, telegramUserId, canReroll);
     
     return { message, keyboard };
+  }
+
+  /**
+   * Use today's single free market reroll and return the fresh market view.
+   */
+  async rerollDailyMarket(
+    telegramUserId: number
+  ): Promise<{ success: boolean; message: string }> {
+    try {
+      await dailyMarketService.rerollTodayMarket();
+      return { success: true, message: '🎲 Маркет обновлён!' };
+    } catch (error: any) {
+      return { success: false, message: `❌ ${error.message || 'Не удалось обновить маркет.'}` };
+    }
   }
 
   /**

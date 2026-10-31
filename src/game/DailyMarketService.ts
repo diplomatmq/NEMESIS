@@ -12,52 +12,142 @@ export interface MarketItem {
 }
 
 export class DailyMarketService {
+
+  private static readonly RARITY_WEIGHTS = [
+    { rarity: 'common', weight: 45 },
+    { rarity: 'uncommon', weight: 25 },
+    { rarity: 'rare', weight: 18 },
+    { rarity: 'epic', weight: 8 },
+    { rarity: 'legendary', weight: 3 },
+    { rarity: 'mythic', weight: 1 },
+  ];
+
+  private static readonly FLAT_PRICES: Record<string, number> = {
+    common: 100,
+    uncommon: 200,
+    rare: 400,
+    epic: 800,
+  };
+
+  private static readonly PRICE_RANGES: Record<string, { min: number; max: number }> = {
+    legendary: { min: 3000, max: 16000 },
+    mythic: { min: 13000, max: 45000 },
+  };
   
   /**
    * Get or generate today's market items
    */
   async getTodayMarket(): Promise<MarketItem[]> {
-    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-    
-    // Check if market exists for today
-    const existing = await db.query(
-      'SELECT items_json FROM daily_market WHERE market_date = $1',
-      [today]
-    );
-    
-    if (existing.rows.length > 0) {
-      // Return existing market
-      return this.parseMarketItems(existing.rows[0].items_json);
+    const today = this.todayKey();
+    const row = await this.getTodayMarketRow(today);
+
+    if (row) {
+      return this.parseMarketItems(row.items_json);
     }
-    
-    // Generate new market for today
+
     return await this.generateTodayMarket(today);
+  }
+
+  /**
+   * The free daily reroll is available until it has been used once.
+   */
+  async canRerollToday(): Promise<boolean> {
+    const row = await this.getTodayMarketRow(this.todayKey());
+    return !row || !row.rerolled;
+  }
+
+  /**
+   * Consume today's single free reroll and replace the market with new items.
+   */
+  async rerollTodayMarket(): Promise<MarketItem[]> {
+    const today = this.todayKey();
+    const row = await this.getTodayMarketRow(today);
+
+    if (row?.rerolled) {
+      throw new Error('Бесплатная смена маркета уже использована сегодня.');
+    }
+
+    const seed = this.dateSeed(today) + 1;
+    const items = await this.rollMarketItems(seed);
+
+    if (row) {
+      await this.updateMarketRow(row.id, items, seed, true);
+    } else {
+      await this.insertMarketRow(today, items, seed, true);
+    }
+
+    return items;
+  }
+
+  private todayKey(): string {
+    return new Date().toISOString().split('T')[0];
+  }
+
+  private async getTodayMarketRow(
+    date: string
+  ): Promise<{ id: number; items_json: any; rerolled: boolean } | null> {
+    const result = await db.query(
+      'SELECT id, items_json, rerolled FROM daily_market WHERE market_date = $1',
+      [date]
+    );
+    return result.rows[0] ?? null;
   }
   
   /**
    * Generate market for today with seeded randomness
    */
   private async generateTodayMarket(date: string): Promise<MarketItem[]> {
-    // Use date as seed for reproducibility
     const seed = this.dateSeed(date);
+    const items = await this.rollMarketItems(seed);
+    await this.insertMarketRow(date, items, seed, false);
+    return items;
+  }
+
+  private async insertMarketRow(
+    date: string,
+    items: MarketItem[],
+    seed: number,
+    rerolled: boolean
+  ): Promise<void> {
+    const itemsJson = this.serializeItems(items);
+    await db.query(
+      'INSERT INTO daily_market (market_date, items_json, seed, rerolled) VALUES ($1, $2, $3, $4)',
+      [date, JSON.stringify(itemsJson), seed, rerolled]
+    );
+  }
+
+  private async updateMarketRow(
+    id: number,
+    items: MarketItem[],
+    seed: number,
+    rerolled: boolean
+  ): Promise<void> {
+    const itemsJson = this.serializeItems(items);
+    await db.query(
+      'UPDATE daily_market SET items_json = $1, seed = $2, rerolled = $3 WHERE id = $4',
+      [JSON.stringify(itemsJson), seed, rerolled, id]
+    );
+  }
+
+  private serializeItems(items: MarketItem[]): Array<{ item_id: number; price: number; discount?: number }> {
+    return items.map(mi => ({
+      item_id: mi.item.id,
+      price: mi.price,
+      discount: mi.discount,
+    }));
+  }
+
+  private async rollMarketItems(seed: number): Promise<MarketItem[]> {
     const rng = new SeededRandom(seed);
-    
     const items: MarketItem[] = [];
     const itemCount = 10;
-    
-    // Determine how many epic items (0-2)
-    const epicRoll = rng.next();
-    let epicCount = 0;
-    if (epicRoll < 0.3) epicCount = 1; // 30% chance for 1 epic
-    else if (epicRoll < 0.4) epicCount = 2; // 10% chance for 2 epics
-    
-    // Generate items
+
     for (let i = 0; i < itemCount; i++) {
-      const rarity = this.selectRarity(i, epicCount, itemCount, rng);
+      const rarity = this.selectRarity(rng);
       const item = await this.getRandomItemByRarity(rarity, rng);
       
       if (item) {
-        const basePrice = this.calculateBasePrice(item);
+        const basePrice = await this.calculatePrice(item);
         const hasDiscount = rng.next() < 0.25; // 25% chance for discount
         const discount = hasDiscount ? 10 + Math.floor(rng.next() * 21) : 0; // 10-30% discount
         
@@ -68,40 +158,21 @@ export class DailyMarketService {
         });
       }
     }
-    
-    // Store in database
-    const itemsJson = items.map(mi => ({
-      item_id: mi.item.id,
-      price: mi.price,
-      discount: mi.discount,
-    }));
-    
-    await db.query(
-      'INSERT INTO daily_market (market_date, items_json, seed) VALUES ($1, $2, $3)',
-      [date, JSON.stringify(itemsJson), seed]
-    );
-    
+
     return items;
   }
   
   /**
-   * Select rarity for item at position i
+   * Select rarity for a single market slot
    */
-  private selectRarity(
-    index: number,
-    epicCount: number,
-    totalCount: number,
-    rng: SeededRandom
-  ): string {
-    // First epicCount items are epic
-    if (index < epicCount) {
-      return 'epic';
+  private selectRarity(rng: SeededRandom): string {
+    const roll = rng.next() * 100;
+    let cumulative = 0;
+    for (const { rarity, weight } of DailyMarketService.RARITY_WEIGHTS) {
+      cumulative += weight;
+      if (roll < cumulative) return rarity;
     }
-    
-    // Rest are common/uncommon
-    const roll = rng.next();
-    if (roll < 0.7) return 'common'; // 70% common
-    return 'uncommon'; // 30% uncommon
+    return 'common';
   }
   
   /**
@@ -123,22 +194,41 @@ export class DailyMarketService {
   }
   
   /**
-   * Calculate base price for item
+   * Calculate price for item. Common rarities use a flat price; legendary and
+   * mythic scale with the item's power inside a rarity-based range.
    */
-  private calculateBasePrice(item: Item): number {
-    const rarityMultipliers: Record<string, number> = {
-      common: 1,
-      uncommon: 2,
-      rare: 4,
-      epic: 8,
-      legendary: 16,
-      mythic: 32,
-    };
-    
-    const multiplier = rarityMultipliers[item.rarity] || 1;
-    const baseValue = 100; // Base price for common items
-    
-    return Math.floor(baseValue * multiplier);
+  private async calculatePrice(item: Item): Promise<number> {
+    const range = DailyMarketService.PRICE_RANGES[item.rarity];
+    if (!range) {
+      return DailyMarketService.FLAT_PRICES[item.rarity] ?? 100;
+    }
+
+    const result = await db.query('SELECT * FROM items WHERE rarity = $1', [item.rarity]);
+    const powers: number[] = result.rows.map((row: Item) => this.calculateItemPower(row));
+    const min = Math.min(...powers);
+    const max = Math.max(...powers);
+
+    if (!Number.isFinite(min) || max <= min) {
+      return range.max;
+    }
+
+    const ratio = (this.calculateItemPower(item) - min) / (max - min);
+    return Math.round(range.min + ratio * (range.max - range.min));
+  }
+
+  /**
+   * Relative power of an item, using the same weights as the balance simulator.
+   */
+  private calculateItemPower(item: Item): number {
+    return (
+      item.hp_bonus * 0.2 +
+      item.attack_bonus * 1.5 +
+      item.defense_bonus * 1.5 +
+      item.crit_chance_bonus * 3 +
+      item.dodge_bonus * 2 +
+      item.lifesteal_bonus * 1 +
+      item.ai_resist_bonus * 0.5
+    );
   }
   
   /**
@@ -231,7 +321,8 @@ export class DailyMarketService {
   generateMarketKeyboard(
     items: MarketItem[],
     page: number,
-    userId: number
+    userId: number,
+    canReroll: boolean = false
   ): InlineKeyboard {
     const pageSize = 5;
     const totalPages = Math.ceil(items.length / pageSize);
@@ -244,7 +335,6 @@ export class DailyMarketService {
     for (let i = 0; i < pageItems.length; i++) {
       const marketItem = pageItems[i];
       const globalIndex = safePage * pageSize + i;
-      const canAfford = true; // We'll check in the buy handler
       
       keyboard.text(
         `${globalIndex + 1}. ${marketItem.item.name}`,
@@ -262,6 +352,9 @@ export class DailyMarketService {
     }
     
     keyboard.text('💰 Продать предмет', `market:sell:0:${userId}`).row();
+    if (canReroll) {
+      keyboard.text('🎲 Сменить маркет (бесплатно)', `market:reroll:${userId}`).row();
+    }
     keyboard.text('📊 Статус', `status:back:${userId}`).text('❌ Закрыть', `market:close:${userId}`);
 
     return keyboard;
