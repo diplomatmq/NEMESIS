@@ -260,7 +260,8 @@ export async function handleStatus(ctx: Context) {
   const result = await gameService.getPlayerStatus(ctx.from.id, ctx.chat.id, isPrivateChat);
   await ctx.reply(markdownToTelegramHtml(result.message), { 
     parse_mode: 'HTML',
-    reply_markup: result.keyboard
+    reply_markup: result.keyboard,
+    reply_to_message_id: ctx.message?.message_id
   });
 }
 
@@ -270,7 +271,10 @@ export async function handleInventory(ctx: Context) {
   }
 
   const inventory = await gameService.getInventory(ctx.from.id, ctx.chat.id);
-  await ctx.reply(markdownToTelegramHtml(inventory), { parse_mode: 'HTML' });
+  await ctx.reply(markdownToTelegramHtml(inventory), { 
+    parse_mode: 'HTML',
+    reply_to_message_id: ctx.message?.message_id
+  });
 }
 
 export async function handleEquipCallback(ctx: Context) {
@@ -417,6 +421,7 @@ export async function handleUsePotion(ctx: Context) {
   await ctx.reply(markdownToTelegramHtml(menu.message), {
     parse_mode: 'HTML',
     reply_markup: menu.keyboard,
+    reply_to_message_id: ctx.message?.message_id
   });
 }
 

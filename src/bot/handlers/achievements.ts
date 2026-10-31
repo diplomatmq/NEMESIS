@@ -35,5 +35,8 @@ export async function handleAchievements(ctx: Context) {
   let message = achievementService.formatAchievementsList(achievements);
   message += `\n\n📊 Прогресс: ${counts.unlocked}/${counts.total}`;
 
-  await ctx.reply(markdownToTelegramHtml(message), { parse_mode: 'HTML' });
+  await ctx.reply(markdownToTelegramHtml(message), { 
+    parse_mode: 'HTML',
+    reply_to_message_id: ctx.message?.message_id
+  });
 }

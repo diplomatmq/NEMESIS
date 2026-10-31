@@ -40,20 +40,34 @@ bot.command('инвентарь', handleInventory);
 bot.command('equipment', async (ctx) => {
   if (!ctx.from) return;
   const menu = await gameService.getEquipmentMenu(ctx.from.id);
-  await ctx.reply(menu.message, { reply_markup: menu.keyboard, parse_mode: 'Markdown' });
+  await ctx.reply(menu.message, { 
+    reply_markup: menu.keyboard, 
+    parse_mode: 'Markdown',
+    reply_to_message_id: ctx.message?.message_id
+  });
 });
 bot.command('экипировка', async (ctx) => {
   if (!ctx.from) return;
   const menu = await gameService.getEquipmentMenu(ctx.from.id);
-  await ctx.reply(menu.message, { reply_markup: menu.keyboard, parse_mode: 'Markdown' });
+  await ctx.reply(menu.message, { 
+    reply_markup: menu.keyboard, 
+    parse_mode: 'Markdown',
+    reply_to_message_id: ctx.message?.message_id
+  });
 });
 bot.command(['sacrifice', 'жертвоприношение'], async (ctx) => {
   if (!ctx.from) return;
   try {
     const menu = await gameService.getNecromancerMenu(ctx.from.id);
-    await ctx.reply(menu.message, { reply_markup: menu.keyboard, parse_mode: 'Markdown' });
+    await ctx.reply(menu.message, { 
+      reply_markup: menu.keyboard, 
+      parse_mode: 'Markdown',
+      reply_to_message_id: ctx.message?.message_id
+    });
   } catch (error: any) {
-    await ctx.reply(error.message || '❌ Произошла ошибка.');
+    await ctx.reply(error.message || '❌ Произошла ошибка.', {
+      reply_to_message_id: ctx.message?.message_id
+    });
   }
 });
 

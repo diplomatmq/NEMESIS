@@ -20,12 +20,16 @@ export async function handleNewRef(ctx: Context) {
     return;
   }
   if (ctx.chat?.type !== 'private') {
-    await ctx.reply('⚠️ Команда /new_ref работает только в личных сообщениях с ботом.');
+    await ctx.reply('⚠️ Команда /new_ref работает только в личных сообщениях с ботом.', {
+      reply_to_message_id: ctx.message?.message_id
+    });
     return;
   }
 
   pendingNewRef.set(ctx.from.id, { step: 'owner', timestamp: Date.now() });
-  await ctx.reply('🆕 Новый реферальный чат.\n\nШаг 1/3: отправьте Telegram ID владельца чата.');
+  await ctx.reply('🆕 Новый реферальный чат.\n\nШаг 1/3: отправьте Telegram ID владельца чата.', {
+    reply_to_message_id: ctx.message?.message_id
+  });
 }
 
 /** Consumes the admin's answers during the /new_ref wizard. */
@@ -49,7 +53,9 @@ export async function handleReferralTextInput(ctx: Context): Promise<boolean> {
   if (draft.step === 'owner' || draft.step === 'chat') {
     const id = Number(text);
     if (!Number.isInteger(id)) {
-      await ctx.reply('❌ Некорректный ID. Отправьте числовой Telegram ID.');
+      await ctx.reply('❌ Некорректный ID. Отправьте числовой Telegram ID.', {
+        reply_to_message_id: ctx.message?.message_id
+      });
       return true;
     }
 
@@ -57,19 +63,25 @@ export async function handleReferralTextInput(ctx: Context): Promise<boolean> {
       draft.ownerTelegramId = id;
       draft.step = 'chat';
       draft.timestamp = Date.now();
-      await ctx.reply('Шаг 2/3: отправьте Telegram ID самого чата (например -1001234567890).');
+      await ctx.reply('Шаг 2/3: отправьте Telegram ID самого чата (например -1001234567890).', {
+        reply_to_message_id: ctx.message?.message_id
+      });
     } else {
       draft.chatTelegramId = id;
       draft.step = 'percent';
       draft.timestamp = Date.now();
-      await ctx.reply('Шаг 3/3: укажите процент, который получает владелец чата (например 10).');
+      await ctx.reply('Шаг 3/3: укажите процент, который получает владелец чата (например 10).', {
+        reply_to_message_id: ctx.message?.message_id
+      });
     }
     return true;
   }
 
   const percent = Number(text.replace(',', '.'));
   if (!Number.isFinite(percent) || percent <= 0 || percent > 100) {
-    await ctx.reply('❌ Некорректный процент. Введите число от 0 до 100.');
+    await ctx.reply('❌ Некорректный процент. Введите число от 0 до 100.', {
+      reply_to_message_id: ctx.message?.message_id
+    });
     return true;
   }
 
@@ -84,10 +96,13 @@ export async function handleReferralTextInput(ctx: Context): Promise<boolean> {
       `✅ Реферальная система настроена.\n\n` +
         `👤 Владелец: ${referral.owner_telegram_id}\n` +
         `💬 Чат: ${referral.chat_telegram_id}\n` +
-        `📈 Процент: ${referral.percent}%`
+        `📈 Процент: ${referral.percent}%`,
+      { reply_to_message_id: ctx.message?.message_id }
     );
   } catch (error: any) {
-    await ctx.reply(`❌ Ошибка сохранения: ${error.message || 'Неизвестная ошибка'}`);
+    await ctx.reply(`❌ Ошибка сохранения: ${error.message || 'Неизвестная ошибка'}`, {
+      reply_to_message_id: ctx.message?.message_id
+    });
   }
   return true;
 }
@@ -129,7 +144,9 @@ export async function handleRef(ctx: Context) {
 
   const statuses = await referralService.getStatusesForOwner(ctx.from.id);
   if (statuses.length === 0) {
-    await ctx.reply('ℹ️ У вас нет реферальных чатов.');
+    await ctx.reply('ℹ️ У вас нет реферальных чатов.', {
+      reply_to_message_id: ctx.message?.message_id
+    });
     return;
   }
 
@@ -137,6 +154,7 @@ export async function handleRef(ctx: Context) {
   await ctx.reply(text, {
     reply_markup: keyboard,
     link_preview_options: { is_disabled: true },
+    reply_to_message_id: ctx.message?.message_id
   });
 }
 

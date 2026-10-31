@@ -29,7 +29,11 @@ export async function handleSlotsButton(ctx: Context) {
       `⏳ Осталось попыток: <b>${existingSession.spins_remaining}</b>\n` +
       `⏰ Истекает: <code>${existingSession.expires_at.toLocaleString('ru-RU')}</code>\n\n` +
       `🎲 Отправьте игровой автомат ${ce(CUSTOM_EMOJI.slot, '🎰')} для прокрутки!`,
-      { parse_mode: 'HTML', link_preview_options: { is_disabled: true } }
+      { 
+        parse_mode: 'HTML', 
+        link_preview_options: { is_disabled: true },
+        reply_to_message_id: ctx.message?.message_id
+      }
     );
     return;
   }
@@ -54,6 +58,7 @@ export async function handleSlotsButton(ctx: Context) {
     {
       parse_mode: 'HTML',
       link_preview_options: { is_disabled: true },
+      reply_to_message_id: ctx.message?.message_id
     }
   );
   console.log(`[SLOTS] Welcome message sent to user ${ctx.from.id}`);
@@ -80,7 +85,8 @@ export async function handleSlotSpinCount(ctx: Context) {
   if (isNaN(spins) || spins < 1 || spins > 100) {
     await ctx.reply(
       `❌ Неверное количество!\n\n` +
-      `Укажите число от 1 до 100.`
+      `Укажите число от 1 до 100.`,
+      { reply_to_message_id: ctx.message?.message_id }
     );
     return;
   }
@@ -123,11 +129,14 @@ export async function handleSlotSpinCount(ctx: Context) {
         reply_markup: {
           inline_keyboard: [[{ text: '⭐ Оплатить', url: invoiceUrl }]],
         },
+        reply_to_message_id: ctx.message?.message_id
       }
     );
 
   } catch (error: any) {
-    await ctx.reply(`❌ ${error.message || 'Ошибка создания сессии'}`);
+    await ctx.reply(`❌ ${error.message || 'Ошибка создания сессии'}`, {
+      reply_to_message_id: ctx.message?.message_id
+    });
   }
 }
 
@@ -199,7 +208,10 @@ export async function handleDiceMessage(ctx: Context) {
   // Check for forwarded message
   if (ctx.message.forward_origin) {
     const penaltyMessage = await slotMachineService.penalizeForwarded(ctx.from.id);
-    await ctx.reply(penaltyMessage, { parse_mode: 'Markdown' });
+    await ctx.reply(penaltyMessage, { 
+      parse_mode: 'Markdown',
+      reply_to_message_id: ctx.message?.message_id
+    });
     return;
   }
 
@@ -209,11 +221,16 @@ export async function handleDiceMessage(ctx: Context) {
     const result = await slotMachineService.processDice(ctx.from.id, diceValue);
 
     if (!result.success) {
-      await ctx.reply(result.message);
+      await ctx.reply(result.message, {
+        reply_to_message_id: ctx.message?.message_id
+      });
       return;
     }
 
-    await ctx.reply(result.message, { parse_mode: 'Markdown' });
+    await ctx.reply(result.message, { 
+      parse_mode: 'Markdown',
+      reply_to_message_id: ctx.message?.message_id
+    });
 
     // If a win dropped an item, also send item details
     if (result.item) {
@@ -221,13 +238,18 @@ export async function handleDiceMessage(ctx: Context) {
         `🎉 **Поздравляем!**\n\n` +
         `Предмет добавлен в ваш инвентарь!\n` +
         `Проверьте: /status → 🎒 Инвентарь`,
-        { parse_mode: 'Markdown' }
+        { 
+          parse_mode: 'Markdown',
+          reply_to_message_id: ctx.message?.message_id
+        }
       );
     }
 
   } catch (error: any) {
     console.error('Error processing dice:', error);
-    await ctx.reply(`❌ Ошибка обработки: ${error.message}`);
+    await ctx.reply(`❌ Ошибка обработки: ${error.message}`, {
+      reply_to_message_id: ctx.message?.message_id
+    });
   }
 }
 

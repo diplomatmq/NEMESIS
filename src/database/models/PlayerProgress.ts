@@ -244,15 +244,15 @@ export class ChatProgressModel {
   static async recalculatePrimaryChat(userId: number, seasonId: number): Promise<void> {
     await db.query(
       `UPDATE chat_progress AS cp
-       SET is_primary_chat = (cp.id = primary.id), updated_at = NOW()
+       SET is_primary_chat = (cp.id = top_chat.id), updated_at = NOW()
        FROM (
          SELECT id FROM chat_progress
          WHERE user_id = $1 AND season_id = $2
          ORDER BY highest_floor_reached DESC, current_floor DESC, id ASC
          LIMIT 1
-       ) AS primary
+       ) AS top_chat
        WHERE cp.user_id = $1 AND cp.season_id = $2
-         AND cp.is_primary_chat IS DISTINCT FROM (cp.id = primary.id)`,
+         AND cp.is_primary_chat IS DISTINCT FROM (cp.id = top_chat.id)`,
       [userId, seasonId]
     );
   }

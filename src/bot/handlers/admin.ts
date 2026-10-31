@@ -58,10 +58,15 @@ export async function handleDbStats(ctx: Context) {
       }
     }
 
-    await ctx.reply(markdownToTelegramHtml(message), { parse_mode: 'HTML' });
+    await ctx.reply(markdownToTelegramHtml(message), { 
+      parse_mode: 'HTML',
+      reply_to_message_id: ctx.message?.message_id
+    });
   } catch (error) {
     console.error('❌ Error getting DB stats:', error);
-    await ctx.reply('❌ Ошибка получения статистики');
+    await ctx.reply('❌ Ошибка получения статистики', {
+      reply_to_message_id: ctx.message?.message_id
+    });
   }
 }
 
@@ -110,10 +115,15 @@ export async function handleTop(ctx: Context) {
       });
     }
 
-    await ctx.reply(markdownToTelegramHtml(message), { parse_mode: 'HTML' });
+    await ctx.reply(markdownToTelegramHtml(message), { 
+      parse_mode: 'HTML',
+      reply_to_message_id: ctx.message?.message_id
+    });
   } catch (error) {
     console.error('❌ Error getting top players:', error);
-    await ctx.reply('❌ Ошибка получения топа игроков');
+    await ctx.reply('❌ Ошибка получения топа игроков', {
+      reply_to_message_id: ctx.message?.message_id
+    });
   }
 }
 

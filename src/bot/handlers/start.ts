@@ -45,7 +45,8 @@ export async function handleStart(ctx: Context) {
       `• /achievements - достижения\n` +
       `• /reset - сбросить прогресс (1 раз за сезон)\n\n` +
       `⏳ Между действиями - КД ${config.game.cooldownMinutes} минут.\n` +
-      `⭐ Можно пропустить КД за 1 Telegram Star.`
+      `⭐ Можно пропустить КД за 1 Telegram Star.`,
+      { reply_to_message_id: ctx.message?.message_id }
     );
   } else {
     // New user, create record
@@ -63,7 +64,11 @@ export async function handleStart(ctx: Context) {
       `🎉 Добро пожаловать в NEMESIS!\n\n` +
       `Вы начинаете восхождение по башне из 500 этажей.\n\n` +
       markdownToTelegramHtml(page.text),
-      { reply_markup: page.keyboard, parse_mode: 'HTML' }
+      { 
+        reply_markup: page.keyboard, 
+        parse_mode: 'HTML',
+        reply_to_message_id: ctx.message?.message_id
+      }
     );
   }
 }
