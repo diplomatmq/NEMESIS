@@ -37,6 +37,14 @@ const BOSS_FAIL_WEAKENING_STEP = 0.05;
 /** Weakening stacks stop helping once 80% of the boss's stats are gone. */
 const BOSS_FAIL_WEAKENING_CAP = 0.80;
 
+/** Chance that a fight schedules a "Смертельный удар" event. */
+const DEADLY_STRIKE_CHANCE_MOB = 0.20;
+const DEADLY_STRIKE_CHANCE_BOSS = 1.0;
+
+/** The lethal blow may be announced anywhere between these turns. */
+const DEADLY_STRIKE_MIN_TURN = 3;
+const DEADLY_STRIKE_MAX_TURN = 7;
+
 export interface GameContext {
   telegramUserId: number;
   telegramChatId: number;
@@ -326,6 +334,26 @@ export class GameService {
         );
       }
       
+      // Schedule the once-per-fight "Смертельный удар". The turn is rolled the
+      // moment the fight is created and stored inside the enemy data, so neither
+      // a bot restart nor a reloaded combat state can re-roll it or lose it.
+      const deadlyStrikeChance = enemy.isBoss
+        ? DEADLY_STRIKE_CHANCE_BOSS
+        : DEADLY_STRIKE_CHANCE_MOB;
+      if (Math.random() < deadlyStrikeChance) {
+        enemy.deadlyStrike = {
+          triggerTurn:
+            DEADLY_STRIKE_MIN_TURN +
+            Math.floor(
+              Math.random() * (DEADLY_STRIKE_MAX_TURN - DEADLY_STRIKE_MIN_TURN + 1)
+            ),
+          isTriggered: false,
+          isResolved: false,
+          eventActive: false,
+          requiredAction: ActionType.DEFEND,
+        };
+      }
+
       // Save combat state FOR THIS CHAT
       combatState = await CombatStateModel.create({
         user_id: userId,
@@ -385,15 +413,59 @@ export class GameService {
       enemyAction = Math.random() > 0.5 ? ActionType.ATTACK : ActionType.DEFEND;
     }
 
+    // --- "Смертельный удар" event ---------------------------------------------
+    // The state lives inside the persisted enemy data, so it survives a restart
+    // and a reloaded combat state without ever being re-rolled.
+    const deadlyStrike = enemy.deadlyStrike;
+    const turnAboutToExecute = (enemy.turnCount || 0) + 1;
+
+    // When the telegraph is already on the table, this action answers it: a
+    // guard blocks the blow completely, anything else is fatal. Only ATTACK and
+    // DEFEND reach this code, so any non-guard answer means a lethal mistake.
+    let deadlyStrikeBlocked = false;
+    let deadlyStrikeFailure = false;
+    if (deadlyStrike && !deadlyStrike.isResolved && deadlyStrike.eventActive) {
+      if (actionType === ActionType.DEFEND) {
+        deadlyStrikeBlocked = true;
+      } else {
+        deadlyStrikeFailure = true;
+      }
+    }
+
     // Execute combat
-    const combatResult = await combatEngine.executeCombat(
-      progress,
-      enemy,
-      actionType,
-      enemyAction,
-      playerClass?.code,
-      predictedEnemyAction
-    );
+    let combatResult: CombatResult;
+    if (deadlyStrikeFailure) {
+      // Attacking into an announced lethal blow ends the fight outright: no HP
+      // pool, dodge, lifesteal or passive ability can survive it. The ordinary
+      // defeat handling (respawn, weakening, death counter) still applies.
+      combatResult = {
+        success: false,
+        playerDamage: 0,
+        enemyDamage: 0,
+        playerHp: 0,
+        enemyHp: enemy.hp,
+        isCrit: false,
+        isDodge: false,
+        message:
+          '💀 СМЕРТЕЛЬНАЯ ОШИБКА!\n\n' +
+          'Ты попытался атаковать вместо защиты!\n\n' +
+          'Противник нанёс сокрушительный удар.\n\n' +
+          'Твой персонаж погиб в бою!',
+        enemyDefeated: false,
+        playerDefeated: true,
+        xpGained: 0,
+      };
+    } else {
+      combatResult = await combatEngine.executeCombat(
+        progress,
+        enemy,
+        actionType,
+        enemyAction,
+        playerClass?.code,
+        predictedEnemyAction,
+        { deadlyStrikeBlocked }
+      );
+    }
 
     // Тактик видит предположение о действии врага
     if (tacticianAbilityUsed && predictedEnemyAction) {
@@ -406,6 +478,41 @@ export class GameService {
       combatResult.message =
         `📉 Босс ослаблен на ${bossWeakenPercent}% (поражений подряд: ${progress.boss_fail_stacks}).\n` +
         combatResult.message;
+    }
+
+    // A perfectly timed guard fully negates the deadly strike and closes the
+    // event; the fight simply continues.
+    if (deadlyStrikeBlocked && deadlyStrike) {
+      deadlyStrike.isResolved = true;
+      deadlyStrike.eventActive = false;
+      combatResult.message +=
+        '\n🛡 ИДЕАЛЬНАЯ ЗАЩИТА!\n\n' +
+        'Ты вовремя заметил опасность и полностью заблокировал смертельный удар!\n\n' +
+        '⚔️ Бой продолжается!';
+    }
+
+    // The telegraph appears right after the fight reaches the rolled turn. It is
+    // skipped when the fight already ended on that same turn, and it can never
+    // fire twice because the state is flipped to triggered and persisted.
+    if (
+      deadlyStrike &&
+      !deadlyStrike.isTriggered &&
+      !deadlyStrike.isResolved &&
+      !deadlyStrikeFailure &&
+      !combatResult.enemyDefeated &&
+      !combatResult.playerDefeated &&
+      turnAboutToExecute >= deadlyStrike.triggerTurn
+    ) {
+      deadlyStrike.isTriggered = true;
+      deadlyStrike.eventActive = true;
+      const telegraphName = enemy.isBoss ? enemy.name : `👹 ${enemy.name}`;
+      combatResult.message +=
+        `\n${telegraphName} готовит мощнейший удар...\n` +
+        '⚠️ ВНИМАНИЕ!\n\n' +
+        `Следующий удар ${enemy.name} будет СМЕРТЕЛЬНЫМ!\n\n` +
+        'Обязательно напишите «защита», иначе ваш персонаж погибнет!\n\n' +
+        'Если попытаешься атаковать, твой персонаж мгновенно погибнет.\n' +
+        'Не рискуй!';
     }
 
     // Record action for behavior tracking

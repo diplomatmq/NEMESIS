@@ -7,6 +7,23 @@ import { formatBossHealthBar, formatHealthBar, formatMobHealthBar } from './Heal
 import { specialEffects, EffectContext, IncomingEffectReport } from './SpecialEffects';
 import { CUSTOM_EMOJI, ce } from './CustomEmoji';
 
+/**
+ * State of the "Смертельный удар" event. It lives inside the persisted enemy
+ * data of a combat, so a bot restart or a re-loaded combat state can neither
+ * re-roll the trigger turn nor lose the pending warning.
+ */
+export interface DeadlyStrikeState {
+  /** Turn on which the enemy telegraphs its lethal blow. */
+  triggerTurn: number;
+  /** The telegraph has been shown to the player. */
+  isTriggered: boolean;
+  /** The player already answered the telegraph. */
+  isResolved: boolean;
+  /** The player still owes a DEFEND action. */
+  eventActive: boolean;
+  requiredAction: ActionType;
+}
+
 export interface Enemy {
   id?: number;
   name: string;
@@ -28,6 +45,7 @@ export interface Enemy {
   potionUsed?: boolean; // Limit to one potion per combat
   guardianHealTotal?: number; // Track guardian defense healing per combat
   effectUsedOnce?: string[]; // Equipment effects that already fired in this combat
+  deadlyStrike?: DeadlyStrikeState; // Announced lethal blow the player must block
 }
 
 /** Equipment and class damage reduction can never exceed this value. */
@@ -103,9 +121,15 @@ export class CombatEngine {
     playerAction: ActionType,
     enemyAction: ActionType,
     playerClassCode?: string,
-    predictedEnemyAction?: ActionType
+    predictedEnemyAction?: ActionType,
+    options?: { deadlyStrikeBlocked?: boolean }
   ): Promise<CombatResult> {
-    
+
+    // A perfectly guarded deadly strike lands as a plain attack that can never
+    // deal damage: no boss ability, armor penetration, crit or dodge modifier
+    // is allowed to pierce it.
+    const deadlyStrikeBlocked = options?.deadlyStrikeBlocked === true;
+
     let playerDamage = 0;
     let enemyDamage = 0;
     let isCrit = false;
@@ -174,9 +198,11 @@ export class CombatEngine {
     }
 
     // For bosses, get action from boss system. The Tactician's forecast is
-    // passed in so it can bias the choice towards the predicted action.
+    // passed in so it can bias the choice towards the predicted action. A
+    // blocked deadly strike skips ability selection entirely, so no boss
+    // ability can be chosen to bypass the guard.
     let bossAbility;
-    if (enemy.isBoss && enemy.boss_config) {
+    if (enemy.isBoss && enemy.boss_config && !deadlyStrikeBlocked) {
       const bossAction = bossSystem.selectBossAction(
         enemy as any,
         enemy.hp,
@@ -189,6 +215,10 @@ export class CombatEngine {
       if (bossAction.message) {
         bossAbilityMessage += bossAction.message + '\n';
       }
+    }
+
+    if (deadlyStrikeBlocked) {
+      enemyAction = ActionType.ATTACK;
     }
 
     // The forecast only counts when the enemy really performs that action.
@@ -648,6 +678,14 @@ export class CombatEngine {
       } else if ((enemy.totalHealingReceived || 0) >= totalHealingCap) {
         bossAbilityMessage += `🚫 ${enemy.name} исчерпал лечение в этом бою!\n`;
       }
+    }
+
+    // A perfectly guarded deadly strike is a hard zero: nothing (dodge,
+    // lifesteal, regeneration, armor, boss ability, flat shields) may turn it
+    // back into damage.
+    if (deadlyStrikeBlocked) {
+      enemyDamage = 0;
+      bossHealing = 0;
     }
 
     // Apply damage

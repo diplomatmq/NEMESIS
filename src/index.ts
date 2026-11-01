@@ -29,6 +29,57 @@ const invoiceService = new InvoiceService(bot);
 
 console.log('🤖 NEMESIS Tower Game Bot starting...');
 
+// ---------------------------------------------------------------------------
+// Anti-automation: scheduled ("отложенные") Telegram messages must never drive
+// gameplay. Telegram flags such updates with `is_from_offline`, so the check
+// only reads that flag instead of guessing from timings or message delays.
+// It is registered first, before every command and action handler, so an
+// alternative handler cannot be used to bypass it.
+// ---------------------------------------------------------------------------
+const OFFLINE_BLOCKED_COMMANDS = new Set<string>([
+  'potion', 'зелье',
+  'class', 'класс',
+  'sacrifice', 'жертвоприношение',
+  'reset', 'сброс',
+]);
+
+const OFFLINE_COMBAT_TEXT =
+  /^(атака|атаковать|удар|attack|a|защита|защититься|блок|defend|block|d)$/i;
+
+bot.use(async (ctx, next) => {
+  const message = ctx.msg;
+
+  // Only offline messages are restricted; callbacks can never be scheduled.
+  if (!message || message.is_from_offline !== true) {
+    return next();
+  }
+
+  const raw = (message.text ?? message.caption ?? '').trim();
+  const command = raw.startsWith('/')
+    ? raw.slice(1).split(/[\s@]/)[0].toLowerCase()
+    : null;
+
+  // Numbers cover the pin picker and the slot spin counter, both of which
+  // change the player's state.
+  const isGameplayAction = command !== null
+    ? OFFLINE_BLOCKED_COMMANDS.has(command)
+    : OFFLINE_COMBAT_TEXT.test(raw) || /^\d+$/.test(raw) || message.dice !== undefined;
+
+  if (!isGameplayAction) {
+    return next();
+  }
+
+  console.warn(
+    `🚫 Offline message blocked for user ${ctx.from?.id ?? 'unknown'} in chat ${ctx.chat?.id ?? 'unknown'}`
+  );
+
+  await ctx.reply(
+    '🚫 Отложенные сообщения нельзя использовать для игровых действий!\n\n' +
+    '⚔️ Атаковать и защищаться необходимо вручную. ' +
+    'Просмотр персонажа и инвентаря остаётся доступен'
+  );
+});
+
 // Command handlers
 bot.command('start', handleStart);
 
