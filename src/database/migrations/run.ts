@@ -80,9 +80,10 @@ async function runMigrations() {
       { name: '039_seasons', file: '039_seasons.sql', order: 39 },
       { name: '040_referrals', file: '040_referrals.sql', order: 40 },
       { name: '041_daily_market_reroll', file: '041_daily_market_reroll.sql', order: 41 },
+      { name: '042_daily_market_per_user', file: '042_daily_market_per_user.sql', order: 42 },
     ];
 
-    const EXPECTED_MIGRATION_COUNT = 42;
+    const EXPECTED_MIGRATION_COUNT = 43;
     if (migrations.length !== EXPECTED_MIGRATION_COUNT) {
       console.error(`❌ ERROR: Expected ${EXPECTED_MIGRATION_COUNT} migrations, but found ${migrations.length}`);
       console.error(`   This means migrations are missing from the array!`);

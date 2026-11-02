@@ -14,12 +14,12 @@ export interface MarketItem {
 export class DailyMarketService {
 
   private static readonly RARITY_WEIGHTS = [
-    { rarity: 'common', weight: 45 },
-    { rarity: 'uncommon', weight: 25 },
-    { rarity: 'rare', weight: 18 },
-    { rarity: 'epic', weight: 8 },
-    { rarity: 'legendary', weight: 3 },
-    { rarity: 'mythic', weight: 1 },
+    { rarity: 'common', weight: 32 },
+    { rarity: 'uncommon', weight: 28 },
+    { rarity: 'rare', weight: 20 },
+    { rarity: 'epic', weight: 12 },
+    { rarity: 'legendary', weight: 6 },
+    { rarity: 'mythic', weight: 2 },
   ];
 
   private static readonly FLAT_PRICES: Record<string, number> = {
@@ -35,71 +35,81 @@ export class DailyMarketService {
   };
   
   /**
-   * Get or generate today's market items
+   * Get or generate today's market items for a single user.
    */
-  async getTodayMarket(): Promise<MarketItem[]> {
+  async getTodayMarket(userId: number): Promise<MarketItem[]> {
     const today = this.todayKey();
-    const row = await this.getTodayMarketRow(today);
+    const row = await this.getTodayMarketRow(today, userId);
 
     if (row) {
       return this.parseMarketItems(row.items_json);
     }
 
-    return await this.generateTodayMarket(today);
+    return await this.generateTodayMarket(today, userId);
   }
 
   /**
-   * The free daily reroll is available until it has been used once.
+   * The free daily reroll is available until the user has used it once today.
    */
-  async canRerollToday(): Promise<boolean> {
-    const row = await this.getTodayMarketRow(this.todayKey());
+  async canRerollToday(userId: number): Promise<boolean> {
+    const row = await this.getTodayMarketRow(this.todayKey(), userId);
     return !row || !row.rerolled;
   }
 
   /**
-   * Consume today's single free reroll and replace the market with new items.
+   * Consume today's single free reroll for a user and replace their market.
    */
-  async rerollTodayMarket(): Promise<MarketItem[]> {
+  async rerollTodayMarket(userId: number): Promise<MarketItem[]> {
     const today = this.todayKey();
-    const row = await this.getTodayMarketRow(today);
+    const row = await this.getTodayMarketRow(today, userId);
 
     if (row?.rerolled) {
       throw new Error('Бесплатная смена маркета уже использована сегодня.');
     }
 
-    const seed = this.dateSeed(today) + 1;
+    const seed = this.marketSeed(today, userId) + 1;
     const items = await this.rollMarketItems(seed);
 
     if (row) {
       await this.updateMarketRow(row.id, items, seed, true);
     } else {
-      await this.insertMarketRow(today, items, seed, true);
+      await this.insertMarketRow(today, items, seed, true, userId);
     }
 
     return items;
   }
 
   private todayKey(): string {
-    return new Date().toISOString().split('T')[0];
+    // Day boundary in Moscow time so both the market and the free reroll reset
+    // exactly at 00:00, matching the "Обновление: завтра в 00:00" text.
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Moscow' }).format(new Date());
   }
 
   private async getTodayMarketRow(
-    date: string
+    date: string,
+    userId: number
   ): Promise<{ id: number; items_json: any; rerolled: boolean } | null> {
     const result = await db.query(
-      'SELECT id, items_json, rerolled FROM daily_market WHERE market_date = $1',
-      [date]
+      'SELECT id, items_json, rerolled FROM daily_market WHERE market_date = $1 AND user_id = $2',
+      [date, userId]
     );
     return result.rows[0] ?? null;
   }
-  
+
+  /**
+   * Deterministic per-user seed so every user gets a different market.
+   */
+  private marketSeed(date: string, userId: number): number {
+    return this.dateSeed(`${date}:${userId}`);
+  }
+
   /**
    * Generate market for today with seeded randomness
    */
-  private async generateTodayMarket(date: string): Promise<MarketItem[]> {
-    const seed = this.dateSeed(date);
+  private async generateTodayMarket(date: string, userId: number): Promise<MarketItem[]> {
+    const seed = this.marketSeed(date, userId);
     const items = await this.rollMarketItems(seed);
-    await this.insertMarketRow(date, items, seed, false);
+    await this.insertMarketRow(date, items, seed, false, userId);
     return items;
   }
 
@@ -107,12 +117,15 @@ export class DailyMarketService {
     date: string,
     items: MarketItem[],
     seed: number,
-    rerolled: boolean
+    rerolled: boolean,
+    userId: number
   ): Promise<void> {
     const itemsJson = this.serializeItems(items);
     await db.query(
-      'INSERT INTO daily_market (market_date, items_json, seed, rerolled) VALUES ($1, $2, $3, $4)',
-      [date, JSON.stringify(itemsJson), seed, rerolled]
+      `INSERT INTO daily_market (market_date, items_json, seed, rerolled, user_id)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (market_date, user_id) DO NOTHING`,
+      [date, JSON.stringify(itemsJson), seed, rerolled, userId]
     );
   }
 
@@ -412,10 +425,11 @@ export class DailyMarketService {
    * Buy item from market
    */
   async buyItem(
+    userId: number,
     playerProgressId: number,
     itemIndex: number
   ): Promise<{ success: boolean; message: string }> {
-    const items = await this.getTodayMarket();
+    const items = await this.getTodayMarket(userId);
     
     if (itemIndex < 0 || itemIndex >= items.length) {
       return { success: false, message: '❌ Предмет не найден.' };

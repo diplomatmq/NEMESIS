@@ -45,19 +45,22 @@ export class LootService {
 
   /** Boss drop rarity table, ordered from rarest to most common. */
   private static readonly BOSS_RARITY_CHANCES: Array<{ rarity: ItemRarity; chance: number }> = [
-    { rarity: ItemRarity.MYTHIC, chance: 0.0003 },      // 0.03%
-    { rarity: ItemRarity.LEGENDARY, chance: 0.003 },    // 0.3%
-    { rarity: ItemRarity.EPIC, chance: 0.07 },          // 7%
-    { rarity: ItemRarity.RARE, chance: 0.20 },          // 20%
-    { rarity: ItemRarity.UNCOMMON, chance: 0.35 },      // 35%
-    { rarity: ItemRarity.COMMON, chance: 0.3767 },      // 37.67%
+    { rarity: ItemRarity.MYTHIC, chance: 0.01 },        // 1%
+    { rarity: ItemRarity.LEGENDARY, chance: 0.02 },     // 2%
+    { rarity: ItemRarity.EPIC, chance: 0.12 },          // 12%
+    { rarity: ItemRarity.RARE, chance: 0.24 },          // 24%
+    { rarity: ItemRarity.UNCOMMON, chance: 0.29 },      // 29%
+    { rarity: ItemRarity.COMMON, chance: 0.32 },        // 32%
   ];
 
-  /** Mob drops stay low tier: mostly common, occasionally uncommon. */
+  /** Mob drops: mostly common, but now with the top rarities as a rare treat. */
   private static readonly MOB_RARITY_CHANCES: Array<{ rarity: ItemRarity; chance: number }> = [
-    { rarity: ItemRarity.RARE, chance: 0.05 },          // 5%
-    { rarity: ItemRarity.UNCOMMON, chance: 0.30 },      // 30%
-    { rarity: ItemRarity.COMMON, chance: 0.65 },        // 65%
+    { rarity: ItemRarity.MYTHIC, chance: 0.0005 },      // 0.05%
+    { rarity: ItemRarity.LEGENDARY, chance: 0.002 },    // 0.2%
+    { rarity: ItemRarity.EPIC, chance: 0.02 },          // 2%
+    { rarity: ItemRarity.RARE, chance: 0.08 },          // 8%
+    { rarity: ItemRarity.UNCOMMON, chance: 0.27 },      // 27%
+    { rarity: ItemRarity.COMMON, chance: 0.6275 },      // 62.75%
   ];
 
   async generateLootS1(

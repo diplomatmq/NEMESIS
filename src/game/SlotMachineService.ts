@@ -23,21 +23,22 @@ export class SlotMachineService {
 
   /** Rarity table for the 777 jackpot. */
   private readonly JACKPOT_RARITY_CHANCES: Array<{ rarity: string; chance: number }> = [
-    { rarity: 'mythic', chance: 0.0001 },    // 0.01%
-    { rarity: 'legendary', chance: 0.01 },   // 1%
-    { rarity: 'epic', chance: 0.10 },        // 10%
+    { rarity: 'mythic', chance: 0.0005 },    // 0.05%
+    { rarity: 'legendary', chance: 0.03 },   // 3%
+    { rarity: 'epic', chance: 0.15 },        // 15%
     { rarity: 'rare', chance: 0.22 },        // 22%
-    { rarity: 'uncommon', chance: 0.32 },    // 32%
-    { rarity: 'common', chance: 0.3499 },    // 34.99%
+    { rarity: 'uncommon', chance: 0.28 },    // 28%
+    { rarity: 'common', chance: 0.3195 },    // 31.95%
   ];
 
   /** Rarity table for triple combos; intentionally lower than the jackpot. */
   private readonly TRIPLE_RARITY_CHANCES: Array<{ rarity: string; chance: number }> = [
-    { rarity: 'legendary', chance: 0.003 },  // 0.3%
-    { rarity: 'epic', chance: 0.06 },        // 6%
-    { rarity: 'rare', chance: 0.16 },        // 16%
-    { rarity: 'uncommon', chance: 0.30 },    // 30%
-    { rarity: 'common', chance: 0.477 },     // 47.7%
+    { rarity: 'mythic', chance: 0.0002 },    // 0.02%
+    { rarity: 'legendary', chance: 0.01 },   // 1%
+    { rarity: 'epic', chance: 0.10 },        // 10%
+    { rarity: 'rare', chance: 0.18 },        // 18%
+    { rarity: 'uncommon', chance: 0.28 },    // 28%
+    { rarity: 'common', chance: 0.4298 },    // 42.98%
   ];
 
   async createSession(telegramUserId: number, spins: number): Promise<{ sessionId: number; starsRequired: number }> {

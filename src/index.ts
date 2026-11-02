@@ -242,6 +242,16 @@ async function start() {
       console.error('⚠️ Trail cleanup failed:', error);
     }
 
+    // Credit boss souls a necromancer earned before soul tracking existed.
+    try {
+      const repairedSouls = await gameService.backfillNecromancerBossSouls();
+      if (repairedSouls > 0) {
+        console.log(`☠️ Backfilled boss souls for ${repairedSouls} necromancer(s)`);
+      }
+    } catch (error) {
+      console.error('⚠️ Necromancer soul backfill failed:', error);
+    }
+
     // Publish the end-of-season report once a tournament's end date passes.
     // The check is idempotent, so running it periodically is safe.
     const runSeasonCheck = () => {
