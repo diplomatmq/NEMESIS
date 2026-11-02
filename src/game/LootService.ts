@@ -38,6 +38,9 @@ export const NFT_DROP_CHANCE = 0.00001;
 /** Chance that a common mob drops an item (~15%). */
 export const MOB_ITEM_DROP_CHANCE = 0.15;
 
+/** Extra gold from kills while the "Жадность" (greed) effect is equipped. */
+export const GREED_GOLD_BONUS_PERCENT = 20;
+
 /** Outcome of an equip attempt; carries the reason when it is rejected. */
 export type EquipResult = { success: true } | { success: false; reason: string };
 
@@ -68,15 +71,20 @@ export class LootService {
     isBoss: boolean, 
     playerProgressId: number,
     seasonId: number,
-    rewardMultiplier: number = 1.0
+    rewardMultiplier: number = 1.0,
+    goldBonusPercent: number = 0
   ): Promise<LootDrop> {
     const drops: Item[] = [];
     let gold = 0;
     let nftCaught = false;
 
+    // The reward multiplier handles the "already cleared floor" penalty while
+    // the gold bonus adds extra income from effects such as Жадность.
+    const goldMultiplier = rewardMultiplier * (1 + goldBonusPercent / 100);
+
     if (isBoss) {
       // Boss gold
-      gold = Math.floor((50 + (floor * 5)) * rewardMultiplier);
+      gold = Math.floor((50 + (floor * 5)) * goldMultiplier);
       
       // Boss ALWAYS drops 1 guaranteed item
       const guaranteedItem = await this.rollBossItem(floor);
@@ -105,7 +113,7 @@ export class LootService {
       }
     } else {
       // Regular mob - gold plus a modest chance for an item
-      gold = Math.floor((10 + (floor * 2)) * rewardMultiplier);
+      gold = Math.floor((10 + (floor * 2)) * goldMultiplier);
 
       if (Math.random() < MOB_ITEM_DROP_CHANCE) {
         const mobItem = await this.rollMobItem(floor);
@@ -120,7 +128,7 @@ export class LootService {
       }
     }
 
-    const message = this.generateLootMessage(drops, gold, isBoss, rewardMultiplier, nftCaught);
+    const message = this.generateLootMessage(drops, gold, isBoss, rewardMultiplier, nftCaught, goldBonusPercent);
 
     return {
       items: drops,
@@ -179,12 +187,17 @@ export class LootService {
     gold: number,
     isBoss: boolean,
     rewardMultiplier: number,
-    nftCaught: boolean = false
+    nftCaught: boolean = false,
+    goldBonusPercent: number = 0
   ): string {
     let msg = '';
     
     if (rewardMultiplier < 1.0) {
       msg += `\n${ce(CUSTOM_EMOJI.gold, '💰')} Награды уменьшены на ${Math.floor((1 - rewardMultiplier) * 100)}% (дополнительный чат)\n`;
+    }
+
+    if (goldBonusPercent > 0) {
+      msg += `\n${ce(CUSTOM_EMOJI.gold, '💰')} Кольцо Жадности: +${goldBonusPercent}% золота\n`;
     }
 
     if (isBoss) {

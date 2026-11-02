@@ -18,7 +18,7 @@ import {
 import { combatEngine, Enemy } from './CombatEngine';
 import { bossSystem, PREDICTION_ACTION_BIAS, formatBossIcon, stripCustomEmoji, soulDisplayName } from './BossSystem';
 import { behaviorTracker } from './BehaviorTracker';
-import { lootService } from './LootService';
+import { lootService, GREED_GOLD_BONUS_PERCENT } from './LootService';
 import { classService } from './ClassService';
 import { achievementService } from './AchievementService';
 import { potionService } from './PotionService';
@@ -595,12 +595,15 @@ export class GameService {
       }
       
       // Generate loot with reward multiplier
+      const hasGreed = Array.isArray(progress.equipment_effects)
+        && progress.equipment_effects.includes('greed');
       const loot = await lootService.generateLootS1(
         currentFloor, 
         enemy.isBoss || false,
         progress.id,
         seasonId,
-        rewardMultiplier
+        rewardMultiplier,
+        hasGreed ? GREED_GOLD_BONUS_PERCENT : 0
       );
       
       // Add gold
