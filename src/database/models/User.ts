@@ -9,6 +9,7 @@ export interface User {
   created_at: Date;
   last_start_at?: Date;
   is_active: boolean;
+  guaranteed_nft: boolean;
 }
 
 export class UserModel {
@@ -53,5 +54,21 @@ export class UserModel {
   static async hasStarted(telegramId: number): Promise<boolean> {
     const user = await this.findByTelegramId(telegramId);
     return user !== null && user.last_start_at !== null;
+  }
+
+  static async setNftGuarantee(userId: number, value: boolean): Promise<User | null> {
+    const result = await db.query(
+      'UPDATE users SET guaranteed_nft = $2 WHERE id = $1 RETURNING *',
+      [userId, value]
+    );
+    return result.rows[0] || null;
+  }
+
+  static async hasNftGuarantee(userId: number): Promise<boolean> {
+    const result = await db.query(
+      'SELECT guaranteed_nft FROM users WHERE id = $1',
+      [userId]
+    );
+    return result.rows[0]?.guaranteed_nft === true;
   }
 }

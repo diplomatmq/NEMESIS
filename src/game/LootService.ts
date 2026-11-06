@@ -72,7 +72,8 @@ export class LootService {
     playerProgressId: number,
     seasonId: number,
     rewardMultiplier: number = 1.0,
-    goldBonusPercent: number = 0
+    goldBonusPercent: number = 0,
+    guaranteedNft: boolean = false
   ): Promise<LootDrop> {
     const drops: Item[] = [];
     let gold = 0;
@@ -103,8 +104,9 @@ export class LootService {
       // Boss always gives a potion
       await potionService.addPotionToInventory(playerProgressId, 'medium', 1);
 
-      // Ultra-rare NFT, rolled independently from the item slots.
-      if (Math.random() < NFT_DROP_CHANCE) {
+      // Ultra-rare NFT, rolled independently from the item slots. An
+      // admin-granted guarantee (see /nftgive) always yields the drop.
+      if (guaranteedNft || Math.random() < NFT_DROP_CHANCE) {
         nftCaught = true;
         await db.query(
           'UPDATE player_progress SET nfts_caught = nfts_caught + 1, updated_at = NOW() WHERE id = $1',

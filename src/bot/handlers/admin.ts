@@ -201,3 +201,33 @@ export async function handleGiveItem(ctx: Context) {
     await ctx.reply(`❌ Ошибка выдачи: ${error.message || 'Неизвестная ошибка'}`);
   }
 }
+
+/**
+ * /nftgive <telegram_id|@username> — guarantees that the player's next defeated
+ * boss drops an NFT. Administrators only.
+ */
+export async function handleNftGive(ctx: Context) {
+  if (!ctx.from || !ADMIN_IDS.includes(ctx.from.id)) {
+    return;
+  }
+
+  const args = (ctx.message?.text ?? '').split(/\s+/).slice(1);
+  if (args.length === 0) {
+    await ctx.reply('Использование: /nftgive <telegram_id|@username>');
+    return;
+  }
+
+  const target = args[0].startsWith('@')
+    ? await UserModel.findByUsername(args[0].slice(1))
+    : await UserModel.findByTelegramId(Number(args[0]));
+
+  if (!target) {
+    await ctx.reply('❌ Игрок не найден в базе данных.');
+    return;
+  }
+
+  await UserModel.setNftGuarantee(target.id, true);
+
+  const name = target.username ? `@${target.username}` : target.first_name || `id: ${target.telegram_id}`;
+  await ctx.reply(`🎖 Гарантированный NFT выдан игроку ${name}\nВыпадет за следующего убитого босса.`);
+}

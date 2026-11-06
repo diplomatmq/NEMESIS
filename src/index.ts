@@ -7,7 +7,7 @@ import { handleGameAction, handleStatus, handleInventory, handleUsePotion, handl
 import { handleSuccessfulPayment, handlePreCheckoutQuery } from './bot/handlers/payment';
 import { handleClassSelection, handleClassCallback } from './bot/handlers/class';
 import { handleAchievements } from './bot/handlers/achievements';
-import { handleDbStats, handleTop, handleSeasonStart, handleGiveItem } from './bot/handlers/admin';
+import { handleDbStats, handleTop, handleSeasonStart, handleGiveItem, handleNftGive } from './bot/handlers/admin';
 import { handleSlotSpinCount, handleDiceMessage, handleSlotPayment } from './bot/handlers/slots';
 import { handleNewRef, handleRef, handleReferralCallback, handleReferralTextInput } from './bot/handlers/referral';
 import { InvoiceService } from './payment/InvoiceService';
@@ -139,6 +139,7 @@ bot.command('dbstats', handleDbStats);
 bot.command('top', handleTop);
 bot.command('sstart', handleSeasonStart);
 bot.command('giveitem', handleGiveItem);
+bot.command('nftgive', handleNftGive);
 
 // Referral system
 bot.command('new_ref', handleNewRef);

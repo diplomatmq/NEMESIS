@@ -597,14 +597,24 @@ export class GameService {
       // Generate loot with reward multiplier
       const hasGreed = Array.isArray(progress.equipment_effects)
         && progress.equipment_effects.includes('greed');
+      // A pending /nftgive grant guarantees the drop on the next boss and is
+      // consumed right after the kill.
+      const guaranteedNft = enemy.isBoss
+        ? await UserModel.hasNftGuarantee(progress.user_id)
+        : false;
       const loot = await lootService.generateLootS1(
         currentFloor, 
         enemy.isBoss || false,
         progress.id,
         seasonId,
         rewardMultiplier,
-        hasGreed ? GREED_GOLD_BONUS_PERCENT : 0
+        hasGreed ? GREED_GOLD_BONUS_PERCENT : 0,
+        guaranteedNft
       );
+
+      if (guaranteedNft && loot.nftCaught) {
+        await UserModel.setNftGuarantee(progress.user_id, false);
+      }
       
       // Add gold
       await lootService.addGold(progress.id, loot.gold);
