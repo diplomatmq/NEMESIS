@@ -49,5 +49,57 @@ else:
 # Now import and run the original server
 # The server.py will use our patched sqlite3 which returns PostgreSQL adapter
 if __name__ == "__main__":
-    # Import server after patching
+    # Set __name__ in server module to "__main__" so it runs the server
     import server
+    # The import above will execute server.py's if __name__ == "__main__" block
+    # But since we're importing it, __name__ will be "server", not "__main__"
+    # So we need to manually trigger the main block
+    
+    # Just importing server.py will initialize everything but won't start the server
+    # We need to run the server manually
+    import threading
+    import time
+    from server import (
+        bot_loop, reminder_loop, events_loop, housekeeping_loop,
+        ac_loop, ac_scan, ac_digest_loop, ThreadingHTTPServer, Handler,
+        BOT_TOKEN, PORT, PUBLIC, log
+    )
+    
+    if not BOT_TOKEN:
+        raise SystemExit("BOT_TOKEN is not set (see emberspire.env.example)")
+    
+    if os.environ.get("EMBER_NO_BOT") != "1":
+        threading.Thread(target=bot_loop, daemon=True).start()
+        threading.Thread(target=reminder_loop, daemon=True).start()
+        threading.Thread(target=events_loop, daemon=True).start()
+    
+    threading.Thread(target=housekeeping_loop, daemon=True).start()
+    
+    def _br_warm():
+        import urllib.request
+        time.sleep(2)
+        paths = ["/"]
+        public_a = os.path.join(PUBLIC, "a")
+        if os.path.isdir(public_a):
+            paths += ["/a/" + n for n in os.listdir(public_a) if n.endswith(".js")]
+        for _ in range(2):
+            for pth in paths:
+                try:
+                    urllib.request.urlopen(
+                        urllib.request.Request(f"http://127.0.0.1:{PORT}{pth}", headers={"Accept-Encoding": "br"}),
+                        timeout=90
+                    ).read()
+                except Exception as e:
+                    log.info("brotli warm %s: %s", pth, e)
+            time.sleep(15)
+    
+    threading.Thread(target=_br_warm, daemon=True).start()
+    threading.Thread(target=ac_loop, daemon=True).start()
+    threading.Thread(target=ac_scan, daemon=True).start()
+    
+    if os.environ.get("EMBER_NO_BOT") != "1":
+        threading.Thread(target=ac_digest_loop, daemon=True).start()
+    
+    log.info("Emberspire on 0.0.0.0:%s, game folder %s", PORT, PUBLIC)
+    # Listen on 0.0.0.0 instead of 127.0.0.1 for Docker
+    ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
