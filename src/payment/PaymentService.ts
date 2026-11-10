@@ -185,6 +185,8 @@ export class PaymentService {
     totalPlayers: number;
     totalChats: number;
     totalStars: number;
+    chatStars: number;
+    appStars: number;
   }> {
     // Get total players
     const playersResult = await db.query('SELECT COUNT(DISTINCT id) as count FROM users');
@@ -196,14 +198,31 @@ export class PaymentService {
     );
     const totalChats = parseInt(chatsResult.rows[0].count);
 
-    // Get total stars
-    const starsResult = await db.query('SELECT COALESCE(SUM(stars_amount), 0) as total FROM payment_stats');
-    const totalStars = parseInt(starsResult.rows[0].total);
+    // Get total stars from chat game
+    const chatStarsResult = await db.query('SELECT COALESCE(SUM(stars_amount), 0) as total FROM payment_stats');
+    const chatStars = parseInt(chatStarsResult.rows[0].total);
+
+    // Get total stars from mini app (app_star_ledger table)
+    // Only count positive deltas (purchases), not negative (spending)
+    let appStars = 0;
+    try {
+      const appStarsResult = await db.query(
+        'SELECT COALESCE(SUM(delta), 0) as total FROM app_star_ledger WHERE delta > 0'
+      );
+      appStars = parseInt(appStarsResult.rows[0].total || '0');
+    } catch (error) {
+      // Table might not exist yet if migration hasn't run
+      console.warn('⚠️ Could not fetch app_star_ledger data:', error);
+    }
+
+    const totalStars = chatStars + appStars;
 
     return {
       totalPlayers,
       totalChats,
       totalStars,
+      chatStars,
+      appStars,
     };
   }
 

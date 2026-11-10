@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Статистика еБашни</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+:root{--bg:#0f0c17;--card:#1a1526;--card2:#221b31;--line:#2e2540;--tx:#ece6f5;--mut:#9a90ad;--gold:#f2c14e;--good:#5fd38a;--bad:#ff6b6b;--warn:#ffb347;--blue:#6ab0ff;--violet:#b48cff}
+*{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;-webkit-text-size-adjust:100%}
+body{padding:12px 12px calc(24px + env(safe-area-inset-bottom))}
+h1{font-size:18px;margin:2px 0 10px;display:flex;align-items:center;gap:8px}h1 small{color:var(--mut);font-weight:400;font-size:12px;margin-left:auto}
+h2{font-size:15px;margin:0 0 4px}.sub{color:var(--mut);font-size:12px;margin:0 0 10px}
+.bar{display:flex;gap:6px;overflow-x:auto;margin:0 -12px 10px;padding:0 12px;scrollbar-width:none}.bar::-webkit-scrollbar{display:none}
+.chip{flex:none;border:1px solid var(--line);background:var(--card);color:var(--tx);border-radius:16px;padding:6px 12px;font:inherit;font-size:13px}
+.chip.on{background:var(--gold);color:#1a1300;border-color:var(--gold);font-weight:600}
+.per .chip{padding:4px 10px;font-size:12px}.tabs{flex-wrap:wrap;overflow:visible}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px}
+.kpis{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:10px}@media(min-width:560px){.kpis{grid-template-columns:repeat(3,1fr)}}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px}.kpi b{display:block;font-size:22px;line-height:1.1;font-variant-numeric:tabular-nums}.kpi span{color:var(--mut);font-size:12px}
+.kpi i{font-style:normal;font-size:12px;color:var(--mut)}
+.note{background:var(--card2);border-left:3px solid var(--gold);border-radius:6px;padding:8px 10px;margin:8px 0 0;font-size:13px}
+.note.bad{border-color:var(--bad)}.note.good{border-color:var(--good)}
+svg{display:block;width:100%;height:auto}svg text{font:10px -apple-system,Roboto,sans-serif;fill:var(--mut)}
+.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--mut);margin-top:6px}.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.hb{display:grid;grid-template-columns:84px 1fr 56px;align-items:center;gap:8px;margin:5px 0;font-size:12px}
+.hb .lab{color:var(--mut);text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.hb .v{font-variant-numeric:tabular-nums;color:var(--tx)}
+.track{height:14px;background:var(--card2);border-radius:4px;display:flex;overflow:hidden}.track>div{height:100%}
+table{width:100%;border-collapse:collapse;font-size:12px;font-variant-numeric:tabular-nums}th{color:var(--mut);font-weight:500;text-align:right;padding:4px 4px 6px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{text-align:right;padding:6px 4px;border-bottom:1px solid var(--line);white-space:nowrap}th:first-child,td:first-child{text-align:left}tr:last-child td{border-bottom:0}
+.tw{overflow-x:auto;margin:0 -4px}
+.pill{display:inline-block;min-width:38px;text-align:center;border-radius:5px;padding:1px 5px;font-weight:600}
+.k-b{color:var(--bad)}.k-e{color:var(--violet)}
+.tag{display:inline-block;font-size:10px;border-radius:4px;padding:0 4px;margin-left:4px;vertical-align:1px}.tag.b{background:#4a1f24;color:#ff9b9b}.tag.e{background:#2f2448;color:#cbb2ff}
+input[type=search]{width:100%;background:var(--card2);border:1px solid var(--line);color:var(--tx);border-radius:10px;padding:8px 10px;font:inherit;margin-bottom:8px}
+.ppl{display:flex;flex-direction:column}.pp{display:grid;grid-template-columns:1fr auto;gap:2px 8px;padding:8px 2px;border-bottom:1px solid var(--line)}
+.pp .n{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pp .m{color:var(--mut);font-size:12px}.pp .r{text-align:right;font-variant-numeric:tabular-nums}
+.empty{color:var(--mut);text-align:center;padding:18px 6px}
+.err{color:var(--bad);text-align:center;padding:30px 10px}
+.load{color:var(--mut);text-align:center;padding:40px 10px}
+.dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;vertical-align:1px}
+</style></head><body>
+<h1>📊 Статистика <small id="upd"></small></h1>
+<div class="bar per" id="per"></div>
+<div class="bar tabs" id="tabs"></div>
+<div id="v"><div class="load">Загружаем…</div></div>
+<script>
+const W=window.Telegram&&Telegram.WebApp;try{W.ready();W.expand();W.setHeaderColor&&W.setHeaderColor('#0f0c17');W.setBackgroundColor&&W.setBackgroundColor('#0f0c17');}catch(e){}
+const $=id=>document.getElementById(id),esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmt=n=>n==null?'—':Number(n).toLocaleString('ru-RU');
+let D=null,days=30,tab='over',q='';
+try{days=+localStorage.getItem('st.days')||30;tab=localStorage.getItem('st.tab')||'over';}catch(e){}
+const TABS=[['over','Обзор'],['walls','Где застревают'],['cls','Классы'],['stars','Звёзды'],['ppl','Игроки']];
+function chips(){
+  $('per').innerHTML=[7,30,90].map(d=>`<button class="chip${d===days?' on':''}" data-d="${d}">${d} дней</button>`).join('');
+  $('tabs').innerHTML=TABS.map(([k,l])=>`<button class="chip${k===tab?' on':''}" data-t="${k}">${l}</button>`).join('');}
+document.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
+  if(b.dataset.d){days=+b.dataset.d;try{localStorage.setItem('st.days',days)}catch(x){}chips();load();}
+  if(b.dataset.t){tab=b.dataset.t;try{localStorage.setItem('st.tab',tab)}catch(x){}chips();draw();}});
+async function load(){
+  if(!W||!W.initData){$('v').innerHTML='<div class="err">Открой страницу кнопкой «Открыть статистику» в боте — так она знает, что это ты.</div>';return;}
+  $('v').innerHTML='<div class="load">Загружаем…</div>';
+  try{const r=await fetch('/api/admin/dash?days='+days,{headers:{'X-Init-Data':W.initData}});
+    if(r.status===403){$('v').innerHTML='<div class="err">Эта страница только для владельца игры.</div>';return;}
+    if(!r.ok)throw 0;D=await r.json();$('upd').textContent='обновлено '+new Date().toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});draw();}
+  catch(e){$('v').innerHTML='<div class="err">Не удалось загрузить. Потяни вниз или открой ещё раз.</div>';}}
+function draw(){if(!D)return;const f={over,walls,cls,stars,ppl}[tab]||over;$('v').innerHTML=f();if(tab==='ppl'){const i=$('q');i.value=q;i.oninput=()=>{q=i.value;$('pl').innerHTML=pplRows();};}}
+/* ---- small charts ---- */
+function cols(series,keys,colors,h=150,labelEvery){
+  const n=series.length,Wd=340,pad=22,bw=(Wd-pad)/n,max=Math.max(1,...series.map(s=>Math.max(...keys.map(k=>s[k]||0))));
+  const step=niceStep(max),top=Math.ceil(max/step)*step;let g='';
+  for(let v=0;v<=top;v+=step){const y=h-14-(h-24)*v/top;g+=`<line x1="${pad}" x2="${Wd}" y1="${y}" y2="${y}" stroke="#2e2540" stroke-width="1"/><text x="${pad-4}" y="${y+3}" text-anchor="end">${v}</text>`;}
+  const per=keys.length,inner=bw*0.78/per;
+  series.forEach((s,i)=>{keys.forEach((k,j)=>{const v=s[k]||0,bh=(h-24)*v/top,x=pad+i*bw+bw*0.11+j*inner,y=h-14-bh;
+    if(v>0)g+=`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${Math.max(1,inner-0.6).toFixed(1)}" height="${bh.toFixed(1)}" rx="1.5" fill="${colors[j]}"/>`;});
+    const le=labelEvery||Math.ceil(n/7);if((i%le===0&&i<n-le/2)||i===n-1)g+=`<text x="${i===n-1?Wd:pad+i*bw+bw/2}" y="${h-2}" text-anchor="${i===n-1?'end':'middle'}">${s.date}</text>`;});
+  return `<svg viewBox="0 0 ${Wd} ${h}">${g}</svg>`;}
+function niceStep(m){const r=m/4,p=Math.pow(10,Math.floor(Math.log10(r||1))),k=r/p;return Math.max(1,(k<=1?1:k<=2?2:k<=5?5:10)*p);}
+function hbars(rows){const max=Math.max(1,...rows.map(r=>r.parts.reduce((a,p)=>a+p.v,0)));
+  return rows.map(r=>{const tot=r.parts.reduce((a,p)=>a+p.v,0);return `<div class="hb"><span class="lab">${esc(r.lab)}</span><div class="track">${r.parts.map(p=>p.v?`<div style="width:${100*p.v/max}%;background:${p.c}"></div>`:'').join('')}</div><span class="v">${r.txt!=null?r.txt:fmt(tot)}</span></div>`;}).join('');}
+const leg=a=>`<div class="legend">${a.map(([c,t])=>`<span><i style="background:${c}"></i>${t}</span>`).join('')}</div>`;
+const tone=(v,good,bad,rev)=>{if(v==null)return '';const g=rev?v<=good:v>=good,b=rev?v>=bad:v<=bad;return g?'background:#1d3b2a;color:#7fe0a3':b?'background:#4a1f24;color:#ff9b9b':'background:#3d3220;color:#ffd27a';};
+const ago=t=>{if(!t)return '—';const s=D.now-t;return s<3600?Math.max(1,Math.round(s/60))+' мин назад':s<86400?Math.round(s/3600)+' ч назад':Math.round(s/86400)+' дн назад';};
+const kpi=(v,l,x)=>`<div class="kpi"><b>${v}</b><span>${l}</span>${x?`<br><i>${x}</i>`:''}</div>`;
+/* ---- tabs ---- */
+function over(){const S=D.summary,se=D.series;
+  const fl=D.floors.filter(r=>r.lab!=='0'||r.all);const worst=[...D.floors].filter(r=>r.lab!=='0').sort((a,b)=>b.gone-a.gone)[0];
+  const lastAct=se.slice(-7).reduce((a,s)=>a+s.act,0),prevAct=se.slice(-14,-7).reduce((a,s)=>a+s.act,0);
+  return `<div class="kpis">
+    ${kpi(fmt(S.total),'игроков всего',`начали играть: ${fmt(S.started)}`)}
+    ${kpi(fmt(S.new_period),'новых за '+D.days+' дн',`за сутки: ${fmt(S.new_day)}`)}
+    ${kpi(fmt(S.dau),'заходили за сутки',`за неделю: ${fmt(S.wau)}`)}
+    ${kpi(fmt(S.stars_period)+' ★','звёзд за '+D.days+' дн',`всего: ${fmt(S.stars_all)} ★`)}
+    ${kpi(fmt(S.payers_period),'платили за '+D.days+' дн',`за всё время: ${fmt(S.payers_all)}`)}
+    ${kpi(S.active_period?(Math.round(1000*S.payers_period/S.active_period)/10+'%'):'—','платящих среди активных','')}
+  </div>
+  <div class="card"><h2>Игроки по дням</h2><p class="sub">Сколько человек заходило и сколько пришло новых. Заходы считаются с этого обновления.</p>
+    ${cols(se,['act','new'],['#6ab0ff','#f2c14e'])}${leg([['#6ab0ff','заходили'],['#f2c14e','новые']])}
+    ${prevAct&&lastAct?`<div class="note ${lastAct>=prevAct?'good':'bad'}">За последние 7 дней заходов ${lastAct>=prevAct?'больше':'меньше'}, чем неделей раньше: ${fmt(lastAct)} против ${fmt(prevAct)}.</div>`:''}</div>
+  <div class="card"><h2>Звёзды по дням</h2><p class="sub">Сколько звёзд купили (без возвратов).</p>${cols(se,['stars'],['#f2c14e'])}</div>
+  <div class="card"><h2>На каких этажах игроки</h2><p class="sub">По самому высокому пройденному этажу. Зелёным — заходили за 3 дня, красным — не заходят неделю и дольше.</p>
+    ${hbars(fl.map(r=>({lab:r.lab,parts:[{v:r.active,c:'#5fd38a'},{v:r.all-r.active-r.gone,c:'#4b4160'},{v:r.gone,c:'#ff6b6b'}],txt:fmt(r.all)})))}
+    ${leg([['#5fd38a','играют'],['#4b4160','иногда'],['#ff6b6b','ушли']])}
+    ${worst&&worst.gone?`<div class="note bad">Больше всего ушедших на этажах <b>${esc(worst.lab)}</b>: ${fmt(worst.gone)} чел.</div>`:''}</div>`;}
+function walls(){const W2=D.walls.filter(w=>w.kind==='b'),E=D.walls.filter(w=>w.kind==='e'),H=D.hardest;
+  if(!D.walls.length&&!H.length)return `<div class="card empty">Данные о боях начнут копиться после обновления игры. Загляни через день-два.</div>`;
+  const row=w=>`<tr><td><b>${w.room}</b></td><td>${fmt(w.players)}</td><td>${fmt(w.cleared)}</td><td><span class="pill" style="${tone(w.stuck/w.players*100,15,40,1)}">${fmt(w.stuck)}</span></td><td><span class="pill" style="${tone(w.first,60,30)}">${w.first==null?'—':w.first+'%'}</span></td><td><span class="pill" style="${tone(w.tries,1.6,3,1)}">${w.tries==null?'—':String(w.tries).replace('.',',')}</span></td><td>${w.dur==null?'—':w.dur+'с'}</td></tr>`;
+  const tbl=(rows,t)=>rows.length?`<div class="tw"><table><tr><th>Этаж</th><th>Дошли</th><th>Прошли</th><th>Застряли</th><th>С 1-й</th><th>Попыток</th><th>Бой</th></tr>${rows.map(row).join('')}</table></div>`:`<div class="empty">${t}</div>`;
+  const top=[...W2].filter(w=>w.players>=3).sort((a,b)=>(b.stuck/b.players)-(a.stuck/a.players))[0];
+  return `<div class="card"><h2>Самые трудные этажи</h2><p class="sub">Сколько поражений в среднем приходится на одного игрока, который туда дошёл (от 3 игроков).</p>
+    ${H.length?hbars(H.map(h=>({lab:h.room+(h.kind==='b'?' 👑':h.kind==='e'?' ⚔':''),parts:[{v:h.loss,c:h.kind==='b'?'#ff6b6b':h.kind==='e'?'#b48cff':'#6ab0ff'}],txt:String(h.loss).replace('.',',')}))):'<div class="empty">Пока мало данных.</div>'}
+    ${leg([['#ff6b6b','босс 👑'],['#b48cff','элита ⚔'],['#6ab0ff','обычный']])}</div>
+  <div class="card"><h2>Боссы этажей</h2><p class="sub">Только первые прохождения. «Застряли» — дошли, но ещё не прошли. «Попыток» — сколько боёв нужно в среднем до победы.</p>
+    ${tbl(W2,'Пока никто не дрался с боссом за этот период.')}
+    ${top&&top.stuck?`<div class="note bad">Главная стена — босс <b>${top.room}</b> этажа: застряли ${fmt(top.stuck)} из ${fmt(top.players)}.</div>`:''}</div>
+  <div class="card"><h2>Элитные этажи</h2>${tbl(E,'Пока нет данных.')}</div>`;}
+function cls(){const C=D.classes;if(!C.length)return '<div class="card empty">Нет данных.</div>';
+  const bands=Object.keys(C[0].band);
+  const best=[...C].filter(c=>c.boss_att>=20).sort((a,b)=>b.boss_win-a.boss_win),hi=best[0],lo=best[best.length-1];
+  return `<div class="card"><h2>Классы</h2><p class="sub">Сколько играют и как далеко зашли. «Медиана» — этаж, до которого дошла половина игроков класса.</p>
+    ${hbars(C.map(c=>({lab:c.ru,parts:[{v:c.active,c:'#5fd38a'},{v:c.players-c.active,c:'#4b4160'}],txt:fmt(c.players)})))}${leg([['#5fd38a','заходили за неделю'],['#4b4160','остальные']])}
+    <div class="tw" style="margin-top:10px"><table><tr><th>Класс</th><th>Медиана</th><th>Макс.</th><th>Обычные</th><th>Боссы</th><th>Попыток</th></tr>
+    ${C.map(c=>`<tr><td>${esc(c.ru)}</td><td>${fmt(c.floor_med)}</td><td>${fmt(c.floor_max)}</td><td>${c.norm_win==null?'—':c.norm_win+'%'}</td><td><span class="pill" style="${tone(c.boss_win,55,35)}">${c.boss_win==null?'—':c.boss_win+'%'}</span></td><td>${c.boss_tries==null?'—':String(c.boss_tries).replace('.',',')}</td></tr>`).join('')}</table></div></div>
+  <div class="card"><h2>Победы над боссами по высоте</h2><p class="sub">Доля выигранных боёв с боссами на новых этажах. Пусто — меньше 5 боёв.</p>
+    <div class="tw"><table><tr><th>Класс</th>${bands.map(b=>`<th>${b}</th>`).join('')}</tr>
+    ${C.map(c=>`<tr><td>${esc(c.ru)}</td>${bands.map(b=>{const v=c.band[b];return `<td><span class="pill" style="${tone(v,55,35)}">${v==null?'—':v+'%'}</span></td>`;}).join('')}</tr>`).join('')}</table></div>
+    ${hi&&lo&&hi!==lo&&hi.boss_win-lo.boss_win>=15?`<div class="note">Разрыв по боссам: ${esc(hi.ru)} ${hi.boss_win}% против ${esc(lo.ru)} ${lo.boss_win}%.</div>`:''}</div>`;}
+function stars(){const St=D.stars,S=D.summary,sp=St.spend;
+  return `<div class="kpis">
+    ${kpi(fmt(S.stars_period)+' ★','куплено за '+D.days+' дн','')}
+    ${kpi(fmt(S.payers_period),'платили за '+D.days+' дн','')}
+    ${kpi(St.conv==null?'—':String(St.conv).replace('.',',')+'%','платят из активных','')}
+    ${kpi(St.after_loss==null?'—':St.after_loss+'%','трат сразу после поражения','в течение 10 минут')}
+    ${kpi(St.payer_floor_med==null?'—':fmt(St.payer_floor_med),'медианный этаж платящих','')}
+    ${kpi(fmt(St.buys),'покупок за '+D.days+' дн','')}
+  </div>
+  <div class="card"><h2>На что тратят звёзды</h2><p class="sub">Сколько звёзд ушло на каждую вещь за период и сколько человек покупали.</p>
+    ${sp.length?hbars(sp.map(x=>({lab:x.ru.length>12?x.ru.slice(0,11)+"…":x.ru,parts:[{v:x.stars,c:'#f2c14e'}],txt:fmt(x.stars)+' ★'}))):'<div class="empty">За этот период трат не было.</div>'}
+    ${sp.length?`<div class="tw" style="margin-top:8px"><table><tr><th>Что</th><th>Звёзд</th><th>Покупок</th><th>Людей</th></tr>${sp.map(x=>`<tr><td>${esc(x.ru)}</td><td>${fmt(x.stars)}</td><td>${fmt(x.times)}</td><td>${fmt(x.people)}</td></tr>`).join('')}</table></div>`:''}</div>
+  <div class="card"><h2>Платящие по дням</h2>${cols(D.series,['payers'],['#b48cff'])}</div>`;}
+function pplRows(){const s=q.trim().toLowerCase();const L=D.people.filter(p=>!s||(p.name+' '+p.un+' '+p.cls).toLowerCase().includes(s)).slice(0,200);
+  if(!L.length)return '<div class="empty">Никого не нашли.</div>';
+  return L.map(p=>{const on=D.now-p.seen<86400*3;return `<div class="pp"><div class="n"><span class="dot" style="background:${on?'#5fd38a':'#4b4160'}"></span>${esc(p.name)}${p.un?` <span class="m">@${esc(p.un)}</span>`:''}${p.flag?' <span class="tag b">флаг</span>':''}</div>
+    <div class="r"><b>${fmt(p.floor)}</b> <span class="m">эт.</span></div><div class="m">${esc(p.cls||'без класса')} · ${p.level} ур. · ${ago(p.seen)}</div><div class="r m">${p.paid?`<span style="color:#f2c14e">${fmt(p.paid)} ★</span>`:''}</div></div>`;}).join('');}
+function ppl(){return `<div class="card"><input id="q" type="search" placeholder="Поиск по имени или классу"><div class="ppl" id="pl">${pplRows()}</div></div>`;}
+chips();load();
+</script>
+</body></html>

@@ -1,0 +1,29 @@
+# Dockerfile for Emberspire Mini App
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    python3-pil \
+    libpq-dev \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+RUN pip install --no-cache-dir psycopg2-binary
+
+# Copy application files
+COPY app/ /app/
+COPY config/ /app/config/
+
+# Expose port
+EXPOSE 8080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/').read()" || exit 1
+
+# Run the server (use PostgreSQL wrapper if DB_HOST is set)
+CMD ["sh", "-c", "if [ -n \"$DB_HOST\" ]; then python3 /app/server_postgres.py; else python3 /app/server.py; fi"]

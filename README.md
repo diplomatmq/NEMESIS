@@ -1,6 +1,6 @@
 # 🏰 NEMESIS - Tower Game
 
-Telegram RPG игра с адаптивным AI и системой оплаты Telegram Stars для пропуска cooldown.
+Telegram RPG игра с адаптивным AI, системой оплаты Telegram Stars и мини-приложением.
 
 ## 🎮 Особенности
 
@@ -17,12 +17,14 @@ Telegram RPG игра с адаптивным AI и системой оплат�
 - 📊 **Сезонная система** - новый сезон каждый месяц
 - 🗺️ **Разнообразные события** - сокровища, торговцы, испытания
 - 📈 **Прогрессия** - checkpoint каждые 10 этажей
+- 🎮 **Мини-приложение** - полноценная игра внутри Telegram (Emberspire/Ebashnya)
 
 ## 📋 Требования
 
 - Node.js 18+
 - PostgreSQL 14+
 - Redis 6+
+- Python 3.8+ (для мини-приложения)
 - Telegram Bot Token
 
 ## 🚀 Установка
@@ -39,19 +41,24 @@ cd NEMESIS
 # 2. Настроить .env.local с реальными секретами
 cp .env.local.example .env.local
 nano .env.local
-# Заполните BOT_TOKEN (из @BotFather) и DB_PASSWORD (надёжный пароль!)
+# Заполните:
+# - BOT_TOKEN (из @BotFather)
+# - DB_PASSWORD (надёжный пароль!)
+# - WEBAPP_URL (публичный https URL мини-приложения)
+# - APP_NAME (короткое имя из @BotFather для Mini App)
 
 # 3. Создать симлинк или переименовать для Docker Compose
 ln -sf .env.local .env
 
-# 4. Запустить всё (PostgreSQL + Redis + Bot)
+# 4. Запустить всё (PostgreSQL + Redis + Bot + MiniApp)
 docker-compose up -d
 
 # 5. Проверить логи
 docker-compose logs -f bot
+docker-compose logs -f miniapp
 ```
 
-Готово! Бот работает! 🎉
+Готово! Бот и мини-приложение работают! 🎉
 
 **База данных создаётся автоматически при первом запуске!**
 
@@ -63,7 +70,7 @@ docker-compose logs -f bot
 
 ### Вариант 2: Локальная установка
 
-Требуется: Node.js 18+, PostgreSQL 14+, Redis 6+
+Требуется: Node.js 18+, PostgreSQL 14+, Redis 6+, Python 3.8+
 
 ### 1. Клонировать репозиторий
 
@@ -95,10 +102,24 @@ cp .env.example .env.local
 BOT_TOKEN=YOUR_BOT_TOKEN_FROM_BOTFATHER
 BOT_USERNAME=your_bot_username
 
+# PostgreSQL
+DATABASE_URL=postgresql://postgres:YOUR_PASSWORD@localhost:5432/nemesis_game
+DB_PASSWORD=YOUR_PASSWORD
 
+# Redis
+REDIS_URL=redis://localhost:6379
 
+# Mini App Configuration
+WEBAPP_URL=https://your-domain.com
+APP_NAME=game
+MINIAPP_PORT=8080
+
+# Game settings
 COOLDOWN_MINUTES=5
 STARS_PRICE=1
+
+# Admin IDs (comma-separated)
+ADMIN_IDS=YOUR_TELEGRAM_ID
 ```
 
 **Генерация безопасного пароля:**
@@ -157,6 +178,7 @@ docker-compose up -d --build
 
 ### В личном чате с ботом:
 - `/start` - Регистрация в игре (обязательно для начала!)
+- `/admin` - Админ-панель с доступом к мини-приложению (только для администраторов)
 
 ### В групповом чате:
 - `/class` или `/класс` - Выбрать класс (только в начале сезона)
@@ -164,6 +186,12 @@ docker-compose up -d --build
 - `защита` или `defend` или `d` - Защититься от атаки
 - `/status` или `/статус` - Посмотреть свой прогресс
 - `/inventory` или `/инвентарь` - Открыть инвентарь
+
+### Админские команды:
+- `/sstart` - Запустить новый сезон (выбор между чат-игрой, мини-приложением или обоими)
+- `/admin` - Админ-панель с кнопкой входа в мини-приложение
+- `/dbstats` - Статистика базы данных
+- `/top` - Топ игроков
 
 ## 💰 Система оплаты
 
@@ -192,6 +220,7 @@ src/
 │   ├── handlers/
 │   │   ├── start.ts       # /start command
 │   │   ├── game.ts        # Game actions
+│   │   ├── admin.ts       # Admin commands
 │   │   └── payment.ts     # Payment processing
 │   └── keyboards/         # Inline keyboards
 │
@@ -199,6 +228,7 @@ src/
 │   ├── GameService.ts     # Main game service
 │   ├── CombatEngine.ts    # Combat calculations
 │   ├── CooldownService.ts # Cooldown management
+│   ├── SeasonService.ts   # Season management
 │   └── ...
 │
 ├── payment/               # Payment system
@@ -213,7 +243,42 @@ src/
 │
 ├── config/               # Configuration
 └── types/                # TypeScript types
+
+app/
+└── ebashnya/             # Mini App (Python)
+    ├── app/
+    │   ├── server.py     # Python HTTP server
+    │   ├── public/       # Frontend assets
+    │   └── cards/        # Generated card images
+    ├── config/           # Configuration files
+    └── Dockerfile.miniapp
 ```
+
+## 🎮 Мини-приложение (Emberspire/Ebashnya)
+
+Мини-приложение работает как отдельный Python сервер и **использует ту же PostgreSQL базу данных**, что и основной бот. Таблицы мини-приложения имеют префикс `app_` чтобы избежать конфликтов.
+
+**Архитектура:**
+- 🤖 **Основной бот** → PostgreSQL (таблицы: `users`, `chats`, `player_progress`, ...)
+- 🎮 **Мини-приложение** → PostgreSQL (таблицы: `app_players`, `app_raids`, `app_saves`, ...)
+- 🗄️ **Одна база данных** → Упрощённые бэкапы, единое место хранения
+
+Интеграция с основным ботом:
+
+- **Аутентификация**: Telegram WebApp initData валидируется с BOT_TOKEN
+- **Запуск вместе**: Docker Compose запускает оба сервиса одновременно
+- **Общая БД**: PostgreSQL с разделением через префиксы таблиц
+- **Админ доступ**: Команда `/admin` предоставляет кнопку входа в мини-приложение
+- **Сезоны**: При запуске нового сезона можно выбрать платформу (чат/апп/оба)
+
+### Настройка мини-приложения:
+
+1. Создайте Mini App в @BotFather командой `/newapp`
+2. Укажите публичный HTTPS URL в `WEBAPP_URL`
+3. Короткое имя приложения укажите в `APP_NAME`
+4. Мини-приложение будет доступно через кнопку в боте
+
+📚 Подробнее: [SHARED_DATABASE.md](SHARED_DATABASE.md) - Архитектура общей базы данных
 
 ## 🗄️ База данных
 

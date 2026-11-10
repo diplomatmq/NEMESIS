@@ -85,6 +85,55 @@ services:
     networks:
       - nemesis_network
 
+  miniapp:
+    build:
+      context: ./app/ebashnya
+      dockerfile: Dockerfile.miniapp
+    container_name: nemesis_miniapp
+    environment:
+      # Bot configuration (для Telegram authentication)
+      BOT_TOKEN: ${BOT_TOKEN:?Set BOT_TOKEN in .env.local}
+      
+      # Mini app configuration
+      WEBAPP_URL: ${WEBAPP_URL:-http://localhost:8080}
+      APP_NAME: ${APP_NAME:-game}
+      PORT: ${MINIAPP_PORT:-8080}
+      
+      # Channel и Support
+      CHANNEL: ${CHANNEL:-}
+      SUPPORT_URL: ${SUPPORT_URL:-}
+      
+      # Stars configuration
+      STARS_TEST: ${STARS_TEST:-0}
+      
+      # PostgreSQL configuration (shared with main bot)
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env.local}
+      DB_NAME: ${DB_NAME:-nemesis_game}
+      
+      # Admin IDs (comma-separated)
+      ADMIN_IDS: ${ADMIN_IDS:-678418106,793216884}
+      
+      # Time zone и Anti-Cheat
+      AC_TZ: ${AC_TZ:-3}
+      AC_DIGEST_HOUR: ${AC_DIGEST_HOUR:-12}
+      
+      # Reminder settings
+      REMIND_GAP_H: ${REMIND_GAP_H:-8}
+      REMIND_AWAY_MIN: ${REMIND_AWAY_MIN:-30}
+    ports:
+      - "${MINIAPP_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      bot:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - nemesis_network
+
 volumes:
   postgres_data:
     name: nemesis_postgres_data

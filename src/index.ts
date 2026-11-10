@@ -7,7 +7,7 @@ import { handleGameAction, handleStatus, handleInventory, handleUsePotion, handl
 import { handleSuccessfulPayment, handlePreCheckoutQuery } from './bot/handlers/payment';
 import { handleClassSelection, handleClassCallback } from './bot/handlers/class';
 import { handleAchievements } from './bot/handlers/achievements';
-import { handleDbStats, handleTop, handleSeasonStart, handleGiveItem, handleNftGive } from './bot/handlers/admin';
+import { handleDbStats, handleTop, handleSeasonStart, handleSeasonStartCallback, handleAdminCommand, handleGiveItem, handleNftGive } from './bot/handlers/admin';
 import { handleSlotSpinCount, handleDiceMessage, handleSlotPayment } from './bot/handlers/slots';
 import { handleNewRef, handleRef, handleReferralCallback, handleReferralTextInput } from './bot/handlers/referral';
 import { InvoiceService } from './payment/InvoiceService';
@@ -138,6 +138,7 @@ bot.command('сброс', handleReset);
 bot.command('dbstats', handleDbStats);
 bot.command('top', handleTop);
 bot.command('sstart', handleSeasonStart);
+bot.command('admin', handleAdminCommand);
 bot.command('giveitem', handleGiveItem);
 bot.command('nftgive', handleNftGive);
 
@@ -147,6 +148,7 @@ bot.command('ref', handleRef);
 
 // Callback query handlers
 bot.on('callback_query:data', async (ctx) => {
+  await handleSeasonStartCallback(ctx);
   await handleClassCallback(ctx);
   await handleTrailCallback(ctx);
   await handleEquipCallback(ctx);

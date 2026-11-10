@@ -1,0 +1,5 @@
+# /etc/caddy/Caddyfile — https in front of the game server (Caddy gets the certificate by itself)
+game.example.com {
+	encode gzip
+	reverse_proxy 127.0.0.1:8080
+}

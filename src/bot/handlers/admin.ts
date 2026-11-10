@@ -45,8 +45,10 @@ export async function handleDbStats(ctx: Context) {
     let message =
       `📊 **Статистика базы данных**\n\n` +
       `👥 **Игроков:** ${stats.totalPlayers}\n` +
-      `💬 **Чатов:** ${stats.totalChats} (без личных)\n` +
-      `⭐ **Всего звёзд:** ${stats.totalStars}\n\n` +
+      `💬 **Чатов:** ${stats.totalChats} (без личных)\n\n` +
+      `⭐ **Всего звёзд:** ${stats.totalStars}\n` +
+      `   └ Чат-игра: ${stats.chatStars} ⭐\n` +
+      `   └ Мини-приложение: ${stats.appStars} ⭐\n\n` +
       `${ce(CUSTOM_EMOJI.gold, '💰')} **Распределение:**\n` +
       `• Доля Soun: **${sounShare}** ⭐ (75%)\n` +
       `• Доля Егор: **${egorShare}** ⭐ (25%)`;
@@ -146,12 +148,96 @@ export async function handleSeasonStart(ctx: Context) {
   }
 
   try {
-    const result = await seasonService.startSeason(ctx.api);
-    await ctx.reply(result);
+    // Ask where to start the season: chat or mini app
+    await ctx.reply(
+      '🏁 **Запуск нового сезона**\n\n' +
+      'Где начать сезон?',
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '💬 Чат-игра', callback_data: 'season_start_chat' },
+              { text: '🎮 Мини-приложение', callback_data: 'season_start_app' }
+            ],
+            [
+              { text: '🌐 Оба варианта', callback_data: 'season_start_both' }
+            ]
+          ]
+        }
+      }
+    );
   } catch (error: any) {
     console.error('❌ Error starting season:', error);
     await ctx.reply(`❌ Ошибка запуска сезона: ${error.message || 'Неизвестная ошибка'}`);
   }
+}
+
+/**
+ * Handle season start callback queries
+ */
+export async function handleSeasonStartCallback(ctx: Context) {
+  if (!ctx.from || !ctx.callbackQuery) {
+    return;
+  }
+
+  if (!ADMIN_IDS.includes(ctx.from.id)) {
+    await ctx.answerCallbackQuery({ text: '❌ Доступ запрещён' });
+    return;
+  }
+
+  const data = ctx.callbackQuery.data;
+  if (!data?.startsWith('season_start_')) {
+    return;
+  }
+
+  await ctx.answerCallbackQuery();
+
+  try {
+    const mode = data.replace('season_start_', '') as 'chat' | 'app' | 'both';
+    const result = await seasonService.startSeason(ctx.api, mode);
+    
+    await ctx.editMessageText(result, { parse_mode: 'Markdown' });
+  } catch (error: any) {
+    console.error('❌ Error starting season:', error);
+    await ctx.editMessageText(`❌ Ошибка запуска сезона: ${error.message || 'Неизвестная ошибка'}`);
+  }
+}
+
+/**
+ * /admin — provides admin panel with access to mini app (test mode)
+ */
+export async function handleAdminCommand(ctx: Context) {
+  if (!ctx.from) {
+    return;
+  }
+
+  if (!ADMIN_IDS.includes(ctx.from.id)) {
+    return; // Silently ignore for non-admins
+  }
+
+  const miniAppUrl = process.env.WEBAPP_URL || 'https://your-domain.com';
+  
+  await ctx.reply(
+    '🔐 **Админ-панель**\n\n' +
+    'Доступ к мини-приложению для тестирования:',
+    {
+      parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { 
+              text: '🎮 Открыть мини-приложение', 
+              web_app: { url: miniAppUrl }
+            }
+          ],
+          [
+            { text: '📊 Статистика БД', callback_data: 'admin_dbstats' }
+          ]
+        ]
+      }
+    }
+  );
 }
 
 /**

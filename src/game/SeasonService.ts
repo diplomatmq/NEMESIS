@@ -43,8 +43,10 @@ export class SeasonService {
    * Starts a new tournament. The currently running season is closed first, its
    * report is published, and every player restarts from scratch while keeping
    * their skill pins and caught NFTs.
+   * 
+   * @param mode - Where to start the season: 'chat', 'app', or 'both'
    */
-  async startSeason(api: Api): Promise<string> {
+  async startSeason(api: Api, mode: 'chat' | 'app' | 'both' = 'chat'): Promise<string> {
     const previous = await SeasonModel.getCurrentSeason();
 
     // Close the running real season so its report is published before the new
@@ -81,15 +83,30 @@ export class SeasonService {
       }
     });
 
-    const announcement =
+    const modeLabels = {
+      'chat': '💬 Чат-игра',
+      'app': '🎮 Мини-приложение',
+      'both': '🌐 Чат-игра и Мини-приложение'
+    };
+
+    let announcement =
       `🏁 **Новый сезон ${newNumber} начался!**\n\n` +
       `${ce(CUSTOM_EMOJI.season, '🏆')} Старт: ${formatMsk(now)}\n` +
-      `${ce(CUSTOM_EMOJI.season, '🏆')} Финиш: ${formatMsk(end)}\n\n` +
+      `${ce(CUSTOM_EMOJI.season, '🏆')} Финиш: ${formatMsk(end)}\n` +
+      `🎯 Платформа: ${modeLabels[mode]}\n\n` +
       `Прогресс всех игроков сброшен — все начинают с первого этажа. Вперёд к вершине башни!`;
+
+    // Add mini app link if app mode is enabled
+    if (mode === 'app' || mode === 'both') {
+      const webappUrl = process.env.WEBAPP_URL || '';
+      if (webappUrl) {
+        announcement += `\n\n🎮 **Играть в мини-приложении:**\n${webappUrl}`;
+      }
+    }
 
     await this.broadcast(api, markdownToTelegramHtml(announcement));
 
-    return `✅ Сезон ${newNumber} запущен.\n\n` +
+    return `✅ Сезон ${newNumber} запущен (${modeLabels[mode]}).\n\n` +
       `🏆 Старт: ${formatMsk(now)}\n` +
       `🏁 Финиш: ${formatMsk(end)}`;
   }
