@@ -238,3 +238,13 @@ COMMENT ON TABLE app_raids IS 'Weekly chat raids in mini app';
 COMMENT ON TABLE app_saves IS 'Cloud saves for mini app game progress';
 COMMENT ON TABLE app_duels IS 'PvP duels between players';
 COMMENT ON TABLE app_star_ledger IS 'Star economy transactions for mini app';
+
+-- Activity tracking (daily unique players)
+CREATE TABLE IF NOT EXISTS app_act (
+    day INTEGER NOT NULL,
+    uid BIGINT NOT NULL,
+    PRIMARY KEY(day, uid)
+);
+
+-- Raid tries per chat (renamed from raid_tries_c)
+-- Already exists as app_raid_tries_chat, but some code may reference old name
