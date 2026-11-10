@@ -147,21 +147,30 @@ class PostgreSQLCursor:
         self.rowcount = cursor.rowcount
     
     def fetchone(self):
-        """Fetch one row."""
+        """Fetch one row as tuple (SQLite compatibility)."""
         row = self._cursor.fetchone()
         if row is None:
             return None
         # Convert dict to tuple for SQLite compatibility
-        # But keep it as dict for easier access
+        if isinstance(row, dict):
+            return tuple(row.values())
         return row
     
     def fetchall(self):
-        """Fetch all rows."""
-        return self._cursor.fetchall()
+        """Fetch all rows as list of tuples."""
+        rows = self._cursor.fetchall()
+        # Convert dicts to tuples for SQLite compatibility
+        if rows and isinstance(rows[0], dict):
+            return [tuple(row.values()) for row in rows]
+        return rows
     
     def __iter__(self):
-        """Make cursor iterable."""
-        return iter(self._cursor)
+        """Make cursor iterable, yielding tuples."""
+        for row in self._cursor:
+            if isinstance(row, dict):
+                yield tuple(row.values())
+            else:
+                yield row
 
 
 # Global database instance
