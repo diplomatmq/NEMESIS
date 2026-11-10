@@ -232,6 +232,13 @@ CREATE TABLE IF NOT EXISTS app_nft_drops (
     link TEXT
 );
 
+-- Activity tracking (already exists as app_activity, but code references app_act)
+CREATE TABLE IF NOT EXISTS app_act (
+    day INTEGER NOT NULL,
+    uid BIGINT NOT NULL,
+    PRIMARY KEY(day, uid)
+);
+
 -- Comments for documentation
 COMMENT ON TABLE app_players IS 'Mini app player profiles (separate from main game)';
 COMMENT ON TABLE app_raids IS 'Weekly chat raids in mini app';

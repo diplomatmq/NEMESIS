@@ -99,6 +99,28 @@ class PostgreSQLAdapter:
         result = result.replace('INTEGER PRIMARY KEY AUTOINCREMENT', 'SERIAL PRIMARY KEY')
         result = result.replace('AUTOINCREMENT', '')
         
+        # INSERT OR REPLACE -> INSERT ... ON CONFLICT DO UPDATE (PostgreSQL upsert)
+        # Simple replacement for common pattern: INSERT OR REPLACE INTO kv(k, v) VALUES
+        if 'INSERT OR REPLACE INTO' in result:
+            import re
+            # Pattern: INSERT OR REPLACE INTO table(col1, col2) VALUES
+            match = re.search(r'INSERT OR REPLACE INTO\s+(\w+)\s*\(([^)]+)\)', result, re.IGNORECASE)
+            if match:
+                table_name = match.group(1)
+                columns = [c.strip() for c in match.group(2).split(',')]
+                # Assume first column is primary key for ON CONFLICT
+                pk_col = columns[0]
+                # Build UPDATE SET clause
+                if len(columns) > 1:
+                    update_cols = ', '.join([f"{col} = EXCLUDED.{col}" for col in columns[1:]])
+                    result = result.replace('INSERT OR REPLACE INTO', 'INSERT INTO')
+                    # Add ON CONFLICT at the end (before any semicolon or end of string)
+                    result = re.sub(r'(\))\s*$', f'\\1 ON CONFLICT ({pk_col}) DO UPDATE SET {update_cols}', result)
+                else:
+                    # Only one column, just do nothing on conflict
+                    result = result.replace('INSERT OR REPLACE INTO', 'INSERT INTO')
+                    result = re.sub(r'(\))\s*$', f'\\1 ON CONFLICT ({pk_col}) DO NOTHING', result)
+        
         return result
     
     def execute(self, query, params=None):
