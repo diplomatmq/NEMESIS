@@ -123,6 +123,9 @@ services:
       # Reminder settings
       REMIND_GAP_H: ${REMIND_GAP_H:-8}
       REMIND_AWAY_MIN: ${REMIND_AWAY_MIN:-30}
+      
+      # Disable bot polling in miniapp (TypeScript bot handles all commands)
+      EMBER_NO_BOT: ${EMBER_NO_BOT:-1}
     ports:
       - "${MINIAPP_PORT:-8080}:8080"
     depends_on:
