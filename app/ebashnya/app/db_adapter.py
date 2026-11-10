@@ -108,6 +108,26 @@ class PostgreSQLAdapter:
         # Convert ? placeholders to %s for PostgreSQL
         pg_query = prefixed_query.replace('?', '%s')
         
+        # Convert unix timestamp params to PostgreSQL timestamp for comparison
+        # If query has TIMESTAMP column comparison with integer, wrap in to_timestamp()
+        if params and any(col in pg_query for col in ['done_at', 'fought', 'created', 'ts', 'killed', 'ends', 'rest_at', 'reminded', 'seen', 'wipe_at']):
+            # Convert integer timestamps to PostgreSQL format
+            converted_params = []
+            for p in params:
+                if isinstance(p, int) and p > 1000000000:  # Looks like unix timestamp
+                    # Use to_timestamp() in query instead of converting param
+                    converted_params.append(p)
+                else:
+                    converted_params.append(p)
+            params = tuple(converted_params) if converted_params else params
+            
+            # Replace comparison operators with timestamp conversion
+            import re
+            # Find patterns like: column_name < %s or column_name > %s where column is timestamp
+            for col in ['done_at', 'fought', 'created', 'ts', 'killed', 'ends', 'rest_at', 'reminded', 'seen', 'wipe_at']:
+                # Replace: done_at < %s with: done_at < to_timestamp(%s)
+                pg_query = re.sub(f'{col}\s*(<|>|<=|>=|=)\s*%s', f'{col} \\1 to_timestamp(%s)', pg_query)
+        
         try:
             if params:
                 cursor.execute(pg_query, params)
