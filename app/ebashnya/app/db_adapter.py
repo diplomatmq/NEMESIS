@@ -95,6 +95,10 @@ class PostgreSQLAdapter:
         result = result.replace('REAL DEFAULT 0', 'DOUBLE PRECISION DEFAULT 0')
         result = result.replace('REAL', 'TIMESTAMP')
         
+        # AUTOINCREMENT -> SERIAL (PostgreSQL auto-increment)
+        result = result.replace('INTEGER PRIMARY KEY AUTOINCREMENT', 'SERIAL PRIMARY KEY')
+        result = result.replace('AUTOINCREMENT', '')
+        
         return result
     
     def execute(self, query, params=None):
