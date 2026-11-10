@@ -47,22 +47,18 @@ class PostgreSQLAdapter:
             match = re.match(r'PRAGMA table_info\((\w+)\)', query.strip())
             if match:
                 table_name = match.group(1)
-                # Convert to PostgreSQL query to get column info
+                prefixed_table = f'app_{table_name}'
+                # Simple PostgreSQL query - just return column names
                 pg_query = f"""
                     SELECT 
-                        ordinal_position as cid,
+                        ordinal_position - 1 as cid,
                         column_name as name,
                         data_type as type,
                         CASE WHEN is_nullable = 'NO' THEN 1 ELSE 0 END as notnull,
                         column_default as dflt_value,
-                        CASE WHEN column_name IN (
-                            SELECT a.attname
-                            FROM pg_index i
-                            JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
-                            WHERE i.indrelid = 'app_{table_name}'::regclass AND i.indisprimary
-                        ) THEN 1 ELSE 0 END as pk
+                        0 as pk
                     FROM information_schema.columns
-                    WHERE table_name = 'app_{table_name}'
+                    WHERE table_schema = 'public' AND table_name = '{prefixed_table}'
                     ORDER BY ordinal_position
                 """
                 return pg_query
@@ -72,7 +68,8 @@ class PostgreSQLAdapter:
         tables = [
             'players', 'act', 'fight_log', 'ref_hits', 'raids', 'raid_hits',
             'saves', 'raid_events', 'raid_tries_c', 'raid_stats', 'raid_chats',
-            'kv', 'raid_tries', 'duels', 'quests', 'star_ledger'
+            'kv', 'raid_tries', 'duels', 'quests', 'star_ledger', 'gr_lobby', 
+            'nft_drops', 'activity'
         ]
         
         result = query
@@ -116,6 +113,12 @@ class PostgreSQLAdapter:
                 cursor.execute(pg_query, params)
             else:
                 cursor.execute(pg_query)
+            return PostgreSQLCursor(cursor, conn)
+        except psycopg2.errors.UndefinedTable as e:
+            # Table doesn't exist yet - return empty result for PRAGMA queries
+            conn.rollback()
+            log.info(f"Table doesn't exist yet (expected on first run): {e}")
+            # Return empty cursor for PRAGMA table_info when table doesn't exist
             return PostgreSQLCursor(cursor, conn)
         except psycopg2.errors.DuplicateColumn as e:
             # Column already exists - rollback and continue
