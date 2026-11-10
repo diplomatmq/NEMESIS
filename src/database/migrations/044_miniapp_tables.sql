@@ -169,7 +169,10 @@ CREATE TABLE IF NOT EXISTS app_duels (
     done_at TIMESTAMP,  -- Alias for fought (compatibility)
     winner BIGINT,
     replay TEXT,                              -- JSON replay data
-    public INTEGER DEFAULT 0
+    public INTEGER DEFAULT 0,
+    kind TEXT,                                -- Type of duel: 'direct', etc.
+    result TEXT,                              -- Result data
+    from_claimed INTEGER DEFAULT 0            -- Whether rewards claimed
 );
 
 CREATE INDEX IF NOT EXISTS idx_app_duels_from ON app_duels(from_uid);
