@@ -78,7 +78,7 @@ class PostgreSQLAdapter:
         result = query
         for table in tables:
             # Replace table names with app_ prefix
-            # Handle various SQL contexts
+            # Handle various SQL contexts including CREATE INDEX
             replacements = [
                 (f'FROM {table} ', f'FROM app_{table} '),
                 (f'FROM {table}\n', f'FROM app_{table}\n'),
@@ -88,6 +88,7 @@ class PostgreSQLAdapter:
                 (f'UPDATE {table} ', f'UPDATE app_{table} '),
                 (f'TABLE {table} ', f'TABLE app_{table} '),
                 (f'TABLE {table}(', f'TABLE app_{table}('),
+                (f'ON {table}(', f'ON app_{table}('),  # CREATE INDEX ON table(column)
             ]
             for old, new in replacements:
                 result = result.replace(old, new)
