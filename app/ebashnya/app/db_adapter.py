@@ -118,14 +118,17 @@ class PostgreSQLAdapter:
                 cursor.execute(pg_query)
             return PostgreSQLCursor(cursor, conn)
         except psycopg2.errors.DuplicateColumn as e:
-            # Column already exists - this is expected when migration already created it
+            # Column already exists - rollback and continue
+            conn.rollback()
             log.info(f"Column already exists (expected): {e}")
             return PostgreSQLCursor(cursor, conn)
         except psycopg2.errors.DuplicateTable as e:
-            # Table already exists - this is expected
+            # Table already exists - rollback and continue
+            conn.rollback()
             log.info(f"Table already exists (expected): {e}")
             return PostgreSQLCursor(cursor, conn)
         except Exception as e:
+            conn.rollback()
             log.error(f"Query failed: {pg_query[:200]}")
             log.error(f"Params: {params}")
             log.error(f"Error: {e}")
