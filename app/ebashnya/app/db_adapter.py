@@ -40,6 +40,33 @@ class PostgreSQLAdapter:
     
     def _prefix_table(self, query):
         """Add 'app_' prefix to table names in CREATE/INSERT/UPDATE/DELETE/SELECT statements."""
+        # Handle PRAGMA table_info - convert to PostgreSQL
+        if query.strip().startswith('PRAGMA table_info('):
+            # Extract table name from PRAGMA table_info(table_name)
+            import re
+            match = re.match(r'PRAGMA table_info\((\w+)\)', query.strip())
+            if match:
+                table_name = match.group(1)
+                # Convert to PostgreSQL query to get column info
+                pg_query = f"""
+                    SELECT 
+                        ordinal_position as cid,
+                        column_name as name,
+                        data_type as type,
+                        CASE WHEN is_nullable = 'NO' THEN 1 ELSE 0 END as notnull,
+                        column_default as dflt_value,
+                        CASE WHEN column_name IN (
+                            SELECT a.attname
+                            FROM pg_index i
+                            JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+                            WHERE i.indrelid = 'app_{table_name}'::regclass AND i.indisprimary
+                        ) THEN 1 ELSE 0 END as pk
+                    FROM information_schema.columns
+                    WHERE table_name = 'app_{table_name}'
+                    ORDER BY ordinal_position
+                """
+                return pg_query
+        
         # This is a simple approach - for production, consider using proper SQL parsing
         # Common table names from the original SQLite schema
         tables = [
