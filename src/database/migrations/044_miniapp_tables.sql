@@ -166,6 +166,7 @@ CREATE TABLE IF NOT EXISTS app_duels (
     to_room INTEGER,
     created TIMESTAMP NOT NULL,
     fought TIMESTAMP,
+    done_at TIMESTAMP,  -- Alias for fought (compatibility)
     winner BIGINT,
     replay TEXT,                              -- JSON replay data
     public INTEGER DEFAULT 0
@@ -174,6 +175,7 @@ CREATE TABLE IF NOT EXISTS app_duels (
 CREATE INDEX IF NOT EXISTS idx_app_duels_from ON app_duels(from_uid);
 CREATE INDEX IF NOT EXISTS idx_app_duels_to ON app_duels(to_uid);
 CREATE INDEX IF NOT EXISTS idx_app_duels_created ON app_duels(created DESC);
+CREATE INDEX IF NOT EXISTS idx_app_duels_done_at ON app_duels(to_uid, done_at);
 
 -- Quests (daily/weekly)
 CREATE TABLE IF NOT EXISTS app_quests (
