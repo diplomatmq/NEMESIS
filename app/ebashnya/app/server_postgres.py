@@ -16,6 +16,9 @@ if USE_POSTGRES:
     # Import our PostgreSQL adapter
     from db_adapter import get_db, db_lock
     
+    # Import psycopg2 for exception handling
+    import psycopg2
+    
     # Create a module-level db instance
     db = get_db()
     
@@ -26,6 +29,12 @@ if USE_POSTGRES:
         """Mock sqlite3 module that returns our PostgreSQL adapter."""
         def connect(self, *args, **kwargs):
             return db
+        
+        # Add exception classes for compatibility
+        OperationalError = psycopg2.OperationalError
+        IntegrityError = psycopg2.IntegrityError
+        DatabaseError = psycopg2.DatabaseError
+        Error = psycopg2.Error
     
     sys.modules['sqlite3'] = SQLite3Module()
     

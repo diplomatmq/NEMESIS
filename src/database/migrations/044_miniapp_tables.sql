@@ -27,6 +27,11 @@ CREATE TABLE IF NOT EXISTS app_players (
     notify_off INTEGER DEFAULT 0,
     can_pm INTEGER DEFAULT 0,
     wipe_at TIMESTAMP,
+    dtag TEXT,                                -- Player tag
+    stars INTEGER DEFAULT 0,                  -- Star currency
+    skips INTEGER DEFAULT 0,                  -- Skip count
+    class_changes INTEGER DEFAULT 0,          -- Class change count
+    autofarm INTEGER DEFAULT 0,               -- Autofarm enabled
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -172,7 +177,8 @@ CREATE TABLE IF NOT EXISTS app_duels (
     public INTEGER DEFAULT 0,
     kind TEXT,                                -- Type of duel: 'direct', etc.
     result TEXT,                              -- Result data
-    from_claimed INTEGER DEFAULT 0            -- Whether rewards claimed
+    from_claimed INTEGER DEFAULT 0,           -- Whether rewards claimed
+    declined INTEGER DEFAULT 0                -- Whether duel was declined
 );
 
 CREATE INDEX IF NOT EXISTS idx_app_duels_from ON app_duels(from_uid);
@@ -202,6 +208,29 @@ CREATE TABLE IF NOT EXISTS app_star_ledger (
 );
 
 CREATE INDEX IF NOT EXISTS idx_app_star_ledger_uid ON app_star_ledger(uid);
+
+-- Group lobby for multiplayer
+CREATE TABLE IF NOT EXISTS app_gr_lobby (
+    id TEXT PRIMARY KEY,
+    host BIGINT NOT NULL,
+    created TIMESTAMP NOT NULL,
+    public INTEGER DEFAULT 0,                 -- Open to anyone
+    data TEXT                                 -- JSON lobby data
+);
+
+CREATE INDEX IF NOT EXISTS idx_app_gr_lobby_host ON app_gr_lobby(host, created);
+
+-- NFT drops
+CREATE TABLE IF NOT EXISTS app_nft_drops (
+    id TEXT PRIMARY KEY,
+    uid BIGINT NOT NULL,
+    kind TEXT,
+    ts TIMESTAMP,
+    status TEXT DEFAULT 'new',
+    req_ts TIMESTAMP,
+    done_ts TIMESTAMP,
+    link TEXT
+);
 
 -- Comments for documentation
 COMMENT ON TABLE app_players IS 'Mini app player profiles (separate from main game)';
