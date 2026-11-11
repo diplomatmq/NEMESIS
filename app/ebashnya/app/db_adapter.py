@@ -99,6 +99,20 @@ class PostgreSQLAdapter:
         result = result.replace('INTEGER PRIMARY KEY AUTOINCREMENT', 'SERIAL PRIMARY KEY')
         result = result.replace('AUTOINCREMENT', '')
         
+        # INSERT OR IGNORE -> INSERT ... ON CONFLICT DO NOTHING (PostgreSQL)
+        if 'INSERT OR IGNORE INTO' in result:
+            import re
+            # Extract table name and first column (assumed to be primary key)
+            match = re.search(r'INSERT OR IGNORE INTO\s+(\w+)\s*\(([^)]+)\)', result, re.IGNORECASE)
+            if match:
+                table_name = match.group(1)
+                columns = [c.strip() for c in match.group(2).split(',')]
+                # Assume first column is primary key
+                pk_col = columns[0]
+                result = result.replace('INSERT OR IGNORE INTO', 'INSERT INTO')
+                # Add ON CONFLICT DO NOTHING at the end
+                result = re.sub(r'(\))\s*$', f'\\1 ON CONFLICT ({pk_col}) DO NOTHING', result)
+        
         # INSERT OR REPLACE -> INSERT ... ON CONFLICT DO UPDATE (PostgreSQL upsert)
         # Simple replacement for common pattern: INSERT OR REPLACE INTO kv(k, v) VALUES
         if 'INSERT OR REPLACE INTO' in result:
