@@ -16,6 +16,12 @@ export async function handleSuccessfulPayment(ctx: Context, invoiceService: Invo
   const totalAmount = payment.total_amount; // in Stars
   const currency = payment.currency;
 
+  // Ignore miniapp payments (payload starts with "st:")
+  if (payload.startsWith('st:')) {
+    console.log(`🔄 Skipping miniapp payment (payload: ${payload})`);
+    return;
+  }
+
   console.log(`💰 Payment received from user ${ctx.from.id}: ${totalAmount} ${currency}`);
 
   // Process and validate payment
@@ -114,6 +120,14 @@ export async function handleSuccessfulPayment(ctx: Context, invoiceService: Invo
 }
 
 export async function handlePreCheckoutQuery(ctx: Context) {
+  // Ignore miniapp payments (payload starts with "st:")
+  if (ctx.preCheckoutQuery?.invoice_payload?.startsWith('st:')) {
+    console.log(`🔄 Skipping miniapp pre-checkout (payload: ${ctx.preCheckoutQuery.invoice_payload})`);
+    // Still approve it - the miniapp server will handle it
+    await ctx.answerPreCheckoutQuery(true);
+    return;
+  }
+
   // Always approve pre-checkout for Stars payments
   if (ctx.preCheckoutQuery) {
     await ctx.answerPreCheckoutQuery(true);
