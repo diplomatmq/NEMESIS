@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS app_activity (
 CREATE TABLE IF NOT EXISTS app_fight_log (
     id BIGSERIAL PRIMARY KEY,
     uid BIGINT NOT NULL,
-    ts TIMESTAMP NOT NULL,
+    ts BIGINT NOT NULL,                       -- Unix timestamp
     room INTEGER,
     kind TEXT,
     win INTEGER,
@@ -101,8 +101,8 @@ CREATE TABLE IF NOT EXISTS app_raid_hits (
 CREATE TABLE IF NOT EXISTS app_saves (
     uid BIGINT PRIMARY KEY,
     data TEXT,                                -- JSON save data
-    score REAL,
-    ts TIMESTAMP
+    score DOUBLE PRECISION,
+    ts BIGINT                                 -- Unix timestamp (seconds since epoch)
 );
 
 -- Raid events (admin-created)
@@ -229,10 +229,10 @@ CREATE TABLE IF NOT EXISTS app_nft_drops (
     kind TEXT,
     name TEXT,                                -- NFT name
     room INTEGER,                             -- Room where it dropped
-    ts TIMESTAMP,
+    ts BIGINT,                                -- Unix timestamp
     status TEXT DEFAULT 'new',
-    req_ts TIMESTAMP,
-    done_ts TIMESTAMP,
+    req_ts BIGINT,                            -- Unix timestamp
+    done_ts BIGINT,                           -- Unix timestamp
     link TEXT
 );
 

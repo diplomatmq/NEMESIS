@@ -13,18 +13,17 @@ USE_POSTGRES = os.environ.get('DB_HOST') and os.environ.get('DB_PASSWORD')
 if USE_POSTGRES:
     print("🔌 Using PostgreSQL database")
     
+    # Import psycopg2 for exception handling FIRST
+    import psycopg2
+    
     # Import our PostgreSQL adapter
     from db_adapter import get_db, db_lock
-    
-    # Import psycopg2 for exception handling
-    import psycopg2
     
     # Create a module-level db instance
     db = get_db()
     
-    # Patch the sqlite3 module so imports of sqlite3 get our adapter
-    import sys
-    
+    # Patch the sqlite3 module BEFORE importing server.py
+    # This is critical because server.py imports sqlite3 at module level
     class SQLite3Module:
         """Mock sqlite3 module that returns our PostgreSQL adapter."""
         def connect(self, *args, **kwargs):
@@ -36,6 +35,7 @@ if USE_POSTGRES:
         DatabaseError = psycopg2.DatabaseError
         Error = psycopg2.Error
     
+    # CRITICAL: Patch sys.modules BEFORE importing server.py
     sys.modules['sqlite3'] = SQLite3Module()
     
     print(f"✅ PostgreSQL adapter loaded: {os.environ.get('DB_HOST')}:{os.environ.get('DB_PORT')}/{os.environ.get('DB_NAME')}")

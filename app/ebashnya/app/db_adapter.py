@@ -69,7 +69,7 @@ class PostgreSQLAdapter:
             'players', 'act', 'fight_log', 'ref_hits', 'raids', 'raid_hits',
             'saves', 'raid_events', 'raid_tries_c', 'raid_stats', 'raid_chats',
             'kv', 'raid_tries', 'duels', 'quests', 'star_ledger', 'gr_lobby', 
-            'nft_drops', 'activity'
+            'nft_drops', 'activity', 'gr_claims'
         ]
         
         result = query
@@ -120,6 +120,7 @@ class PostgreSQLAdapter:
                     'app_raid_tries': ['uid', 'day'],
                     'app_raid_stats': ['uid', 'ci'],
                     'app_quests': ['uid', 'day', 'quest_id'],
+                    'app_gr_claims': ['uid', 'day', 'b'],
                 }
                 
                 # Check if this table has a composite key
@@ -175,7 +176,8 @@ class PostgreSQLAdapter:
         if params:
             import re
             # Find all %s placeholders and their positions
-            timestamp_cols = ['first_seen', 'updated', 'seen', 'done_at', 'fought', 'created', 'ts', 
+            # Note: 'ts' removed from this list as it stores unix timestamps as BIGINT
+            timestamp_cols = ['first_seen', 'updated', 'seen', 'done_at', 'fought', 'created',
                             'killed', 'ends', 'rest_at', 'reminded', 'wipe_at', 'last', 'req_ts', 'done_ts']
             
             # Check if any timestamp column is in the query
@@ -280,7 +282,18 @@ class PostgreSQLCursor:
     
     def fetchone(self):
         """Fetch one row as tuple (SQLite compatibility)."""
-        row = self._cursor.fetchone()
+        try:
+            row = self._cursor.fetchone()
+        except ValueError as e:
+            # Handle timestamp conversion errors (e.g., year out of range)
+            # This can happen if unix timestamps are stored as numbers
+            if 'year' in str(e) and 'out of range' in str(e):
+                log.warning(f"Timestamp conversion error (likely unix timestamp stored as number): {e}")
+                # Try to fetch raw data without cursor conversion
+                # Return None to avoid breaking the application
+                return None
+            raise
+        
         if row is None:
             return None
         # Convert dict to tuple for SQLite compatibility

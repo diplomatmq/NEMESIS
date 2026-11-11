@@ -84,9 +84,10 @@ async function runMigrations() {
       { name: '043_guaranteed_nft', file: '043_guaranteed_nft.sql', order: 43 },
       { name: '044_miniapp_tables', file: '044_miniapp_tables.sql', order: 44 },
       { name: '045_add_missing_miniapp_columns', file: '045_add_missing_miniapp_columns.sql', order: 45 },
+      { name: '046_fix_saves_timestamp', file: '046_fix_saves_timestamp.sql', order: 46 },
     ];
 
-    const EXPECTED_MIGRATION_COUNT = 46;
+    const EXPECTED_MIGRATION_COUNT = 47;
     if (migrations.length !== EXPECTED_MIGRATION_COUNT) {
       console.error(`❌ ERROR: Expected ${EXPECTED_MIGRATION_COUNT} migrations, but found ${migrations.length}`);
       console.error(`   This means migrations are missing from the array!`);
