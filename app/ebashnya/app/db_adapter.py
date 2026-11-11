@@ -180,14 +180,24 @@ class PostgreSQLAdapter:
         if params:
             import re
             # Find all %s placeholders and their positions
-            # Note: 'ts' removed from this list as it stores unix timestamps as BIGINT
+            # 'ts' is BIGINT in most tables, but TIMESTAMP in some (app_star_ledger, etc)
+            # We need to determine table context
             timestamp_cols = ['first_seen', 'updated', 'seen', 'done_at', 'fought', 'created',
-                            'killed', 'ends', 'rest_at', 'reminded', 'wipe_at', 'last', 'req_ts', 'done_ts']
+                            'killed', 'ends', 'rest_at', 'reminded', 'wipe_at', 'last', 'req_ts', 'done_ts', 'reached']
             
             # Check if any timestamp column is in the query
             has_timestamp = any(col in pg_query for col in timestamp_cols)
             
-            if has_timestamp:
+            # Special check for 'ts' column - only wrap in to_timestamp() for specific tables
+            # Tables where ts should be TIMESTAMP: none (all should be BIGINT now)
+            # But some tables still have TIMESTAMP ts from old migrations
+            tables_with_timestamp_ts = ['app_star_ledger']  # These need to_timestamp() for ts
+            has_timestamp_ts = any(table in pg_query for table in tables_with_timestamp_ts) and ' ts' in pg_query
+            
+            if has_timestamp or has_timestamp_ts:
+                if has_timestamp_ts:
+                    timestamp_cols = timestamp_cols + ['ts']
+                
                 # Convert numeric params that look like unix timestamps to to_timestamp()
                 converted_params = []
                 for p in params:
@@ -220,13 +230,14 @@ class PostgreSQLAdapter:
                             new_values = 'VALUES(' + ', '.join(new_placeholders) + ')'
                             pg_query = re.sub(r'VALUES\s*\([^)]+\)', new_values, pg_query, flags=re.IGNORECASE)
                 
-                # For UPDATE queries
+                # For UPDATE queries  
                 if 'UPDATE' in pg_query:
                     for col in timestamp_cols:
                         # Replace: column = %s with: column = to_timestamp(%s)
                         pg_query = re.sub(f'{col}\s*=\s*%s', f'{col} = to_timestamp(%s)', pg_query)
                         # Replace: COALESCE(%s, column) with: COALESCE(to_timestamp(%s), column)
-                        pg_query = re.sub(f'COALESCE\(\s*%s\s*,\s*{col}\s*\)', f'COALESCE(to_timestamp(%s), {col})', pg_query)
+                        # Use DOTALL flag to match across newlines
+                        pg_query = re.sub(f'COALESCE\s*\(\s*%s\s*,\s*{col}\s*\)', f'COALESCE(to_timestamp(%s), {col})', pg_query, flags=re.DOTALL)
                 
                 # For comparison operators in WHERE
                 for col in timestamp_cols:
