@@ -86,6 +86,7 @@ async function runMigrations() {
       { name: '045_add_missing_miniapp_columns', file: '045_add_missing_miniapp_columns.sql', order: 45 },
       { name: '046_fix_saves_timestamp', file: '046_fix_saves_timestamp.sql', order: 46 },
       { name: '047_add_missing_miniapp_tables', file: '047_add_missing_miniapp_tables.sql', order: 47 },
+      { name: '048_fix_fight_log_columns', file: '048_fix_fight_log_columns.sql', order: 48 },
     ];
 
     const EXPECTED_MIGRATION_COUNT = 49;

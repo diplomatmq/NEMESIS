@@ -182,10 +182,15 @@ class PostgreSQLAdapter:
             # Find all %s placeholders and their positions
             # These columns remain as TIMESTAMP and need to_timestamp() wrapping:
             # - first_seen, updated, seen, rest_at, reminded, wipe_at, reached (app_players)
-            # These are now DOUBLE PRECISION (unix timestamps as floats):
+            # These will be converted to DOUBLE PRECISION by migration 046:
             # - killed (app_raids), ends (app_raid_events), created/fought/done_at (app_duels)
             # - last (app_raid_tries*), created/done_at (app_gr_lobby)
+            # Until migration 046 runs, we need to handle both TIMESTAMP and DOUBLE PRECISION
             timestamp_cols = ['first_seen', 'updated', 'seen', 'rest_at', 'reminded', 'wipe_at', 'reached']
+            
+            # Columns that might be TIMESTAMP (before migration 046) or DOUBLE PRECISION (after)
+            # We need to handle comparisons with unix timestamps for these
+            maybe_timestamp_cols = ['killed', 'ends', 'created', 'fought', 'done_at', 'last']
             
             # Check if any timestamp column is in the query
             has_timestamp = any(col in pg_query for col in timestamp_cols)
@@ -237,8 +242,9 @@ class PostgreSQLAdapter:
                         # Use DOTALL flag to match across newlines
                         pg_query = re.sub(f'COALESCE\s*\(\s*%s\s*,\s*{col}\s*\)', f'COALESCE(to_timestamp(%s), {col})', pg_query, flags=re.DOTALL)
                 
-                # For comparison operators in WHERE
-                for col in timestamp_cols:
+                # For comparison operators in WHERE - handle both timestamp_cols and maybe_timestamp_cols
+                all_time_cols = timestamp_cols + maybe_timestamp_cols
+                for col in all_time_cols:
                     # Replace: column < %s with: column < to_timestamp(%s)
                     pg_query = re.sub(f'{col}\s*(<|>|<=|>=|=)\s*%s', f'{col} \\1 to_timestamp(%s)', pg_query)
         
