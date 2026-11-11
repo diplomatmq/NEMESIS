@@ -69,7 +69,7 @@ class PostgreSQLAdapter:
             'players', 'act', 'fight_log', 'ref_hits', 'raids', 'raid_hits',
             'saves', 'raid_events', 'raid_tries_c', 'raid_tries_chat', 'raid_stats', 'raid_chats',
             'kv', 'raid_tries', 'duels', 'quests', 'star_ledger', 'gr_lobby', 
-            'nft_drops', 'activity', 'gr_claims'
+            'nft_drops', 'activity', 'gr_claims', 'sessions', 'ghost_offers'
         ]
         
         result = query
