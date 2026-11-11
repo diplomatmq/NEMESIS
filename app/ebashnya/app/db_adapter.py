@@ -148,25 +148,60 @@ class PostgreSQLAdapter:
         # Convert ? placeholders to %s for PostgreSQL
         pg_query = prefixed_query.replace('?', '%s')
         
-        # Convert unix timestamp params to PostgreSQL timestamp for comparison
-        # If query has TIMESTAMP column comparison with integer, wrap in to_timestamp()
-        if params and any(col in pg_query for col in ['done_at', 'fought', 'created', 'ts', 'killed', 'ends', 'rest_at', 'reminded', 'seen', 'wipe_at']):
-            # Convert integer timestamps to PostgreSQL format
-            converted_params = []
-            for p in params:
-                if isinstance(p, int) and p > 1000000000:  # Looks like unix timestamp
-                    # Use to_timestamp() in query instead of converting param
-                    converted_params.append(p)
-                else:
-                    converted_params.append(p)
-            params = tuple(converted_params) if converted_params else params
-            
-            # Replace comparison operators with timestamp conversion
+        # Convert unix timestamp params to PostgreSQL timestamp
+        # Check if query has timestamp columns
+        if params:
             import re
-            # Find patterns like: column_name < %s or column_name > %s where column is timestamp
-            for col in ['done_at', 'fought', 'created', 'ts', 'killed', 'ends', 'rest_at', 'reminded', 'seen', 'wipe_at']:
-                # Replace: done_at < %s with: done_at < to_timestamp(%s)
-                pg_query = re.sub(f'{col}\s*(<|>|<=|>=|=)\s*%s', f'{col} \\1 to_timestamp(%s)', pg_query)
+            # Find all %s placeholders and their positions
+            timestamp_cols = ['first_seen', 'updated', 'seen', 'done_at', 'fought', 'created', 'ts', 
+                            'killed', 'ends', 'rest_at', 'reminded', 'wipe_at', 'last', 'req_ts', 'done_ts']
+            
+            # Check if any timestamp column is in the query
+            has_timestamp = any(col in pg_query for col in timestamp_cols)
+            
+            if has_timestamp:
+                # Convert numeric params that look like unix timestamps to to_timestamp()
+                converted_params = []
+                for p in params:
+                    if isinstance(p, (int, float)) and p > 1000000000:  # Unix timestamp
+                        # Keep as number, we'll use to_timestamp() in query
+                        converted_params.append(p)
+                    else:
+                        converted_params.append(p)
+                params = tuple(converted_params)
+                
+                # Replace VALUES(%s, %s, ...) to wrap timestamp params with to_timestamp()
+                # For INSERT queries with timestamp columns
+                if 'INSERT INTO' in pg_query:
+                    # Find column names in INSERT
+                    insert_match = re.search(r'INSERT INTO\s+\w+\s*\(([^)]+)\)', pg_query, re.IGNORECASE)
+                    if insert_match:
+                        columns = [c.strip() for c in insert_match.group(1).split(',')]
+                        # Build new VALUES clause with to_timestamp() for timestamp columns
+                        values_match = re.search(r'VALUES\s*\(([^)]+)\)', pg_query, re.IGNORECASE)
+                        if values_match:
+                            placeholders = values_match.group(1).split(',')
+                            new_placeholders = []
+                            for i, col in enumerate(columns):
+                                if i < len(placeholders):
+                                    placeholder = placeholders[i].strip()
+                                    if col in timestamp_cols and placeholder == '%s':
+                                        new_placeholders.append('to_timestamp(%s)')
+                                    else:
+                                        new_placeholders.append(placeholder)
+                            new_values = 'VALUES(' + ', '.join(new_placeholders) + ')'
+                            pg_query = re.sub(r'VALUES\s*\([^)]+\)', new_values, pg_query, flags=re.IGNORECASE)
+                
+                # For UPDATE queries
+                if 'UPDATE' in pg_query:
+                    for col in timestamp_cols:
+                        # Replace: column = %s with: column = to_timestamp(%s)
+                        pg_query = re.sub(f'{col}\s*=\s*%s', f'{col} = to_timestamp(%s)', pg_query)
+                
+                # For comparison operators in WHERE
+                for col in timestamp_cols:
+                    # Replace: column < %s with: column < to_timestamp(%s)
+                    pg_query = re.sub(f'{col}\s*(<|>|<=|>=|=)\s*%s', f'{col} \\1 to_timestamp(%s)', pg_query)
         
         try:
             if params:
