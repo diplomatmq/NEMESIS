@@ -218,7 +218,7 @@ async function handleMiniappPayment(
       return;
     }
 
-    const timestamp = Date.now() / 1000;
+    const timestamp = Math.floor(Date.now() / 1000);
 
     // Insert into app_star_pay and app_star_ledger, update app_players
     await db.query('BEGIN');
@@ -236,7 +236,7 @@ async function handleMiniappPayment(
         [amount, userId]
       );
 
-      // Record in ledger
+      // Record in ledger (ts is BIGINT, not auto-generated)
       await db.query(
         'INSERT INTO app_star_ledger(uid, delta, what, n, ts) VALUES($1, $2, $3, $4, $5)',
         [userId, amount, 'topup', amount, timestamp]
