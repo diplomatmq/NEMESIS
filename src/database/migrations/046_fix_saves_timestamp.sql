@@ -50,6 +50,19 @@ BEGIN
     END IF;
 END $$;
 
+-- Fix app_star_ledger.ts
+DO $$ 
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'app_star_ledger' 
+        AND column_name = 'ts' 
+        AND data_type IN ('timestamp without time zone', 'timestamp with time zone')
+    ) THEN
+        ALTER TABLE app_star_ledger ALTER COLUMN ts TYPE BIGINT USING EXTRACT(EPOCH FROM ts)::BIGINT;
+    END IF;
+END $$;
+
 -- Create missing app_raid_tries_chat table (renamed from app_raid_tries_c)
 CREATE TABLE IF NOT EXISTS app_raid_tries_chat (
     uid BIGINT NOT NULL,

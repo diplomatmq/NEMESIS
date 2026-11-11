@@ -225,6 +225,8 @@ class PostgreSQLAdapter:
                     for col in timestamp_cols:
                         # Replace: column = %s with: column = to_timestamp(%s)
                         pg_query = re.sub(f'{col}\s*=\s*%s', f'{col} = to_timestamp(%s)', pg_query)
+                        # Replace: COALESCE(%s, column) with: COALESCE(to_timestamp(%s), column)
+                        pg_query = re.sub(f'COALESCE\(\s*%s\s*,\s*{col}\s*\)', f'COALESCE(to_timestamp(%s), {col})', pg_query)
                 
                 # For comparison operators in WHERE
                 for col in timestamp_cols:
