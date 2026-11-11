@@ -83,6 +83,7 @@ async function runMigrations() {
       { name: '042_daily_market_per_user', file: '042_daily_market_per_user.sql', order: 42 },
       { name: '043_guaranteed_nft', file: '043_guaranteed_nft.sql', order: 43 },
       { name: '044_miniapp_tables', file: '044_miniapp_tables.sql', order: 44 },
+      { name: '045_add_missing_miniapp_columns', file: '045_add_missing_miniapp_columns.sql', order: 45 },
     ];
 
     const EXPECTED_MIGRATION_COUNT = 46;
