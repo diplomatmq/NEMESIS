@@ -60,6 +60,16 @@ CREATE TABLE IF NOT EXISTS app_raid_tries_chat (
     PRIMARY KEY(uid, ci, day)
 );
 
+-- Also create app_raid_tries_c as alias (some code references this name)
+CREATE TABLE IF NOT EXISTS app_raid_tries_c (
+    uid BIGINT NOT NULL,
+    ci TEXT NOT NULL,
+    day INTEGER NOT NULL,
+    n INTEGER DEFAULT 0,
+    last BIGINT DEFAULT 0,
+    PRIMARY KEY(uid, ci, day)
+);
+
 COMMENT ON TABLE app_saves IS 'Cloud saves with unix timestamps';
 COMMENT ON TABLE app_fight_log IS 'Fight logs with unix timestamps';
 COMMENT ON TABLE app_nft_drops IS 'NFT drops with unix timestamps';
