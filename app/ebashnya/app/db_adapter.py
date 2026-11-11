@@ -107,11 +107,31 @@ class PostgreSQLAdapter:
             if match:
                 table_name = match.group(1)
                 columns = [c.strip() for c in match.group(2).split(',')]
-                # Assume first column is primary key
-                pk_col = columns[0]
+                
+                # Special handling for tables with composite primary keys
+                composite_keys = {
+                    'act': ['day', 'uid'],
+                    'activity': ['day', 'uid'],
+                    'ref_hits': ['inviter', 'visitor', 'day'],
+                    'raid_hits': ['ci', 'week', 'uid'],
+                    'raid_tries_c': ['uid', 'ci', 'day'],
+                    'raid_tries': ['uid', 'day'],
+                    'raid_stats': ['uid', 'ci'],
+                    'quests': ['uid', 'day', 'quest_id'],
+                }
+                
+                # Check if this table has a composite key
+                pk_cols = composite_keys.get(table_name)
+                if pk_cols:
+                    # Use composite key
+                    pk_clause = ', '.join(pk_cols)
+                else:
+                    # Use first column as primary key
+                    pk_clause = columns[0]
+                
                 result = result.replace('INSERT OR IGNORE INTO', 'INSERT INTO')
                 # Add ON CONFLICT DO NOTHING at the end
-                result = re.sub(r'(\))\s*$', f'\\1 ON CONFLICT ({pk_col}) DO NOTHING', result)
+                result = re.sub(r'(\))\s*$', f'\\1 ON CONFLICT ({pk_clause}) DO NOTHING', result)
         
         # INSERT OR REPLACE -> INSERT ... ON CONFLICT DO UPDATE (PostgreSQL upsert)
         # Simple replacement for common pattern: INSERT OR REPLACE INTO kv(k, v) VALUES
