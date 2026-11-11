@@ -109,15 +109,17 @@ class PostgreSQLAdapter:
                 columns = [c.strip() for c in match.group(2).split(',')]
                 
                 # Special handling for tables with composite primary keys
+                # Note: table names will already have app_ prefix when this runs
                 composite_keys = {
-                    'act': ['day', 'uid'],
-                    'activity': ['day', 'uid'],
-                    'ref_hits': ['inviter', 'visitor', 'day'],
-                    'raid_hits': ['ci', 'week', 'uid'],
-                    'raid_tries_c': ['uid', 'ci', 'day'],
-                    'raid_tries': ['uid', 'day'],
-                    'raid_stats': ['uid', 'ci'],
-                    'quests': ['uid', 'day', 'quest_id'],
+                    'app_act': ['day', 'uid'],
+                    'app_activity': ['day', 'uid'],
+                    'app_ref_hits': ['inviter', 'visitor', 'day'],
+                    'app_raid_hits': ['ci', 'week', 'uid'],
+                    'app_raid_tries_c': ['uid', 'ci', 'day'],
+                    'app_raid_tries_chat': ['uid', 'ci', 'day'],
+                    'app_raid_tries': ['uid', 'day'],
+                    'app_raid_stats': ['uid', 'ci'],
+                    'app_quests': ['uid', 'day', 'quest_id'],
                 }
                 
                 # Check if this table has a composite key
