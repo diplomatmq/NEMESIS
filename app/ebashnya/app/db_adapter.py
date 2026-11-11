@@ -180,10 +180,12 @@ class PostgreSQLAdapter:
         if params:
             import re
             # Find all %s placeholders and their positions
-            # 'ts' is BIGINT in most tables, but TIMESTAMP in some (app_star_ledger, etc)
-            # We need to determine table context
-            timestamp_cols = ['first_seen', 'updated', 'seen', 'done_at', 'fought', 'created',
-                            'killed', 'ends', 'rest_at', 'reminded', 'wipe_at', 'last', 'req_ts', 'done_ts', 'reached']
+            # These columns remain as TIMESTAMP and need to_timestamp() wrapping:
+            # - first_seen, updated, seen, rest_at, reminded, wipe_at, reached (app_players)
+            # These are now DOUBLE PRECISION (unix timestamps as floats):
+            # - killed (app_raids), ends (app_raid_events), created/fought/done_at (app_duels)
+            # - last (app_raid_tries*), created/done_at (app_gr_lobby)
+            timestamp_cols = ['first_seen', 'updated', 'seen', 'rest_at', 'reminded', 'wipe_at', 'reached']
             
             # Check if any timestamp column is in the query
             has_timestamp = any(col in pg_query for col in timestamp_cols)

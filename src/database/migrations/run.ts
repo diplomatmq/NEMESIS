@@ -88,7 +88,7 @@ async function runMigrations() {
       { name: '047_add_missing_miniapp_tables', file: '047_add_missing_miniapp_tables.sql', order: 47 },
     ];
 
-    const EXPECTED_MIGRATION_COUNT = 48;
+    const EXPECTED_MIGRATION_COUNT = 49;
     if (migrations.length !== EXPECTED_MIGRATION_COUNT) {
       console.error(`❌ ERROR: Expected ${EXPECTED_MIGRATION_COUNT} migrations, but found ${migrations.length}`);
       console.error(`   This means migrations are missing from the array!`);
