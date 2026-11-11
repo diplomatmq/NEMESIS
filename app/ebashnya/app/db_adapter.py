@@ -122,6 +122,9 @@ class PostgreSQLAdapter:
                     'app_raid_stats': ['uid', 'ci'],
                     'app_quests': ['uid', 'day', 'quest_id'],
                     'app_gr_claims': ['uid', 'day', 'b'],
+                    'app_quest_claims': ['uid', 'qid', 'period'],
+                    'app_duel_paid': ['uid', 'day'],
+                    'app_ghost_offers': ['uid', 'gid'],
                 }
                 
                 # Check if this table has a composite key
@@ -257,6 +260,58 @@ class PostgreSQLAdapter:
             log.error(f"Error: {e}")
             raise
     
+    def executemany(self, query, params_list):
+        """Execute a query multiple times with different parameters."""
+        conn = self._get_connection()
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        # Add table prefix
+        prefixed_query = self._prefix_table(query)
+        
+        # Convert ? placeholders to %s for PostgreSQL
+        pg_query = prefixed_query.replace('?', '%s')
+        
+        try:
+            cursor.executemany(pg_query, params_list)
+            conn.commit()
+            return PostgreSQLCursor(cursor, conn)
+        except Exception as e:
+            conn.rollback()
+            log.error(f"Executemany failed: {pg_query[:200]}")
+            log.error(f"Error: {e}")
+            raise
+    
+    def executescript(self, script):
+        """Execute multiple SQL statements (SQLite compatibility)."""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        try:
+            # Split script by semicolons and execute each statement
+            statements = [s.strip() for s in script.split(';') if s.strip()]
+            for statement in statements:
+                cursor.execute(statement)
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            log.error(f"Executescript failed: {e}")
+            raise
+    
+    def cursor(self):
+        """Return a cursor object (SQLite compatibility)."""
+        conn = self._get_connection()
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        return PostgreSQLCursor(cursor, conn)
+    
+    @property
+    def row_factory(self):
+        """SQLite row_factory compatibility (ignored)."""
+        return None
+    
+    @row_factory.setter
+    def row_factory(self, factory):
+        """SQLite row_factory compatibility (ignored)."""
+        pass
+    
     def commit(self):
         """Commit the current transaction."""
         conn = self._get_connection()
@@ -280,6 +335,25 @@ class PostgreSQLCursor:
         self._cursor = cursor
         self._connection = connection
         self.rowcount = cursor.rowcount
+        self.lastrowid = None  # PostgreSQL doesn't have lastrowid like SQLite
+    
+    def execute(self, query, params=None):
+        """Execute a query (for cursor.execute() calls)."""
+        # This allows db.cursor().execute() pattern
+        pg_query = query.replace('?', '%s')
+        if params:
+            self._cursor.execute(pg_query, params)
+        else:
+            self._cursor.execute(pg_query)
+        self.rowcount = self._cursor.rowcount
+        return self
+    
+    def executemany(self, query, params_list):
+        """Execute many (for cursor.executemany() calls)."""
+        pg_query = query.replace('?', '%s')
+        self._cursor.executemany(pg_query, params_list)
+        self.rowcount = self._cursor.rowcount
+        return self
     
     def fetchone(self):
         """Fetch one row as tuple (SQLite compatibility)."""
@@ -297,9 +371,19 @@ class PostgreSQLCursor:
         
         if row is None:
             return None
+        
         # Convert dict to tuple for SQLite compatibility
         if isinstance(row, dict):
-            return tuple(row.values())
+            # Convert datetime objects back to unix timestamps
+            import datetime
+            converted_values = []
+            for v in row.values():
+                if isinstance(v, datetime.datetime):
+                    # Convert to unix timestamp
+                    converted_values.append(v.timestamp())
+                else:
+                    converted_values.append(v)
+            return tuple(converted_values)
         return row
     
     def fetchall(self):
@@ -307,16 +391,67 @@ class PostgreSQLCursor:
         rows = self._cursor.fetchall()
         # Convert dicts to tuples for SQLite compatibility
         if rows and isinstance(rows[0], dict):
-            return [tuple(row.values()) for row in rows]
+            import datetime
+            result = []
+            for row in rows:
+                converted_values = []
+                for v in row.values():
+                    if isinstance(v, datetime.datetime):
+                        converted_values.append(v.timestamp())
+                    else:
+                        converted_values.append(v)
+                result.append(tuple(converted_values))
+            return result
         return rows
+    
+    def fetchmany(self, size=None):
+        """Fetch many rows (SQLite compatibility)."""
+        rows = self._cursor.fetchmany(size) if size else self._cursor.fetchmany()
+        # Convert dicts to tuples
+        if rows and isinstance(rows[0], dict):
+            import datetime
+            result = []
+            for row in rows:
+                converted_values = []
+                for v in row.values():
+                    if isinstance(v, datetime.datetime):
+                        converted_values.append(v.timestamp())
+                    else:
+                        converted_values.append(v)
+                result.append(tuple(converted_values))
+            return result
+        return rows
+    
+    def close(self):
+        """Close the cursor."""
+        self._cursor.close()
     
     def __iter__(self):
         """Make cursor iterable, yielding tuples."""
+        import datetime
         for row in self._cursor:
             if isinstance(row, dict):
-                yield tuple(row.values())
+                converted_values = []
+                for v in row.values():
+                    if isinstance(v, datetime.datetime):
+                        converted_values.append(v.timestamp())
+                    else:
+                        converted_values.append(v)
+                yield tuple(converted_values)
             else:
                 yield row
+    
+    def __enter__(self):
+        """Context manager entry."""
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit."""
+        if exc_type is None:
+            self._connection.commit()
+        else:
+            self._connection.rollback()
+        return False
 
 
 # Global database instance
