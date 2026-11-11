@@ -59,6 +59,8 @@ BEGIN
         AND column_name = 'ts' 
         AND data_type IN ('timestamp without time zone', 'timestamp with time zone')
     ) THEN
+        -- Drop DEFAULT first, then change type
+        ALTER TABLE app_star_ledger ALTER COLUMN ts DROP DEFAULT;
         ALTER TABLE app_star_ledger ALTER COLUMN ts TYPE BIGINT USING EXTRACT(EPOCH FROM ts)::BIGINT;
     END IF;
 END $$;
