@@ -189,15 +189,11 @@ class PostgreSQLAdapter:
             has_timestamp = any(col in pg_query for col in timestamp_cols)
             
             # Special check for 'ts' column - only wrap in to_timestamp() for specific tables
-            # Tables where ts should be TIMESTAMP: none (all should be BIGINT now)
-            # But some tables still have TIMESTAMP ts from old migrations
-            tables_with_timestamp_ts = ['app_star_ledger']  # These need to_timestamp() for ts
-            has_timestamp_ts = any(table in pg_query for table in tables_with_timestamp_ts) and ' ts' in pg_query
+            # All tables now use BIGINT for ts (after migration 046)
+            # So we should NOT wrap ts in to_timestamp() anymore
+            has_timestamp_ts = False  # Disabled - all ts columns are now BIGINT
             
             if has_timestamp or has_timestamp_ts:
-                if has_timestamp_ts:
-                    timestamp_cols = timestamp_cols + ['ts']
-                
                 # Convert numeric params that look like unix timestamps to to_timestamp()
                 converted_params = []
                 for p in params:
