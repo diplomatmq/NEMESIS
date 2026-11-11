@@ -178,7 +178,9 @@ CREATE TABLE IF NOT EXISTS app_duels (
     kind TEXT,                                -- Type of duel: 'direct', etc.
     result TEXT,                              -- Result data
     from_claimed INTEGER DEFAULT 0,           -- Whether rewards claimed
-    declined INTEGER DEFAULT 0                -- Whether duel was declined
+    declined INTEGER DEFAULT 0,               -- Whether duel was declined
+    from_snap TEXT,                           -- Snapshot of from player state
+    to_snap TEXT                              -- Snapshot of to player state
 );
 
 CREATE INDEX IF NOT EXISTS idx_app_duels_from ON app_duels(from_uid);
@@ -225,11 +227,23 @@ CREATE TABLE IF NOT EXISTS app_nft_drops (
     id TEXT PRIMARY KEY,
     uid BIGINT NOT NULL,
     kind TEXT,
+    name TEXT,                                -- NFT name
+    room INTEGER,                             -- Room where it dropped
     ts TIMESTAMP,
     status TEXT DEFAULT 'new',
     req_ts TIMESTAMP,
     done_ts TIMESTAMP,
     link TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_app_nft_drops_uid ON app_nft_drops(uid);
+
+-- Group claims (for daily rewards)
+CREATE TABLE IF NOT EXISTS app_gr_claims (
+    uid BIGINT NOT NULL,
+    day INTEGER NOT NULL,
+    b INTEGER NOT NULL,                       -- Boss number
+    PRIMARY KEY(uid, day, b)
 );
 
 -- Activity tracking (already exists as app_activity, but code references app_act)
