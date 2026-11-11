@@ -4,6 +4,7 @@ import { InvoiceService } from '../../payment/InvoiceService';
 import { gameService } from '../../game/GameService';
 import { markdownToTelegramHtml } from '../../game/HealthBar';
 import { notifyAdmins } from './admin';
+import { db } from '../../database/db';
 
 export async function handleSuccessfulPayment(ctx: Context, invoiceService: InvoiceService) {
   if (!ctx.message?.successful_payment || !ctx.from || !ctx.chat) {
@@ -16,9 +17,10 @@ export async function handleSuccessfulPayment(ctx: Context, invoiceService: Invo
   const totalAmount = payment.total_amount; // in Stars
   const currency = payment.currency;
 
-  // Ignore miniapp payments (payload starts with "st:")
+  // Handle miniapp payments (payload starts with "st:")
   if (payload.startsWith('st:')) {
-    console.log(`🔄 Skipping miniapp payment (payload: ${payload})`);
+    console.log(`💰 Miniapp payment received from user ${ctx.from.id}: ${totalAmount} ${currency}`);
+    await handleMiniappPayment(telegramPaymentChargeId, ctx.from.id, totalAmount, currency, payload);
     return;
   }
 
@@ -120,16 +122,134 @@ export async function handleSuccessfulPayment(ctx: Context, invoiceService: Invo
 }
 
 export async function handlePreCheckoutQuery(ctx: Context) {
-  // Ignore miniapp payments (payload starts with "st:")
+  // Handle miniapp payments (payload starts with "st:")
   if (ctx.preCheckoutQuery?.invoice_payload?.startsWith('st:')) {
-    console.log(`🔄 Skipping miniapp pre-checkout (payload: ${ctx.preCheckoutQuery.invoice_payload})`);
-    // Still approve it - the miniapp server will handle it
+    const payload = ctx.preCheckoutQuery.invoice_payload;
+    const userId = ctx.preCheckoutQuery.from.id;
+    const amount = ctx.preCheckoutQuery.total_amount;
+    const currency = ctx.preCheckoutQuery.currency;
+
+    console.log(`🔍 Miniapp pre-checkout: user ${userId}, amount ${amount}, payload ${payload}`);
+
+    // Parse payload: "st:uid:amount:timestamp"
+    const parts = payload.split(':');
+    if (parts.length < 3 || parts[0] !== 'st') {
+      console.log(`❌ Invalid miniapp payment payload: ${payload}`);
+      await ctx.answerPreCheckoutQuery(false, { error_message: 'Неверный формат платежа' });
+      return;
+    }
+
+    const payloadUserId = parseInt(parts[1]);
+    const payloadAmount = parseInt(parts[2]);
+
+    // Validate
+    if (payloadUserId !== userId || payloadAmount !== amount || currency !== 'XTR') {
+      console.log(`❌ Miniapp payment validation failed`);
+      await ctx.answerPreCheckoutQuery(false, { 
+        error_message: 'Не получилось оформить покупку. Открой игру заново и попробуй ещё раз.' 
+      });
+      return;
+    }
+
+    // Check if player exists
+    const player = await db.query('SELECT 1 FROM app_players WHERE id = $1', [userId]);
+    if (player.rows.length === 0) {
+      console.log(`❌ Miniapp player not found: ${userId}`);
+      await ctx.answerPreCheckoutQuery(false, { 
+        error_message: 'Игрок не найден. Открой игру заново.' 
+      });
+      return;
+    }
+
+    console.log(`✅ Miniapp pre-checkout approved`);
     await ctx.answerPreCheckoutQuery(true);
     return;
   }
 
-  // Always approve pre-checkout for Stars payments
+  // Always approve pre-checkout for Stars payments (main bot)
   if (ctx.preCheckoutQuery) {
     await ctx.answerPreCheckoutQuery(true);
+  }
+}
+
+
+async function handleMiniappPayment(
+  chargeId: string,
+  userId: number,
+  amount: number,
+  currency: string,
+  payload: string
+): Promise<void> {
+  try {
+    // Check if payment already processed
+    const existing = await db.query(
+      'SELECT 1 FROM app_star_pay WHERE charge = $1',
+      [chargeId]
+    );
+
+    if (existing.rows.length > 0) {
+      console.log(`⚠️ Miniapp payment already processed: ${chargeId}`);
+      return;
+    }
+
+    // Parse payload: "st:uid:amount:timestamp"
+    const parts = payload.split(':');
+    if (parts.length < 3 || parts[0] !== 'st') {
+      console.log(`❌ Invalid miniapp payment payload: ${payload}`);
+      return;
+    }
+
+    const payloadUserId = parseInt(parts[1]);
+    const payloadAmount = parseInt(parts[2]);
+
+    // Validate
+    if (payloadUserId !== userId) {
+      console.log(`❌ User ID mismatch: ${userId} != ${payloadUserId}`);
+      return;
+    }
+
+    if (payloadAmount !== amount) {
+      console.log(`❌ Amount mismatch: ${amount} != ${payloadAmount}`);
+      return;
+    }
+
+    if (currency !== 'XTR') {
+      console.log(`❌ Invalid currency: ${currency}`);
+      return;
+    }
+
+    const timestamp = Date.now() / 1000;
+
+    // Insert into app_star_pay and app_star_ledger, update app_players
+    await db.query('BEGIN');
+    
+    try {
+      // Record payment
+      await db.query(
+        'INSERT INTO app_star_pay(charge, uid, n, payload, ts, refunded) VALUES($1, $2, $3, $4, $5, 0)',
+        [chargeId, userId, amount, payload, timestamp]
+      );
+
+      // Add stars to player
+      await db.query(
+        'UPDATE app_players SET stars = stars + $1 WHERE id = $2',
+        [amount, userId]
+      );
+
+      // Record in ledger
+      await db.query(
+        'INSERT INTO app_star_ledger(uid, delta, what, n, ts) VALUES($1, $2, $3, $4, $5)',
+        [userId, amount, 'topup', amount, timestamp]
+      );
+
+      await db.query('COMMIT');
+
+      console.log(`✅ Miniapp payment processed: user ${userId} received ${amount} stars`);
+    } catch (error) {
+      await db.query('ROLLBACK');
+      throw error;
+    }
+  } catch (error) {
+    console.error(`❌ Error processing miniapp payment:`, error);
   }
 }
