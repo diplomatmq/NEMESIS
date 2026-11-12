@@ -181,13 +181,13 @@ export async function handleSeasonStartCallback(ctx: Context) {
     return;
   }
 
-  if (!ADMIN_IDS.includes(ctx.from.id)) {
-    await ctx.answerCallbackQuery({ text: '❌ Доступ запрещён' });
+  const data = ctx.callbackQuery.data;
+  if (!data?.startsWith('season_start_')) {
     return;
   }
 
-  const data = ctx.callbackQuery.data;
-  if (!data?.startsWith('season_start_')) {
+  if (!ADMIN_IDS.includes(ctx.from.id)) {
+    await ctx.answerCallbackQuery({ text: '❌ Доступ запрещён' });
     return;
   }
 
