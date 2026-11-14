@@ -10,6 +10,7 @@ import { handleAchievements } from './bot/handlers/achievements';
 import { handleDbStats, handleTop, handleSeasonStart, handleSeasonStartCallback, handleAdminCommand, handleGiveItem, handleNftGive } from './bot/handlers/admin';
 import { handleSlotSpinCount, handleDiceMessage, handleSlotPayment } from './bot/handlers/slots';
 import { handleNewRef, handleRef, handleReferralCallback, handleReferralTextInput } from './bot/handlers/referral';
+import { handleBan, handleUnban, handleGoblins, handleBannedUser } from './bot/handlers/bans';
 import { InvoiceService } from './payment/InvoiceService';
 import { gameService } from './game/GameService';
 import { seasonService } from './game/SeasonService';
@@ -80,6 +81,13 @@ bot.use(async (ctx, next) => {
   );
 });
 
+// ---------------------------------------------------------------------------
+// Blocked players: the check sits before every command and action handler, so
+// a blocked player can neither play nor open the game menus. The public
+// /goblins list stays reachable for everyone.
+// ---------------------------------------------------------------------------
+bot.use(handleBannedUser);
+
 // Command handlers
 bot.command('start', handleStart);
 
@@ -134,6 +142,9 @@ bot.command('достижения', handleAchievements);
 bot.command('reset', handleReset);
 bot.command('сброс', handleReset);
 
+bot.command('goblins', handleGoblins);
+bot.command('гоблины', handleGoblins);
+
 // Admin commands
 bot.command('dbstats', handleDbStats);
 bot.command('top', handleTop);
@@ -141,6 +152,8 @@ bot.command('sstart', handleSeasonStart);
 bot.command('admin', handleAdminCommand);
 bot.command('giveitem', handleGiveItem);
 bot.command('nftgive', handleNftGive);
+bot.command('ban', handleBan);
+bot.command('unban', handleUnban);
 
 // Referral system
 bot.command('new_ref', handleNewRef);

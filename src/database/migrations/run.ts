@@ -87,9 +87,10 @@ async function runMigrations() {
       { name: '046_fix_saves_timestamp', file: '046_fix_saves_timestamp.sql', order: 46 },
       { name: '047_add_missing_miniapp_tables', file: '047_add_missing_miniapp_tables.sql', order: 47 },
       { name: '048_fix_fight_log_columns', file: '048_fix_fight_log_columns.sql', order: 48 },
+      { name: '049_player_bans', file: '049_player_bans.sql', order: 49 },
     ];
 
-    const EXPECTED_MIGRATION_COUNT = 49;
+    const EXPECTED_MIGRATION_COUNT = 50;
     if (migrations.length !== EXPECTED_MIGRATION_COUNT) {
       console.error(`❌ ERROR: Expected ${EXPECTED_MIGRATION_COUNT} migrations, but found ${migrations.length}`);
       console.error(`   This means migrations are missing from the array!`);
