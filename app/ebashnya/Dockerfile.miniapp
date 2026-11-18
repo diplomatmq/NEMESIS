@@ -6,14 +6,15 @@ WORKDIR /app
 # Install system dependencies
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-    python3-pil \
     nodejs \
     libpq-dev \
+    libjpeg-dev \
+    zlib1g-dev \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
-RUN pip install --no-cache-dir psycopg2-binary
+RUN pip install --no-cache-dir psycopg2-binary Pillow
 
 # Copy application files
 COPY app/ /app/
