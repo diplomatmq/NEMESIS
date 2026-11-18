@@ -3222,8 +3222,11 @@ def gr_mine(user):
             L = _gr_row(gid)
             if not L or uid not in L["members"]:
                 continue
-            if L["status"] == "open" and L["created"] > time.time() - GR_TTL:
-                open_.append({"id": gid, "b": L["b"], "n": len(L["members"]), "host": L["host"] == uid})
+            # keep 'fighting' in open: otherwise a refresh mid-fight clears the bar and cancels
+            # the member's watch loop, and they never get the «Подключиться» offer
+            if L["status"] in ("open", "fighting") and L["created"] > time.time() - GR_TTL:
+                open_.append({"id": gid, "b": L["b"], "n": len(L["members"]), "host": L["host"] == uid,
+                              "fighting": 1 if L["status"] == "fighting" else 0})
             elif L["status"] == "done":
                 c = db.execute("SELECT claimed FROM gr_claims WHERE uid=? AND lobby=?", (uid, gid)).fetchone()
                 try:
@@ -4172,17 +4175,78 @@ def tg_multipart(method, files, **params):
 def app_link(param=""):
     return f"https://t.me/{BOT_USERNAME}/{APP_NAME}" + (f"?startapp={param}" if param else "")
 
+_bot_card_fid = {}
+def bot_card_file_id(name):
+    """Telegram often cannot fetch WEBAPP_URL/bot/*.jpg for inline photo results (same black/empty
+    preview problem as share cards). Upload once to an admin chat and reuse file_id."""
+    key = name + ":" + BOT_CARDS_V
+    if key in _bot_card_fid:
+        return _bot_card_fid[key]
+    cached = _kv("bcfid:" + key)
+    if isinstance(cached, str) and cached:
+        _bot_card_fid[key] = cached
+        return cached
+    path = os.path.join(HERE, "public", "bot", name + ".jpg")
+    if not os.path.isfile(path):
+        return None
+    chat = next(iter(ADMIN_IDS), None)
+    if not chat:
+        return None
+    try:
+        with open(path, "rb") as fh:
+            raw = fh.read()
+        r = tg_multipart("sendPhoto", {"photo": (name + ".jpg", raw, "image/jpeg")},
+                         chat_id=chat, disable_notification=True)
+        if not r.get("ok"):
+            log.warning("bot_card upload %s: %s", name, r)
+            return None
+        msg = r.get("result") or {}
+        sizes = msg.get("photo") or []
+        fid = sizes[-1].get("file_id") if sizes else None
+        mid = msg.get("message_id")
+        if mid:
+            tg_try("deleteMessage", chat_id=chat, message_id=mid)
+        if fid:
+            _bot_card_fid[key] = fid
+            _kv("bcfid:" + key, fid)
+        return fid
+    except Exception as e:
+        log.warning("bot_card_file_id %s: %s", name, e)
+        return None
+
 def answer_inline(q):
-    """The game's «Позвать чат в игру» opens this in a chat: a picture, the game, and the way to bring the boss into a chat."""
+    """The game's «Позвать чат в игру» / «@bot raid»: invite card + way to bring a boss into a chat.
+    Prefer a cached photo_file_id; never upload during the query (Telegram drops slow answers).
+    Fall back to an article so the query never shows empty results."""
     cap = ("🔥 <b>Зову в еБашню!</b>\nПиксельная башня, где герой сам дерётся, а ты одеваешь его и лезешь всё выше.\n\n"
            "👹 Хотите общего босса на весь чат? Добавьте бота — он покажет боссов, админ выберет, и весь чат бьёт наперегонки.")
-    tg("answerInlineQuery", inline_query_id=q["id"], cache_time=60, is_personal=False, results=[{
-        "type": "photo", "id": "invite2", "photo_url": bot_card("invite"), "thumbnail_url": bot_card("invite"),
-        "title": "Позвать чат в еБашню", "description": "Приглашение в игру и босс чата",
-        "caption": cap, "parse_mode": "HTML",
-        "reply_markup": {"inline_keyboard": [[{"text": "🎮 Играть", "url": app_link()}],
-                                             [{"text": "👹 Добавить бота и призвать босса", "url": startgroup_link()}]]},
-    }])
+    kb = {"inline_keyboard": [[{"text": "🎮 Играть", "url": app_link()}],
+                              [{"text": "👹 Добавить бота и призвать босса", "url": startgroup_link()}]]}
+    key = "invite:" + BOT_CARDS_V
+    fid = _bot_card_fid.get(key)
+    if not fid:
+        cached = _kv("bcfid:" + key)
+        if isinstance(cached, str) and cached:
+            fid = _bot_card_fid[key] = cached
+    if fid:
+        results = [{"type": "photo", "id": "invite2", "photo_file_id": fid,
+                    "title": "Позвать чат в еБашню", "description": "Приглашение в игру и босс чата",
+                    "caption": cap, "parse_mode": "HTML", "reply_markup": kb}]
+    else:
+        results = [{"type": "article", "id": "invite2",
+                    "title": "Позвать чат в еБашню", "description": "Приглашение в игру и босс чата",
+                    "input_message_content": {"message_text": cap, "parse_mode": "HTML"},
+                    "reply_markup": kb}]
+        threading.Thread(target=lambda: bot_card_file_id("invite"), daemon=True).start()
+    try:
+        tg("answerInlineQuery", inline_query_id=q["id"], cache_time=10, is_personal=False, results=results)
+    except Exception as e:
+        log.warning("inline photo answer: %s", e)
+        tg("answerInlineQuery", inline_query_id=q["id"], cache_time=5, is_personal=False, results=[{
+            "type": "article", "id": "invite2",
+            "title": "Позвать чат в еБашню", "description": "Приглашение в игру и босс чата",
+            "input_message_content": {"message_text": cap, "parse_mode": "HTML"},
+            "reply_markup": kb}])
 
 CLS_RU = {"knight": "Рыцарь", "gunner": "Стрелок", "necro": "Некромант", "assassin": "Ассасин", "gladiator": "Гладиатор", "mage": "Маг",
           "samurai": "Самурай", "duelist": "Дуэлянт", "berserker": "Берсерк", "ranger": "Следопыт", "paladin": "Паладин", "monk": "Монах",
@@ -4457,6 +4521,7 @@ def bot_loop():
             log.warning("getMe: %s", e)
             time.sleep(5)
     log.info("bot @%s, Mini App link %s", BOT_USERNAME, app_link())
+    threading.Thread(target=lambda: bot_card_file_id("invite"), daemon=True).start()
     try:
         tg("setChatMenuButton", menu_button={"type": "web_app", "text": "Играть", "web_app": {"url": WEBAPP_URL}})
     except Exception as e:
@@ -4560,11 +4625,12 @@ def bot_loop():
                     continue
                 text = msg.get("text") or ""
                 first = text.split()[0] if text.split() else ""
-                if first.split("@")[0].lower() == "/start" and set(text.lower().split()[1:2]) & {"boss", "raid"} and msg.get("chat", {}).get("type") in ("group", "supergroup"):
+                if first.split("@")[0].lower() == "/start" and msg.get("chat", {}).get("type") in ("group", "supergroup"):
+                    # plain /start@bot after adding the bot (or /start boss|raid): show the boss panel
                     try:
-                        boss_command(msg)
+                        boss_command(dict(msg, text="/boss " + " ".join(text.split()[1:])))
                     except Exception as e:
-                        log.warning("/start boss: %s", e)
+                        log.warning("/start in group: %s", e)
                     continue
                 # v222: «@bot raid Андре» / «@bot босс» typed as a plain message (not picked from the inline card) calls the panel too
                 tw = text.lower().split()

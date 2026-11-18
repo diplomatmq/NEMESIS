@@ -9232,9 +9232,9 @@ async function grRefresh(){if(!(window.EmberNet&&EmberNet.tg&&EmberNet.grMine))r
 /* the group I am in, on every tab: boss, how many heroes, and a tap opens it */
 function grBarUpd(){const el=$('grBar');if(!el)return;const o=((GRM&&GRM.open)||[])[0];
   if(!o||GRS){el.hidden=true;return;}
-  const n=o.n||1,ready=o.host&&n>=2;
-  el.innerHTML=`<img src="${raidPortrait(L.grType(o.b))}" alt=""><span>${o.host?'Твоя группа':'Ты в группе'} · ${esc(grBossRu(o.b))} ${o.b} ур.<small>${n<2?'пока ты один — позови героев':ready?'можно начинать бой':'ждём, когда хост начнёт'}</small></span><b class="n">${n}/4</b><i>›</i>`;
-  el.dataset.id=o.id;el.onclick=()=>grOpen(el.dataset.id);el.hidden=false;}
+  const n=o.n||1,ready=o.host&&n>=2,fight=!!o.fighting;
+  el.innerHTML=`<img src="${raidPortrait(L.grType(o.b))}" alt=""><span>${o.host?'Твоя группа':'Ты в группе'} · ${esc(grBossRu(o.b))} ${o.b} ур.<small>${fight?'бой идёт…':n<2?'пока ты один — позови героев':ready?'можно начинать бой':'ждём, когда хост начнёт'}</small></span><b class="n">${n}/4</b><i>›</i>`;
+  el.dataset.id=o.id;el.onclick=()=>grOpen(el.dataset.id,true);el.hidden=false;}
 function grSection(){
   const on=window.EmberNet&&EmberNet.tg,M=GRM||{},done=M.done||[],bs=L.grFor(S.level);
   const rows=bs.map(b=>{const won=done.includes(b),t=L.grType(b),mine=(M.open||[]).find(o=>o.b===b),wr=won&&(M.recent||[]).find(r=>r.b===b&&r.win&&!r.test),wonId=wr?esc(wr.id):'';
@@ -9303,14 +9303,16 @@ function grLobby(v,force){
       <button class="btn" data-act="close">Скрыть</button>`:
     v.me>=0?`<p class="note">Ты в группе. Бой начнёт тот, кто её собрал. Окно можно закрыть и фармить башню: когда бой начнётся, игра предложит «Подключиться».</p><div class="row"><button class="btn" data-act="gr-share" data-id="${esc(v.id)}" data-b="${v.b}" data-link="${esc(v.link)}">Позвать ещё</button><button class="btn" data-act="gr-leave" data-id="${esc(v.id)}">Выйти</button></div><button class="btn" data-act="close">Скрыть</button>`:
     `<div class="row"><button class="btn" data-act="close">Закрыть</button><button class="btn ember" data-act="gr-join" data-id="${esc(v.id)}" ${grFits(v)?'data-focus':'disabled'}>Вступить</button></div>`}
-  </div>`,()=>{grOpenId=null;});
+  </div>`,()=>{const hid=grOpenId;grOpenId=null;grRefresh();if(hid&&v.me>=0&&v.status==='open')grBgWatch(hid);});
   grSig=v.members.map(c=>c.uid).join(',')+'|'+v.status+'|'+v.host;
   clearTimeout(grPollT);if(!closed&&v.me>=0)grPollT=setTimeout(()=>grPoll(v.id),2500);
 }
 async function grPoll(id){if(grOpenId!==id)return;const m=$('modal');if(m.hidden||!m.querySelector(`[data-gr="${id}"]`))return;
   let v=null;try{v=await EmberNet.grGet(id);}catch(e){}
   if(grOpenId!==id||!m.querySelector(`[data-gr="${id}"]`))return;
-  if(v&&v.ok){if(v.status==='done'){closeModal();grWatch(v);return;}if(v.me<0&&!v.host){closeModal();toast('Тебя больше нет в группе',null);return;}
+  if(v&&v.ok){if(v.status==='done'){closeModal();grWatch(v);return;}if(v.me<0&&!v.host){closeModal();toast('Тебя больше нет в группе',null);grRefresh();return;}
+    // host is computing the fight: keep waiting, do NOT treat it as «группа распущена»
+    if(v.status==='fighting'){const note=m.querySelector('.note');if(note)note.textContent='Бой идёт…';grPollT=setTimeout(()=>grPoll(id),1200);return;}
     if(v.status!=='open'){closeModal();toast(GR_ERR.closed,null);grRefresh();return;}
     // redraw the window only when someone came or left: no blinking every few seconds
     const sig=v.members.map(c=>c.uid).join(',')+'|'+v.status+'|'+v.host;if(sig===grSig){grPollT=setTimeout(()=>grPoll(id),2500);return;}grLobby(v);return;}
@@ -9318,10 +9320,20 @@ async function grPoll(id){if(grOpenId!==id)return;const m=$('modal');if(m.hidden
 async function grOpen(id,force){let v=null;try{v=await EmberNet.grGet(id);}catch(e){}
   if(!v||!v.ok){toast(GR_ERR.none,null);return;}grLobby(v,force);}
 /* a member who went back to the tower: the moment the host starts, he is offered the fight — «Подключиться» */
-let grWatchT=null,grPending=null;
+let grWatchT=null,grPending=null,grBgId=null,grBgT=null;
+function grBgWatch(id){grBgId=id;clearTimeout(grBgT);grBgTick(4000);}
+async function grBgTick(wait){if(!grBgId||grOpenId===grBgId){grBgId=null;return;}
+  let v=null;try{v=await EmberNet.grGet(grBgId);}catch(e){}
+  if(!grBgId||grOpenId===grBgId){grBgId=null;return;}
+  if(v&&v.ok){
+    if(v.status==='done'&&v.result&&!grSeen(v.id)){const id=grBgId;grBgId=null;grPending=v;grOffer();grRefresh();return;}
+    if(v.status==='closed'||(v.me<0&&!v.host)){grBgId=null;grRefresh();return;}
+    grBgT=setTimeout(()=>grBgTick(),v.status==='fighting'?1200:(wait||4000));return;}
+  grBgT=setTimeout(()=>grBgTick(),5000);}
 function grWatchLoop(){clearTimeout(grWatchT);const all=(GRM&&GRM.open)||[],open=all.filter(o=>!o.host);if(!all.length||!(window.EmberNet&&EmberNet.tg))return;
+  const gap=all.some(o=>o.fighting)?1500:6000;
   grWatchT=setTimeout(async()=>{for(const o of open){let v=null;try{v=await EmberNet.grGet(o.id);}catch(e){}if(v&&v.ok&&v.status==='done'&&v.result&&!grSeen(v.id))grPending=v;}
-    if(grPending)grOffer();grRefresh();},6000);}
+    if(grPending)grOffer();grRefresh();},gap);}
 function grOffer(){const v=grPending;if(!v)return;
   if(GRS||fight||busy||duel||!$('modal').hidden||grOpenId===v.id){setTimeout(grOffer,1500);return;}
   grPending=null;SFX.play('buff');
