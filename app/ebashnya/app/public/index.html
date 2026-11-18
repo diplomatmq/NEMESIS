@@ -2728,7 +2728,15 @@ window.EmberFS=(()=>{const W=window.Telegram&&window.Telegram.WebApp,tg=W&&W.ini
   N.share=async(text,image,link,button,duel)=>{
     try{
       const r=await call('/share/prepare',{text,image,link,button,duel});
-      if(r&&r.id&&tg&&at('8.0')){try{tg.shareMessage(r.id);return 'tg';}catch(e){}}
+      if(r&&r.id&&tg&&at('8.0')&&tg.shareMessage){
+        const sent=await new Promise(res=>{
+          let done=0;const fin=v=>{if(done)return;done=1;res(v);};
+          try{tg.shareMessage(r.id,ok=>fin(ok!==false&&ok!=='cancelled'));}
+          catch(e){fin(false);return;}
+          setTimeout(()=>fin('open'),20000);
+        });
+        if(sent)return 'tg';
+      }
       if(r&&r.sent){toast('Карточка с кнопкой отправлена в чат с ботом — перешли её куда нужно',UI.win);return 'sent';}
     }catch(e){}
     if(tg){tg.openTelegramLink('https://t.me/share/url?url='+encodeURIComponent(link));return 'link';}
@@ -9171,9 +9179,11 @@ function challengeCard(){
 }
 function challengeText(){const C=L.CLASSES[S.cls]||{ru:'Герой'};return `Я дошёл до ${S.maxCleared} комнаты Ебашни (${C.ru}, ${S.level} ур.). Сможешь подняться выше? Входи — по ссылке подарок на старт.`;}
 function challengeModal(){const card=challengeCard();
+  challengeModal._card=card;
   openModal(`<div class="sheet px px-gold"><h3>Вызов другу</h3><img class="ccardimg" src="${card}" alt="Карточка вызова"><p class="note">${esc(challengeText())}</p>
     <button class="btn ember" data-act="challenge-send" data-focus>${window.EmberNet&&EmberNet.tg?'Отправить в Telegram':'Поделиться / скопировать'}</button><button class="btn sm" data-act="close">Закрыть</button></div>`);}
-async function challengeSend(){const link=EmberNet.refLink(pid()),how=await EmberNet.share(challengeText(),challengeCard(),link);
+async function challengeSend(){const link=EmberNet.refLink(pid()),card=challengeModal._card||challengeCard();
+  const how=await EmberNet.share(challengeText(),card,link);
   if(how==='copied')toast('Вызов и ссылка скопированы',STAR_ICON);else if(how==='fail')toast('Не удалось поделиться',null);}
 async function refClaim(){try{const r=await EmberNet.refClaim();if(r){mats().core+=r.cores||0;persist();toast(`За друзей: +${r.skips||0} пропусков отдыха · +${r.cores||0} ядра`,TICKET_ICON);SFX.play('coin');starsRefresh();}}catch(e){}refRefresh();}
 /* ---- REST REMINDER: in-game ping, browser notification, Telegram bot message ---- */

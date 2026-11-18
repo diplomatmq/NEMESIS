@@ -1382,13 +1382,33 @@ def reminder_loop():
         except Exception as e:
             log.warning("reminder loop: %s", e)
 
+def share_photo_file_id(uid, jpeg):
+    """Put the JPEG on Telegram's servers and return file_id. sendPhoto by URL often yields a black
+    placeholder because Telegram cannot fetch WEBAPP_URL/cards/ (localhost, HTTP, or a proxy that
+    only serves the Mini App). file_id does not need a public URL. The bot-chat copy is deleted."""
+    r = tg_multipart("sendPhoto", {"photo": ("card.jpg", jpeg, "image/jpeg")},
+                     chat_id=uid, disable_notification=True)
+    if not r.get("ok"):
+        log.warning("share upload sendPhoto not ok: %s", r)
+        return None
+    msg = r.get("result") or {}
+    sizes = msg.get("photo") or []
+    fid = sizes[-1].get("file_id") if sizes else None
+    mid = msg.get("message_id")
+    if mid:
+        d = tg_try("deleteMessage", chat_id=uid, message_id=mid)
+        if not d.get("ok"):
+            log.info("share upload delete: %s", d)
+    return fid
+
 # ---------------------------------------------------------------- challenge card shared to a chat
 def share_prepare(user, body):
-    """Turn the game's card into a JPEG Telegram can fetch, and prepare a message with the "Войти в башню" button."""
+    """Turn the game's card into a JPEG Telegram already has (file_id), then prepare a message with the button."""
     if not rate_ok(user["id"], "share"):
         return SLOW(user["id"], "share")
     text, image, link = str(body.get("text", ""))[:900], str(body.get("image", "")), str(body.get("link", ""))
-    log.info("share_prepare from %s: link=%s image_prefix=%s text_len=%d", user["id"], link[:60], image[:30], len(text))
+    log.info("share_prepare from %s: link=%s image_prefix=%s text_len=%d webapp=%s",
+             user["id"], link[:60], image[:30], len(text), (WEBAPP_URL or "")[:60])
     if not link.startswith("https://t.me/") or not image.startswith("data:image/"):
         log.warning("share_prepare rejected: link_ok=%s image_ok=%s", link.startswith("https://t.me/"), image.startswith("data:image/"))
         return 400, {"ok": False}
@@ -1408,8 +1428,12 @@ def share_prepare(user, body):
             return 413, {"ok": False}
         im = im.resize((im.width * 5, im.height * 5), Image.NEAREST)
         name = hashlib.sha256(raw).hexdigest()[:24] + ".jpg"
-        im.save(os.path.join(CARDS, name), "JPEG", quality=95, subsampling=0)
-        log.info("share_prepare: card saved %s (%dx%d -> %d bytes)", name, im.width, im.height, len(raw))
+        buf = io.BytesIO()
+        im.save(buf, "JPEG", quality=95, subsampling=0)
+        jpeg = buf.getvalue()
+        with open(os.path.join(CARDS, name), "wb") as fh:
+            fh.write(jpeg)
+        log.info("share_prepare: card saved %s (%dx%d jpeg=%d from %d png)", name, im.width, im.height, len(jpeg), len(raw))
     except Exception as e:
         log.info("bad card from %s: %s", user["id"], e)
         return 400, {"ok": False}
@@ -1418,7 +1442,14 @@ def share_prepare(user, body):
     rid = ("duel_" + did) if did.isalnum() and len(did) <= 16 else name[:24]
     btn_text = {"duel": "⚔️ Принять вызов", "gr": "🛡 Вступить в группу"}.get(body.get("button"), "Войти в башню")
     kb = {"inline_keyboard": [[{"text": btn_text, "url": link}]]}
-    result = {"type": "photo", "id": rid, "photo_url": url, "thumbnail_url": url, "caption": text, "reply_markup": kb}
+    fid = share_photo_file_id(user["id"], jpeg)
+    if fid:
+        result = {"type": "photo", "id": rid, "photo_file_id": fid, "caption": text, "reply_markup": kb}
+        log.info("share_prepare: using photo_file_id")
+    else:
+        result = {"type": "photo", "id": rid, "photo_url": url, "thumbnail_url": url,
+                  "photo_width": im.width, "photo_height": im.height, "caption": text, "reply_markup": kb}
+        log.warning("share_prepare: no file_id, falling back to photo_url=%s", url)
     try:
         r = tg("savePreparedInlineMessage", user_id=user["id"], result=result,
                allow_user_chats=True, allow_group_chats=True, allow_channel_chats=True, allow_bot_chats=False)
@@ -1431,7 +1462,8 @@ def share_prepare(user, body):
     # Fallback: the pretty share needs inline mode + a fresh Telegram client. If either is missing,
     # send the photo + button straight to the player's own chat with the bot — they can forward it.
     try:
-        r = tg("sendPhoto", chat_id=user["id"], photo=url, caption=text, reply_markup=kb)
+        r = tg_multipart("sendPhoto", {"photo": ("card.jpg", jpeg, "image/jpeg")},
+                         chat_id=user["id"], caption=text, reply_markup=kb)
         if r.get("ok"):
             log.info("share fallback: sent card to user %s", user["id"])
             return 200, {"ok": True, "sent": True}
@@ -4101,6 +4133,41 @@ def tg(method, **params):
                                  data=json.dumps(params).encode(), headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=40) as r:
         return json.loads(r.read())
+
+def tg_multipart(method, files, **params):
+    """Bot API call with file parts. files: {field: (filename, bytes, content_type)}."""
+    boundary = "----EmberForm" + hashlib.md5(os.urandom(8)).hexdigest()
+    chunks = []
+    for k, v in params.items():
+        if v is None:
+            continue
+        if isinstance(v, (dict, list, bool)):
+            v = json.dumps(v)
+        else:
+            v = str(v)
+        chunks.append(f"--{boundary}\r\nContent-Disposition: form-data; name=\"{k}\"\r\n\r\n{v}\r\n".encode())
+    for name, (filename, raw, ctype) in files.items():
+        chunks.append(
+            f"--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"; filename=\"{filename}\"\r\nContent-Type: {ctype}\r\n\r\n".encode()
+        )
+        chunks.append(raw)
+        chunks.append(b"\r\n")
+    chunks.append(f"--{boundary}--\r\n".encode())
+    req = urllib.request.Request(
+        f"https://api.telegram.org/bot{BOT_TOKEN}/{method}",
+        data=b"".join(chunks),
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=40) as r:
+            return json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        try:
+            return json.loads(e.read())
+        except Exception:
+            return {"ok": False, "error_code": e.code, "description": str(e)}
+    except Exception as e:
+        return {"ok": False, "error_code": 0, "description": str(e)}
 
 def app_link(param=""):
     return f"https://t.me/{BOT_USERNAME}/{APP_NAME}" + (f"?startapp={param}" if param else "")
