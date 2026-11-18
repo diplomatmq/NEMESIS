@@ -67,6 +67,17 @@ if __name__ == "__main__":
     
     if not BOT_TOKEN:
         raise SystemExit("BOT_TOKEN is not set (see emberspire.env.example)")
+
+    if os.environ.get("EMBER_NO_BOT") == "1":
+        # With EMBER_NO_BOT the TypeScript bot does the polling, so bot_loop (which learns the @username
+        # via getMe) never runs here. Without the username app_link() builds https://t.me//eBashnya?startapp=…
+        # and no duel/share link can be opened. One getMe call is enough — no polling, no double updates.
+        try:
+            _me = server.tg("getMe")["result"]
+            server.BOT_USERNAME, server.BOT_ID = _me["username"], _me["id"]
+            log.info("bot @%s, Mini App link %s", server.BOT_USERNAME, server.app_link())
+        except Exception as e:
+            log.warning("getMe: %s", e)
     
     if os.environ.get("EMBER_NO_BOT") != "1":
         threading.Thread(target=bot_loop, daemon=True).start()

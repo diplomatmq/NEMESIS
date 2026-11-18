@@ -1415,6 +1415,9 @@ def share_prepare(user, body):
     try:
         r = tg("savePreparedInlineMessage", user_id=user["id"], result=result,
                allow_user_chats=True, allow_group_chats=True, allow_channel_chats=True, allow_bot_chats=False)
+        if not r.get("ok"):
+            log.warning("savePreparedInlineMessage not ok: %s", r)
+            return 502, {"ok": False, "reason": "tg"}
         return 200, {"id": r["result"]["id"]}
     except Exception as e:
         log.warning("savePreparedInlineMessage: %s", e)
