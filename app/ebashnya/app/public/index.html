@@ -2731,9 +2731,9 @@ window.EmberFS=(()=>{const W=window.Telegram&&window.Telegram.WebApp,tg=W&&W.ini
       if(r&&r.id&&tg&&at('8.0')){try{tg.shareMessage(r.id);return 'tg';}catch(e){}}
       if(r&&r.sent){toast('Карточка с кнопкой отправлена в чат с ботом — перешли её куда нужно',UI.win);return 'sent';}
     }catch(e){}
-    if(tg){tg.openTelegramLink('https://t.me/share/url?url='+encodeURIComponent(link)+'&text='+encodeURIComponent(text));return 'link';}
+    if(tg){tg.openTelegramLink('https://t.me/share/url?url='+encodeURIComponent(link));return 'link';}
     try{if(navigator.share){await navigator.share({text,url:link});return 'native';}}catch(e){}
-    try{await navigator.clipboard.writeText(text+'\n'+link);return 'copied';}catch(e){return 'fail';}
+    try{await navigator.clipboard.writeText(link);return 'copied';}catch(e){return 'fail';}
   };
   /* Telegram knows only users/bots/groups/channels here: an unknown type ('supergroups') made the call fail silently.
      If the card can't be offered (old Telegram, inline mode off), the plain "add the bot to a group" link does the job. */
