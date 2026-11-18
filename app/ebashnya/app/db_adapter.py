@@ -158,18 +158,33 @@ class PostgreSQLAdapter:
             if match:
                 table_name = match.group(1)
                 columns = [c.strip() for c in match.group(2).split(',')]
-                # Assume first column is primary key for ON CONFLICT
-                pk_col = columns[0]
-                # Build UPDATE SET clause
-                if len(columns) > 1:
-                    update_cols = ', '.join([f"{col} = EXCLUDED.{col}" for col in columns[1:]])
-                    result = result.replace('INSERT OR REPLACE INTO', 'INSERT INTO')
-                    # Add ON CONFLICT at the end (before any semicolon or end of string)
-                    result = re.sub(r'(\))\s*$', f'\\1 ON CONFLICT ({pk_col}) DO UPDATE SET {update_cols}', result)
+                composite_keys = {
+                    'app_act': ['day', 'uid'],
+                    'app_activity': ['day', 'uid'],
+                    'app_ref_hits': ['inviter', 'visitor', 'day'],
+                    'app_raid_hits': ['ci', 'week', 'uid'],
+                    'app_raid_tries_c': ['uid', 'ci', 'day'],
+                    'app_raid_tries_chat': ['uid', 'ci', 'day'],
+                    'app_raid_tries': ['uid', 'day'],
+                    'app_raid_stats': ['uid', 'ci'],
+                    'app_quests': ['uid', 'day', 'quest_id'],
+                    'app_gr_claims': ['uid', 'day', 'b'],
+                    'app_quest_claims': ['uid', 'qid', 'period'],
+                    'app_duel_paid': ['uid', 'day'],
+                    'app_ghost_offers': ['uid', 'gid'],
+                }
+                pk_cols = composite_keys.get(table_name)
+                if pk_cols:
+                    pk_clause = ', '.join(pk_cols)
+                    update_cols = ', '.join([f"{col} = EXCLUDED.{col}" for col in columns if col not in pk_cols])
                 else:
-                    # Only one column, just do nothing on conflict
-                    result = result.replace('INSERT OR REPLACE INTO', 'INSERT INTO')
-                    result = re.sub(r'(\))\s*$', f'\\1 ON CONFLICT ({pk_col}) DO NOTHING', result)
+                    pk_clause = columns[0]
+                    update_cols = ', '.join([f"{col} = EXCLUDED.{col}" for col in columns[1:]])
+                result = result.replace('INSERT OR REPLACE INTO', 'INSERT INTO')
+                if update_cols:
+                    result = re.sub(r'(\))\s*$', f'\\1 ON CONFLICT ({pk_clause}) DO UPDATE SET {update_cols}', result)
+                else:
+                    result = re.sub(r'(\))\s*$', f'\\1 ON CONFLICT ({pk_clause}) DO NOTHING', result)
         
         return result
     

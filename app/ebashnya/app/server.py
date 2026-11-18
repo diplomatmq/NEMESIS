@@ -1388,22 +1388,28 @@ def share_prepare(user, body):
     if not rate_ok(user["id"], "share"):
         return SLOW(user["id"], "share")
     text, image, link = str(body.get("text", ""))[:900], str(body.get("image", "")), str(body.get("link", ""))
-    if not link.startswith("https://t.me/") or not image.startswith("data:image/png;base64,"):
+    log.info("share_prepare from %s: link=%s image_prefix=%s text_len=%d", user["id"], link[:60], image[:30], len(text))
+    if not link.startswith("https://t.me/") or not image.startswith("data:image/"):
+        log.warning("share_prepare rejected: link_ok=%s image_ok=%s", link.startswith("https://t.me/"), image.startswith("data:image/"))
         return 400, {"ok": False}
     try:
         from PIL import Image
     except ImportError:
+        log.warning("share_prepare: python3-pil is not installed")
         return 503, {"ok": False, "reason": "python3-pil is not installed"}
     try:
         raw = base64.b64decode(image.split(",", 1)[1], validate=True)
         if len(raw) > 400_000:
+            log.warning("share_prepare: image too big (%d bytes)", len(raw))
             return 413, {"ok": False}
         im = Image.open(io.BytesIO(raw)).convert("RGB")
         if im.width > 1000 or im.height > 1000:
+            log.warning("share_prepare: image too large %dx%d", im.width, im.height)
             return 413, {"ok": False}
         im = im.resize((im.width * 5, im.height * 5), Image.NEAREST)
         name = hashlib.sha256(raw).hexdigest()[:24] + ".jpg"
         im.save(os.path.join(CARDS, name), "JPEG", quality=95, subsampling=0)
+        log.info("share_prepare: card saved %s (%dx%d -> %d bytes)", name, im.width, im.height, len(raw))
     except Exception as e:
         log.info("bad card from %s: %s", user["id"], e)
         return 400, {"ok": False}
@@ -1417,6 +1423,7 @@ def share_prepare(user, body):
         r = tg("savePreparedInlineMessage", user_id=user["id"], result=result,
                allow_user_chats=True, allow_group_chats=True, allow_channel_chats=True, allow_bot_chats=False)
         if r.get("ok"):
+            log.info("share_prepare: savePreparedInlineMessage ok, id=%s", r["result"]["id"])
             return 200, {"id": r["result"]["id"]}
         log.warning("savePreparedInlineMessage not ok: %s", r)
     except Exception as e:
