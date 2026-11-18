@@ -75,6 +75,12 @@ log = logging.getLogger("emberspire")
 # ---------------------------------------------------------------- storage
 db_lock = threading.Lock()
 db = sqlite3.connect(DB_PATH, check_same_thread=False)
+# v232: WAL — a commit no longer waits for the disk (fsync only at checkpoints), readers don't block the writer
+try:
+    db.execute("PRAGMA journal_mode=WAL")
+    db.execute("PRAGMA synchronous=NORMAL")
+except sqlite3.Error as e:
+    logging.getLogger("emberspire").warning("WAL not enabled: %s", e)
 db.execute("""CREATE TABLE IF NOT EXISTS players(
   id INTEGER PRIMARY KEY, name TEXT, username TEXT, cls TEXT, room INTEGER DEFAULT 0, level INTEGER DEFAULT 1,
   kills INTEGER DEFAULT 0, bosses INTEGER DEFAULT 0, wins INTEGER DEFAULT 0,
@@ -109,6 +115,8 @@ if "title" not in {r[1] for r in db.execute("PRAGMA table_info(raid_events)")}:
     db.execute("ALTER TABLE raid_events ADD COLUMN title TEXT")
 if "boss" not in {r[1] for r in db.execute("PRAGMA table_info(raid_events)")}:
     db.execute("ALTER TABLE raid_events ADD COLUMN boss TEXT")
+if "pin_mid" not in {r[1] for r in db.execute("PRAGMA table_info(raid_events)")}:
+    db.execute("ALTER TABLE raid_events ADD COLUMN pin_mid INTEGER")
 db.execute("""CREATE TABLE IF NOT EXISTS raid_tries_c(uid INTEGER, ci TEXT, day INTEGER, n INTEGER DEFAULT 0, last REAL DEFAULT 0,
   PRIMARY KEY(uid, ci, day))""")
 db.execute("""CREATE TABLE IF NOT EXISTS raid_stats(uid INTEGER, ci TEXT, dmg INTEGER DEFAULT 0, best INTEGER DEFAULT 0, hits INTEGER DEFAULT 0,
@@ -253,6 +261,7 @@ def _cls_key(c):
             return k
     return "duelist" if c.lower() == "гамблер" else ""
 
+_look_cache = {}
 def leaderboard(user, cls=""):
     """The tower's top, or (v195) the top of one class; with the list of classes that have players on the board."""
     key = _cls_key(cls)
@@ -277,9 +286,12 @@ def leaderboard(user, cls=""):
                                       (me[0], me[0], me[1])).fetchone()[0]
         rows = []
         for i, (pid, n, c, r, lv) in enumerate(top):
-            sv = _save_of(pid)          # what the hero wears, for the portraits on the podium
+            lk = _look_cache.get(pid)  # what the hero wears, for the portraits on the podium (v232: kept 20 s, a save is 20+ KB to read)
+            if not lk or time.time() - lk[0] > 20:
+                sv = _save_of(pid)
+                lk = _look_cache[pid] = (time.time(), _look(sv) if sv else None)
             rows.append({"rank": i + 1, "name": n, "cls": CLS_RU.get(c, c), "room": r, "level": lv or 0, "me": pid == user["id"], "tag": _tag(pid),
-                         "look": _look(sv) if sv else None})
+                         "look": lk[1]})
         counts = {}
         for c, n in db.execute("SELECT cls, COUNT(*) FROM players WHERE flagged=0 AND room>0 GROUP BY cls").fetchall():
             k = _cls_key(c)
@@ -525,23 +537,90 @@ def mention(uid, name, username):
         return "@" + html_esc(username)
     return f'<a href="tg://user?id={int(uid)}">{html_esc(name or "Игрок")}</a>'
 
+# ---- the results of a chat boss as a picture: the boss, the chat's total, a podium with the three best (v208)
+# public/bot/res_<boss>.png is the background drawn from the game's art (240×168, the pedestals and the crown);
+# the names and numbers are written here in the game's own pixel font (public/bot/ember_400.ttf, ember_700.ttf), then ×3.
+def _fmt(n):
+    return f"{int(n):,}".replace(",", " ")
+
+def results_card(bkey, bname, tot, top, fighters):
+    """Returns the URL of the picture, or None (no Pillow, no template): the caption then carries everything."""
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+        base = os.path.join(PUBLIC, "bot")
+        im = Image.open(os.path.join(base, f"res_{bkey}.png")).convert("RGB")
+        F = lambda w, z: ImageFont.truetype(os.path.join(base, f"ember_{w}.ttf"), z)
+        d = ImageDraw.Draw(im)
+        d.fontmode = "1"                       # no smoothing: pixels stay pixels when the picture is enlarged
+        # the font is drawn at its own pixel sizes (9 and 10) — other sizes break its letters; big text is the same text doubled
+        def text(x, y, t, w, z, col, center=False, maxw=None, big=False):
+            f = F(w, z)
+            k = 2 if big and d.textlength(t, font=f) * 2 <= (maxw or 999) else 1
+            if maxw and d.textlength(t, font=f) * k > maxw:
+                while t and d.textlength(t + "…", font=f) > maxw:
+                    t = t[:-1]
+                t += "…"
+            tw = d.textlength(t, font=f)
+            if center:
+                x -= tw * k / 2
+            if k == 1:
+                d.text((round(x), y), t, font=f, fill=col)
+                return
+            lay = Image.new("RGBA", (int(tw) + 2, z + 4), (0, 0, 0, 0))
+            ld = ImageDraw.Draw(lay)
+            ld.fontmode = "1"
+            ld.text((0, 0), t, font=f, fill=col)
+            lay = lay.resize((lay.width * 2, lay.height * 2), Image.NEAREST)
+            im.paste(lay, (round(x), y), lay)
+        text(54, 7, "ИТОГИ БИТВЫ", 700, 10, "#ff9a2e")
+        text(54, 19, bname, 700, 10, "#ffffff", maxw=180, big=True)
+        text(54, 42, f"Чат нанёс {_fmt(tot)} урона", 400, 9, "#ffd27a", maxw=180)
+        text(54, 53, f"Бойцов: {fighters}", 400, 9, "#d8ccff")
+        spots = ((120, 98, "#fff3c0", 1), (48, 112, "#ffffff", 2), (192, 120, "#ffe0c0", 3))
+        for cx, top_y, col, place in spots:
+            row = top[place - 1] if len(top) >= place else None
+            name, dmg = (row[1] or (("@" + row[2]) if row[2] else "Игрок"), row[3]) if row else ("—", None)
+            text(cx, top_y - 13, name, 700, 10 if place == 1 else 9, "#ffffff" if place == 1 else "#e8e0ff", center=True, maxw=100 if place == 1 else 70)
+            if dmg is not None:
+                text(cx, top_y + 24, _fmt(dmg), 700, 10, col, center=True, maxw=58)
+        im = im.resize((im.width * 5, im.height * 5), Image.NEAREST)
+        name = "res_" + hashlib.sha256(f"{bkey}{tot}{top}{time.time()}".encode()).hexdigest()[:20] + ".jpg"
+        im.save(os.path.join(CARDS, name), "JPEG", quality=95, subsampling=0)
+        return WEBAPP_URL + "cards/" + name
+    except Exception as e:
+        log.info("results card: %s", e)
+        return None
+
 def close_event(ci):
     with db_lock:
-        ev = db.execute("SELECT chat_id, closed FROM raid_events WHERE ci=?", (ci,)).fetchone()
+        ev = db.execute("SELECT chat_id, closed, pin_mid FROM raid_events WHERE ci=?", (ci,)).fetchone()
         if not ev or ev[1]:
             return
-        bname = RAID_BOSSES[raid_boss_of(ci, -1)][0]
+        bkey = raid_boss_of(ci, -1)
+        bname = RAID_BOSSES[bkey][0]
         db.execute("UPDATE raid_events SET closed=1 WHERE ci=?", (ci,))
         top = db.execute("""SELECT h.uid, p.name, p.username, h.dmg FROM raid_hits h LEFT JOIN players p ON p.id=h.uid
                             WHERE h.ci=? AND h.week=-1 AND h.dmg>0 ORDER BY h.dmg DESC LIMIT 10""", (ci,)).fetchall()
         tot = db.execute("SELECT COALESCE(SUM(dmg),0) FROM raid_hits WHERE ci=? AND week=-1", (ci,)).fetchone()[0]
+        fighters = db.execute("SELECT COUNT(*) FROM raid_hits WHERE ci=? AND week=-1 AND dmg>0", (ci,)).fetchone()[0]
         db.commit()
-    lines = "\n".join(f"{i + 1}. {mention(u, n, un)} — {d:,}".replace(",", " ") for i, (u, n, un, d) in enumerate(top)) or "—"
-    try:
-        tg("sendMessage", chat_id=ev[0], parse_mode="HTML",
-           text=f"🔥 Ивент окончен! {html_esc(bname)} уходит.\nЧат нанёс {tot:,} урона.\n\nЛучшие бойцы:\n{lines}".replace(",", " "))
-    except Exception as e:
-        log.info("event close message: %s", e)
+    medal = ("🥇", "🥈", "🥉")
+    lines = "\n".join((f"{medal[i]} <b>{mention(u, n, un)}</b> — <b>{d:,}</b>" if i < 3 else f"{i + 1}. {mention(u, n, un)} — {d:,}").replace(",", " ")
+                      for i, (u, n, un, d) in enumerate(top)) or "—"
+    if ev[2]:
+        tg_try("unpinChatMessage", chat_id=ev[0], message_id=ev[2])
+    if top:
+        u, n, un, d = top[0]
+        cap = (f"🏆 <b>Итоги битвы: {html_esc(bname)} уходит!</b>\n\n"
+               f"Чемпион чата — {mention(u, n, un)}: <b>{_fmt(d)}</b> урона 👑\n"
+               f"Весь чат нанёс <b>{_fmt(tot)}</b> урона, бойцов: {fighters}.\n\n{lines}\n\n"
+               f"Спасибо всем за бой! Нового босса призывает админ — /boss")
+    else:
+        cap = f"🔥 <b>{html_esc(bname)} уходит.</b> В этот раз его никто не ударил — в следующий раз зовите всех!"
+    pic = results_card(bkey, bname, tot, top, fighters) if top else None
+    r = tg_try("sendPhoto", chat_id=ev[0], photo=pic or bot_card("end_" + bkey), caption=cap[:1024], parse_mode="HTML")
+    if not r.get("ok"):
+        tg_try("sendMessage", chat_id=ev[0], parse_mode="HTML", text=cap)
 
 def _is_chat_admin(chat_id, uid):
     try:
@@ -551,6 +630,15 @@ def _is_chat_admin(chat_id, uid):
 
 def _boss_btn(chat_id):
     return [{"text": "⚔️ Бить босса", "url": app_link("rg_" + str(chat_id).replace("-", "m"))}]
+
+# pictures for the bot's messages, drawn from the game's art: public/bot/*.jpg (the ?v= makes Telegram take a new picture after a change)
+BOT_CARDS_V = "2"
+def bot_card(name):
+    return WEBAPP_URL + "bot/" + name + ".jpg?v=" + BOT_CARDS_V
+
+def startgroup_link():
+    """Add the bot to a group, asked straight away for the right to pin (the group's admin sees the switch already on)."""
+    return f"https://t.me/{BOT_USERNAME}?startgroup=boss&admin=pin_messages"
 
 def _boss_running(ci):
     """Caller holds db_lock. Hours left of the running event, or None."""
@@ -562,17 +650,60 @@ def _boss_running(ci):
 BOSS_HOURS = ((6, "6 ч"), (12, "12 ч"), (24, "24 ч"), (72, "3 дня"), (168, "7 дней"))
 
 def _boss_menu(chat_id, ci):
-    """The admin's panel: who is in the chat now, or whom to call."""
+    """The panel: who is in the chat now, or whom to call. Returns (picture, caption, keyboard)."""
     with db_lock:
         left = _boss_running(ci)
-        name = RAID_BOSSES[raid_boss_of(ci, -1)][0] if left else ""
+        key = raid_boss_of(ci, -1) if left else ""
     if left:
-        return (f"🔥 {name} уже в чате, осталось ~{left} ч.",
+        return ("boss_" + key, f"🔥 {RAID_BOSSES[key][0]} уже в чате, осталось ~{left} ч.",
                 {"inline_keyboard": [_boss_btn(chat_id), [{"text": "⛔ Закончить сейчас", "callback_data": "bs:stop"}]]})
     k = list(RAID_BOSSES)
     bt = [{"text": RAID_BOSSES[b][0], "callback_data": "bs:b:" + b} for b in k] + [{"text": "🎲 Случайный", "callback_data": "bs:b:rnd"}]
     rows = [bt[i:i + 2] for i in range(0, len(bt), 2)]
-    return "👹 Кого призываем в чат?\n\nБосс бессмертен: весь чат бьёт его наперегонки, у каждого 3 попытки в день. В конце бот покажет лучших.", {"inline_keyboard": rows}
+    if req_off(chat_id):
+        rows.append([{"text": "🔔 Разрешить запросы игроков", "callback_data": "bs:on"}])
+    return ("menu", "👹 <b>Кого призываем в чат?</b>\n\nБосс бессмертен: весь чат бьёт его наперегонки, у каждого 3 попытки в день. "
+                    "В конце бот покажет лучших.\n\nПризывает админ чата. Если ты не админ — нажми на босса, и я позову админов.",
+            {"inline_keyboard": rows})
+
+def _time_rows(b):
+    return [[{"text": t, "callback_data": f"bs:t:{b}:{h}"} for h, t in BOSS_HOURS[:3]],
+            [{"text": t, "callback_data": f"bs:t:{b}:{h}"} for h, t in BOSS_HOURS[3:]],
+            [{"text": "← Назад", "callback_data": "bs:back"}]]
+
+_panel_mid = {}
+def send_panel(chat_id, ci):
+    card, cap, kb = _boss_menu(chat_id, ci)
+    old = _panel_mid.pop(chat_id, None)
+    if old:
+        tg_try("deleteMessage", chat_id=chat_id, message_id=old)
+    r = tg_try("sendPhoto", chat_id=chat_id, photo=bot_card(card), caption=cap, parse_mode="HTML", reply_markup=kb)
+    if not r.get("ok"):
+        r = tg_try("sendMessage", chat_id=chat_id, text=cap, parse_mode="HTML", reply_markup=kb)
+    mid = (r.get("result") or {}).get("message_id")
+    if mid:
+        _panel_mid[chat_id] = mid
+
+def panel_edit(chat_id, mid, card, cap, kb):
+    """Turn the panel into another picture and buttons; an old text-only panel is replaced by a new one."""
+    r = tg_try("editMessageMedia", chat_id=chat_id, message_id=mid, reply_markup=kb,
+               media={"type": "photo", "media": bot_card(card), "caption": cap, "parse_mode": "HTML"})
+    if r.get("ok") or "not modified" in str(r.get("description", "")):
+        return
+    tg_try("deleteMessage", chat_id=chat_id, message_id=mid)
+    r = tg_try("sendPhoto", chat_id=chat_id, photo=bot_card(card), caption=cap, parse_mode="HTML", reply_markup=kb)
+    if not r.get("ok"):
+        tg_try("sendMessage", chat_id=chat_id, text=cap, parse_mode="HTML", reply_markup=kb)
+
+def _can_pin(chat_id):
+    try:
+        m = tg("getChatMember", chat_id=chat_id, user_id=BOT_ID)["result"]
+        return m.get("status") == "creator" or (m.get("status") == "administrator" and m.get("can_pin_messages"))
+    except Exception:
+        return False
+
+PIN_ASK = ("📌 Чтобы все в чате получили уведомление о боссе, сделайте меня админом с правом "
+           "<b>«Закреплять сообщения»</b>: настройки чата → Администраторы → еБашня. Больше ничего не нужно.")
 
 def start_event(chat, frm, boss, hours):
     chat_id, ci = chat["id"], "g" + str(chat["id"])
@@ -582,69 +713,178 @@ def start_event(chat, frm, boss, hours):
         if _boss_running(ci):
             return False
         db.execute("DELETE FROM raid_hits WHERE ci=? AND week=-1", (ci,))
-        db.execute("DELETE FROM raid_tries_c WHERE ci=?", (ci,))      # a new boss: everyone gets fresh tries
-        db.execute("INSERT OR REPLACE INTO raid_events(ci, chat_id, by_uid, ends, lvl, closed, title, boss) VALUES(?,?,?,?,?,0,?,?)",
+        # (tries are per player, per chat, per day: a new boss does not give them back — calling and ending bosses is no way to farm)
+        db.execute("INSERT OR REPLACE INTO raid_events(ci, chat_id, by_uid, ends, lvl, closed, title, boss, pin_mid) VALUES(?,?,?,?,?,0,?,?,NULL)",
                    (ci, chat_id, frm.get("id"), time.time() + hours * 3600, 1, (chat.get("title") or "Ивент чата")[:40], boss))
         db.commit()
+    req_clear(chat_id)
+    _panel_mid.pop(chat_id, None)
     dur = dict(BOSS_HOURS).get(hours, f"{hours} ч")
-    tg("sendMessage", chat_id=chat_id, reply_markup={"inline_keyboard": [_boss_btn(chat_id)]},
-       text=f"🔥 {display_name(frm)} призывает {RAID_BOSSES[boss][1]} на {dur}!\n\nОн бессмертен: кто набьёт больше урона? "
-            f"У каждого 3 попытки в день по 40 секунд, награда — сразу после каждого боя. В конце бот покажет лучших.")
+    cap = (f"🔥 <b>{html_esc(display_name(frm))} призывает {html_esc(RAID_BOSSES[boss][1])} на {dur}!</b>\n\n"
+           f"Он бессмертен: кто набьёт больше урона? У каждого 3 попытки в день по 40 секунд, награда — сразу после каждого боя. "
+           f"В конце бот покажет лучших.\n\n👇 Жми «Бить босса» — игра откроется сразу у этого босса.")
+    kb = {"inline_keyboard": [_boss_btn(chat_id)]}
+    r = tg_try("sendPhoto", chat_id=chat_id, photo=bot_card("boss_" + boss), caption=cap, parse_mode="HTML", reply_markup=kb)
+    if not r.get("ok"):
+        r = tg_try("sendMessage", chat_id=chat_id, text=cap, parse_mode="HTML", reply_markup=kb)
+    mid = (r.get("result") or {}).get("message_id")
+    # pinned with a notification: everyone in the chat hears that the boss has come
+    if mid:
+        p = tg_try("pinChatMessage", chat_id=chat_id, message_id=mid, disable_notification=False)
+        if p.get("ok"):
+            with db_lock:
+                db.execute("UPDATE raid_events SET pin_mid=? WHERE ci=?", (mid, ci))
+                db.commit()
+        else:
+            tg_try("sendMessage", chat_id=chat_id, text=PIN_ASK, parse_mode="HTML")
     return True
 
+# Requests of players who are not admins. Not to turn into spam:
+#  - a chat has at most one open request; another player's press only adds them to it (the message is edited, nobody is pinged again);
+#  - a new request at most every 3 hours per chat, and one per player per day;
+#  - the request disappears when an admin calls a boss, or after 6 hours;
+#  - the admins can switch requests off with one button (and on again in the panel).
+REQ_LIFE, REQ_GAP, REQ_USER_GAP = 6 * 3600, 3 * 3600, 24 * 3600
+def _kv(k, v=None, delete=False):
+    with db_lock:
+        if delete:
+            db.execute("DELETE FROM kv WHERE k=?", (k,)); db.commit(); return None
+        if v is None:
+            r = db.execute("SELECT v FROM kv WHERE k=?", (k,)).fetchone()
+            try:
+                return json.loads(r[0]) if r else None
+            except ValueError:
+                return None
+        db.execute("INSERT OR REPLACE INTO kv(k, v) VALUES(?,?)", (k, json.dumps(v, ensure_ascii=False))); db.commit()
+
+def req_off(chat_id):
+    return bool(_kv(f"bsoff:{chat_id}"))
+
+def req_clear(chat_id):
+    """An admin answered (or the request grew old): the request message goes away."""
+    q = _kv(f"bsreq:{chat_id}")
+    if q:
+        if q.get("mid"):
+            tg_try("deleteMessage", chat_id=chat_id, message_id=q["mid"])
+        _kv(f"bsreq:{chat_id}", delete=True)
+
+def _req_caption(q):
+    n = len(q["who"])
+    names = ", ".join(html_esc(x) for x in q["names"][:5]) + (f" и ещё {n - 5}" if n > 5 else "")
+    bname = RAID_BOSSES[q["boss"]][1] if q["boss"] in RAID_BOSSES else "босса"
+    return (f"🙋 <b>Игроки просят призвать в чат {html_esc(bname)}</b>\n"
+            f"Хотят: {names}" + (f" ({n})" if n > 1 else "") + "\n\n"
+            f"{q.get('ping') or 'Админы'}, выберите, на сколько его позвать — или нажмите «Не просить», чтобы запросы больше не приходили.")
+
+def ask_admins(chat_id, frm, boss):
+    """A player who is not an admin pressed a boss. Returns the line for the player's pop-up."""
+    if req_off(chat_id):
+        return "Админы этого чата отключили запросы. Попроси их призвать босса самих."
+    now, uid = time.time(), frm.get("id")
+    q = _kv(f"bsreq:{chat_id}")
+    if q and now - q.get("ts", 0) > REQ_LIFE:
+        req_clear(chat_id); q = None
+    if q:
+        if uid in q["who"]:
+            return "Ты уже в запросе — ждём админов."
+        q["who"].append(uid); q["names"].append(display_name(frm))
+        _kv(f"bsreq:{chat_id}", q)
+        tg_try("editMessageCaption", chat_id=chat_id, message_id=q["mid"], caption=_req_caption(q), parse_mode="HTML",
+               reply_markup=_req_kb(q["boss"]))
+        return f"Добавил тебя к запросу — уже {len(q['who'])} хотят босса."
+    last = _kv(f"bslast:{chat_id}") or {}
+    if now - last.get("ts", 0) < REQ_GAP:
+        return "Запрос в этом чате уже был недавно. Попробуй позже или попроси админа."
+    if now - (last.get("u") or {}).get(str(uid), 0) < REQ_USER_GAP:
+        return "Ты уже просил сегодня. Новый запрос — завтра."
+    try:
+        adm = [m["user"] for m in tg("getChatAdministrators", chat_id=chat_id)["result"] if not m["user"].get("is_bot")][:5]
+    except Exception:
+        adm = []
+    q = {"boss": boss if boss in RAID_BOSSES or boss == "rnd" else "rnd", "who": [uid], "names": [display_name(frm)], "ts": now,
+         "ping": " ".join(mention(a["id"], a.get("first_name") or "админ", a.get("username")) for a in adm)}
+    card = "boss_" + q["boss"] if q["boss"] in RAID_BOSSES else "menu"
+    r = tg_try("sendPhoto", chat_id=chat_id, photo=bot_card(card), caption=_req_caption(q), parse_mode="HTML", reply_markup=_req_kb(q["boss"]))
+    if not r.get("ok"):
+        r = tg_try("sendMessage", chat_id=chat_id, text=_req_caption(q), parse_mode="HTML", reply_markup=_req_kb(q["boss"]))
+    q["mid"] = (r.get("result") or {}).get("message_id")
+    _kv(f"bsreq:{chat_id}", q)
+    us = {k: v for k, v in (last.get("u") or {}).items() if now - v < REQ_USER_GAP}
+    us[str(uid)] = now
+    _kv(f"bslast:{chat_id}", {"ts": now, "u": us})
+    return "Призывает админ чата — я позвал админов 👇"
+
+def _req_kb(boss):
+    rows = _time_rows(boss)[:2]
+    return {"inline_keyboard": rows + [[{"text": "🔕 Не просить", "callback_data": "bs:off"}]]}
+
+_panel_at = {}
 def boss_command(msg):
-    """/boss in a group, by its creator or an admin: buttons to pick the boss and the time.
-    The old typed form still works: «/boss 12 дерув», «/boss стоп»."""
+    """/boss in a group (or the bot's own /start boss when it is added): the panel with pictures.
+    Anyone can open it; the buttons call the boss for an admin, and call the admins for anyone else.
+    The old typed form still works for admins: «/boss 12 дерув», «/boss стоп»."""
     chat, frm = msg["chat"], msg.get("from") or {}
     chat_id, ci = chat["id"], "g" + str(chat["id"])
-    if not _is_chat_admin(chat_id, frm.get("id")):
-        tg("sendMessage", chat_id=chat_id, reply_to_message_id=msg.get("message_id"), text="Призвать босса может только создатель или админ чата.")
+    words = [w.lower() for w in (msg.get("text") or "").split()[1:] if w.lower() not in ("boss", "raid")]
+    if words and _is_chat_admin(chat_id, frm.get("id")):
+        if any(w in ("стоп", "stop", "конец", "end") for w in words):
+            with db_lock:
+                run = db.execute("SELECT 1 FROM raid_events WHERE ci=? AND closed=0", (ci,)).fetchone()
+            if run:
+                close_event(ci)
+                return
+        else:
+            hours, boss = 24, None
+            for w in words:
+                if w.isdigit():
+                    hours = max(1, min(168, int(w)))
+                else:
+                    boss = next((k for k, v in RAID_BOSSES.items() if any(w.startswith(x) for x in v[2])), boss)
+            if start_event(chat, frm, boss or "rnd", hours):
+                return
+    gap = 20 if _is_chat_admin(chat_id, frm.get("id")) else 600   # anyone may open the panel, but not flood the chat with it
+    if time.time() - _panel_at.get(chat_id, 0) < gap:
         return
-    words = [w.lower() for w in (msg.get("text") or "").split()[1:]]
-    if any(w in ("стоп", "stop", "конец", "end") for w in words):
-        with db_lock:
-            run = db.execute("SELECT 1 FROM raid_events WHERE ci=? AND closed=0", (ci,)).fetchone()
-        if run:
-            close_event(ci)
-            return
-    elif words:
-        hours, boss = 24, None
-        for w in words:
-            if w.isdigit():
-                hours = max(1, min(168, int(w)))
-            else:
-                boss = next((k for k, v in RAID_BOSSES.items() if any(w.startswith(x) for x in v[2])), boss)
-        if start_event(chat, frm, boss or "rnd", hours):
-            return
-    text, kb = _boss_menu(chat_id, ci)
-    tg("sendMessage", chat_id=chat_id, text=text, reply_markup=kb)
+    _panel_at[chat_id] = time.time()
+    send_panel(chat_id, ci)
 
 def boss_callback(cq):
-    """The buttons of the /boss panel: bs:b:<boss> → the time, bs:t:<boss>:<hours> → the boss comes, bs:stop, bs:back."""
+    """The buttons of the panel: bs:b:<boss> → the time, bs:t:<boss>:<hours> → the boss comes, bs:stop, bs:back."""
     m = cq.get("message") or {}
     chat, frm = m.get("chat") or {}, cq.get("from") or {}
     chat_id, mid, ci = chat.get("id"), m.get("message_id"), "g" + str(chat.get("id"))
-    if not _is_chat_admin(chat_id, frm.get("id")):
-        tg_try("answerCallbackQuery", callback_query_id=cq["id"], text="Это кнопки для админов чата", show_alert=True)
-        return
     parts = (cq.get("data") or "").split(":")
+    if not _is_chat_admin(chat_id, frm.get("id")):
+        if parts[1] in ("b", "t"):
+            line = ask_admins(chat_id, frm, parts[2] if len(parts) > 2 else "rnd")
+        else:
+            line = "Эта кнопка — для админов чата."
+        tg_try("answerCallbackQuery", callback_query_id=cq["id"], text=line, show_alert=True)
+        return
+    if parts[1] == "off":
+        _kv(f"bsoff:{chat_id}", 1)
+        req_clear(chat_id)
+        tg_try("answerCallbackQuery", callback_query_id=cq["id"], text="Запросы игроков отключены. Включить — в панели /boss.", show_alert=True)
+        return
+    if parts[1] == "on":
+        _kv(f"bsoff:{chat_id}", delete=True)
+        tg_try("answerCallbackQuery", callback_query_id=cq["id"], text="Игроки снова могут просить босса")
+        card, cap, kb = _boss_menu(chat_id, ci)
+        panel_edit(chat_id, mid, card, cap, kb)
+        return
     if parts[1] == "b":
         b = parts[2]
         name = "Случайный босс" if b == "rnd" else RAID_BOSSES.get(b, ("?",))[0]
-        rows = [[{"text": t, "callback_data": f"bs:t:{b}:{h}"} for h, t in BOSS_HOURS[:3]],
-                [{"text": t, "callback_data": f"bs:t:{b}:{h}"} for h, t in BOSS_HOURS[3:]],
-                [{"text": "← Назад", "callback_data": "bs:back"}]]
         tg_try("answerCallbackQuery", callback_query_id=cq["id"])
-        tg_try("editMessageText", chat_id=chat_id, message_id=mid, text=f"👹 {name}. На сколько призываем?", reply_markup={"inline_keyboard": rows})
+        panel_edit(chat_id, mid, "menu" if b == "rnd" else "boss_" + b, f"👹 <b>{html_esc(name)}</b>. На сколько призываем?", {"inline_keyboard": _time_rows(b)})
         return
     if parts[1] == "t":
-        hours = max(1, min(168, as_int(parts[3], 24)))
+        hours = as_int(parts[3], 1, 168)      # (before v208 this read «at least 24»: 6 and 12 hours became a day)
         ok = start_event(chat, frm, parts[2], hours)
         tg_try("answerCallbackQuery", callback_query_id=cq["id"], text="Босс призван!" if ok else "Босс уже в чате")
         tg_try("deleteMessage", chat_id=chat_id, message_id=mid)
         if not ok:
-            text, kb = _boss_menu(chat_id, ci)
-            tg_try("sendMessage", chat_id=chat_id, text=text, reply_markup=kb)
+            send_panel(chat_id, ci)
         return
     if parts[1] == "stop":
         tg_try("answerCallbackQuery", callback_query_id=cq["id"], text="Босс уходит")
@@ -652,27 +892,66 @@ def boss_callback(cq):
         close_event(ci)
         return
     tg_try("answerCallbackQuery", callback_query_id=cq["id"])
-    text, kb = _boss_menu(chat_id, ci)
-    tg_try("editMessageText", chat_id=chat_id, message_id=mid, text=text, reply_markup=kb)
+    card, cap, kb = _boss_menu(chat_id, ci)
+    panel_edit(chat_id, mid, card, cap, kb)
 
 def bot_joined(msg):
-    """The bot was added to a group: say how the boss is called."""
-    tg_try("sendMessage", chat_id=msg["chat"]["id"],
-           text="Привет! Я еБашня 🔥\n\nАдмины чата могут призвать сюда общего босса — весь чат бьёт его наперегонки. "
-                "Нажми кнопку ниже или отправь /boss.",
-           reply_markup={"inline_keyboard": [[{"text": "👹 Призвать босса", "callback_data": "bs:back"}]]})
+    """The bot was added to a group: hello, the right to pin (so everyone hears about the boss), and the panel straight away."""
+    chat_id = msg["chat"]["id"]
+    text = ("Привет! Я еБашня 🔥\n\nАдмины чата могут призвать сюда общего босса — весь чат бьёт его наперегонки, "
+            "а я покажу лучших. Выбирай босса прямо здесь 👇")
+    if not _can_pin(chat_id):
+        text += "\n\n" + PIN_ASK
+    tg_try("sendMessage", chat_id=chat_id, text=text, parse_mode="HTML")
+    _panel_at[chat_id] = time.time()
+    send_panel(chat_id, "g" + str(chat_id))
+
+def bot_rights(upd):
+    """my_chat_member: the bot was made an admin with the right to pin — say thanks once."""
+    ch, new, old = upd.get("chat") or {}, upd.get("new_chat_member") or {}, upd.get("old_chat_member") or {}
+    if ch.get("type") not in ("group", "supergroup"):
+        return
+    could = old.get("status") == "creator" or (old.get("status") == "administrator" and old.get("can_pin_messages"))
+    can = new.get("status") == "administrator" and new.get("can_pin_messages")
+    if can and not could:
+        tg_try("sendMessage", chat_id=ch["id"], text="📌 Спасибо! Теперь буду закреплять босса — весь чат получит уведомление, когда он придёт.")
 
 # ---------------------------------------------------------------- admin notice shown to everyone above the room
+REST_DEFAULT = 300            # v233: seconds of rest after a fight until the owner sets another value in the admin panel
+def rest_seconds():
+    """Caller may or may not hold db_lock: reads only."""
+    r = db.execute("SELECT v FROM kv WHERE k='rest_s'").fetchone()
+    try:
+        return max(0, min(86400, int(r[0]))) if r else REST_DEFAULT
+    except (ValueError, TypeError):
+        return REST_DEFAULT
+
 def notice_get():
     with db_lock:
         r = db.execute("SELECT v FROM kv WHERE k='notice'").fetchone()
+        rest = rest_seconds()
     try:
         n = json.loads(r[0]) if r else None
     except ValueError:
         n = None
     if not n or n.get("until", 0) < time.time():
-        return 200, {"text": ""}
-    return 200, {"text": n.get("text", ""), "ts": n.get("ts", 0)}
+        return 200, {"text": "", "rest": rest}
+    return 200, {"text": n.get("text", ""), "ts": n.get("ts", 0), "rest": rest}
+
+def rest_cfg_set(user, body):
+    if user["id"] not in ADMIN_IDS:
+        return 403, {"ok": False}
+    try:
+        sec = int(round(float(body.get("sec"))))
+    except (ValueError, TypeError):
+        return 400, {"ok": False, "reason": "число"}
+    if not 0 <= sec <= 86400:
+        return 400, {"ok": False, "reason": "от 0 до 24 ч"}
+    with db_lock:
+        db.execute("INSERT OR REPLACE INTO kv(k, v) VALUES('rest_s', ?)", (str(sec),))
+        db.commit()
+    log.info("rest set by %s: %s s", user["id"], sec)
+    return 200, {"ok": True, "sec": sec}
 
 def notice_set(user, body):
     if user["id"] not in ADMIN_IDS:
@@ -780,7 +1059,7 @@ def season_close():
         except Exception as e:
             log.info("season post to %s: %s", cid, e)
     for i, (u, n, un, r) in enumerate(top):
-        _tell(u, f"🏆 Ты занял {i + 1} место в сезоне {S['n']} Пепельного Шпиля!" + (f"\nПриз: {pz[i]}" if pz[i] else "") +
+        _tell(u, f"🏆 Ты занял {i + 1} место в сезоне {S['n']} Ебашни!" + (f"\nПриз: {pz[i]}" if pz[i] else "") +
               "\nОрганизатор свяжется с тобой.")
 
 # ---------------------------------------------------------------- cloud save
@@ -846,6 +1125,25 @@ def _wipe_of(uid):
 
 _WIPE_COLS = "room=0, level=1, kills=0, bosses=0, wins=0, reached=NULL"
 
+# everything the game shows about a player goes with the wipe: raid damage and places in every chat, tries, quests,
+# group rewards, duels, ghosts. Kept: stars and what was bought with them, NFT gifts, referrals, the fight log for /stats.
+_WIPE_TABLES = [("raid_stats", "uid"), ("raid_hits", "uid"), ("raid_tries", "uid"), ("raid_tries_c", "uid"),
+                ("quest_claims", "uid"), ("gr_claims", "uid"), ("ghost_offers", "uid")]
+
+def _wipe_rows(uid):
+    """Caller holds db_lock. uid None = everyone."""
+    for t, col in _WIPE_TABLES:
+        if uid is None:
+            db.execute(f"DELETE FROM {t}")
+        else:
+            db.execute(f"DELETE FROM {t} WHERE {col}=?", (uid,))
+    if uid is None:
+        db.execute("DELETE FROM duels")
+        db.execute("DELETE FROM raids WHERE week>=0")      # weekly chat bosses start again at full health
+        db.execute("DELETE FROM kv WHERE k LIKE 'qb:%'")
+    else:
+        db.execute("DELETE FROM duels WHERE from_uid=? OR to_uid=?", (uid, uid))
+
 def wipe_player(uid):
     ts = time.time() * 1000
     with db_lock:
@@ -853,6 +1151,7 @@ def wipe_player(uid):
         db.execute("DELETE FROM saves WHERE uid=?", (uid,))
         db.execute("DELETE FROM kv WHERE k LIKE ?", (f"qb:{uid}:%",))
         db.execute("DELETE FROM ac_state WHERE uid=?", (uid,))
+        _wipe_rows(uid)
         db.commit()
     log.warning("wipe: player %s", uid)
 
@@ -865,6 +1164,7 @@ def wipe_all():
         db.execute("DELETE FROM saves")
         db.execute("DELETE FROM kv WHERE k LIKE 'qb:%'")
         db.execute("DELETE FROM ac_state")
+        _wipe_rows(None)
         db.commit()
     log.warning("wipe: EVERYONE (%s saves)", n)
     return n
@@ -893,6 +1193,47 @@ def admin_wipe(user, body):
         return 404, {"ok": False, "reason": "not found"}
     wipe_player(r[0])
     return 200, {"ok": True, "name": r[1], "username": r[2], "room": r[3]}
+
+def admin_player(user, qs):
+    """v219 admin panel: one player's card by @nick or id."""
+    if user["id"] not in ADMIN_IDS:
+        return 403, {"ok": False}
+    with db_lock:
+        r = find_player((qs.get("who") or [""])[0])
+        if not r:
+            return 404, {"ok": False, "reason": "not found"}
+        uid = r[0]
+        x = db.execute("SELECT name, username, cls, room, level, stars, skips, seen, first_seen, flagged FROM players WHERE id=?", (uid,)).fetchone()
+        given = db.execute("SELECT COALESCE(SUM(n),0) FROM star_ledger WHERE uid=? AND what='admin-skips'", (uid,)).fetchone()[0]
+        bought = db.execute("SELECT COALESCE(SUM(n),0) FROM star_ledger WHERE uid=? AND what='skips'", (uid,)).fetchone()[0]
+    return 200, {"ok": True, "p": {"id": uid, "name": x[0], "username": x[1], "cls": x[2], "room": x[3], "level": x[4], "stars": x[5] or 0,
+                                   "skips": x[6] or 0, "seen": x[7] or 0, "first": x[8] or 0, "flagged": x[9] or 0,
+                                   "given": given, "bought": bought}}
+
+def admin_skips(user, body):
+    """v219 admin panel: give (or take back, n<0) rest skips; the player may be told in the bot."""
+    if user["id"] not in ADMIN_IDS:
+        return 403, {"ok": False}
+    n = as_int(body.get("n"), -100000, 100000)
+    if not n:
+        return 400, {"ok": False, "reason": "n"}
+    with db_lock:
+        r = find_player(body.get("who"))
+        if not r:
+            return 404, {"ok": False, "reason": "not found"}
+        uid = r[0]
+        db.execute("UPDATE players SET skips=MAX(0, skips+?) WHERE id=?", (n, uid))
+        db.execute("INSERT INTO star_ledger(uid, delta, what, n, ts) VALUES(?,?,?,?,?)", (uid, 0, "admin-skips", n, time.time()))
+        db.commit()
+        left = db.execute("SELECT skips FROM players WHERE id=?", (uid,)).fetchone()[0]
+    log.info("admin %s: skips %+d to %s", user["id"], n, uid)
+    if body.get("tell") and n > 0:
+        try:
+            tg("sendMessage", chat_id=uid, text=f"🎁 Тебе начислено пропусков отдыха: {n}. Теперь их {left} — герой может драться без отдыха.",
+               reply_markup={"inline_keyboard": [[{"text": "Войти в башню", "web_app": {"url": WEBAPP_URL}}]]})
+        except Exception as e:
+            log.info("skips note to %s not sent: %s", uid, e)
+    return 200, {"ok": True, "skips": left, "n": n, "name": r[1], "username": r[2]}
 
 def wipe_command(msg):
     """/сброс @ник (or id): the owner sees who it is and confirms with a button."""
@@ -988,6 +1329,12 @@ def save_put(user, body):
         if cur and gen > cur_gen:
             _restart_hero(user["id"], data, cur[2])
         db.execute("INSERT OR REPLACE INTO saves(uid, data, score, ts) VALUES(?,?,?,?)", (user["id"], raw, score, ts))
+        # v222: the top shows the class the hero plays now — a class change without a new record used to leave the old one there
+        nc = str(data.get("cls") or "")
+        if nc in CLS_RU:
+            pc = db.execute("SELECT cls FROM players WHERE id=?", (user["id"],)).fetchone()
+            if pc and _cls_key(pc[0] or "") != nc:
+                db.execute("UPDATE players SET cls=? WHERE id=?", (CLS_RU[nc], user["id"]))
         if dev:
             _kv_set(f"sdev:{user['id']}", dev)       # which device wrote last: another device starting up takes this save as it is
         if sid:
@@ -1054,9 +1401,9 @@ def share_prepare(user, body):
         im = Image.open(io.BytesIO(raw)).convert("RGB")
         if im.width > 1000 or im.height > 1000:
             return 413, {"ok": False}
-        im = im.resize((im.width * 3, im.height * 3), Image.NEAREST)
+        im = im.resize((im.width * 5, im.height * 5), Image.NEAREST)
         name = hashlib.sha256(raw).hexdigest()[:24] + ".jpg"
-        im.save(os.path.join(CARDS, name), "JPEG", quality=90)
+        im.save(os.path.join(CARDS, name), "JPEG", quality=95, subsampling=0)
     except Exception as e:
         log.info("bad card from %s: %s", user["id"], e)
         return 400, {"ok": False}
@@ -1064,7 +1411,7 @@ def share_prepare(user, body):
     did = str(body.get("duel") or "")
     rid = ("duel_" + did) if did.isalnum() and len(did) <= 16 else name[:24]
     result = {"type": "photo", "id": rid, "photo_url": url, "thumbnail_url": url, "caption": text,
-              "reply_markup": {"inline_keyboard": [[{"text": "⚔️ Принять вызов" if body.get("button") == "duel" else "Войти в башню", "url": link}]]}}
+              "reply_markup": {"inline_keyboard": [[{"text": {"duel": "⚔️ Принять вызов", "gr": "🛡 Вступить в группу"}.get(body.get("button"), "Войти в башню"), "url": link}]]}}
     try:
         r = tg("savePreparedInlineMessage", user_id=user["id"], result=result,
                allow_user_chats=True, allow_group_chats=True, allow_channel_chats=True, allow_bot_chats=False)
@@ -1114,7 +1461,8 @@ RL = {                       # action: (times, seconds)
     "duel_new": (10, 3600), "duel_direct": (1, 15), "duel_answer": (30, 60),
     "gr_new": (6, 600), "gr_join": (20, 60), "gr_public": (8, 600), "gr_start": (10, 60), "gr_kick": (20, 60),
     "share": (12, 60), "duel_card": (12, 60), "ghost": (20, 60),
-    "gr_notify": (3, 3600),  # a host may call players by bot message to three groups an hour (admins too)
+    "gr_notify": (3, 3600),
+    "skip": (150, 60),       # v216: rest skips on their own (autofarm catching up spends about one a second)  # a host may call players by bot message to three groups an hour (admins too)
 }
 def rate_ok(uid, key, now=None):
     """True and counted when the player may do this now; False when he has done it too often lately."""
@@ -1261,17 +1609,20 @@ class _ACWorker:
                     self.p = None
             return None
 AC = _ACWorker()
-ac_queue = queue.Queue()
+ac_queue = queue.PriorityQueue()        # (due time, uid)
 _ac_waiting = set()
+AC_MIN_GAP = 30          # v232: one player is checked at most once per this many seconds (a save comes every 6 s)
+_ac_last, _ac_ts = {}, {}
 
 def ac_mode():
     r = db.execute("SELECT v FROM kv WHERE k='ac_mode'").fetchone()
     return r[0] if r and r[0] in ("watch", "enforce") else "watch"
 
 def ac_enqueue(uid, ts):
+    _ac_ts[uid] = ts                     # the check reads the newest save anyway: its time is the one that counts
     if uid not in _ac_waiting:
         _ac_waiting.add(uid)
-        ac_queue.put((uid, ts))
+        ac_queue.put((_ac_last.get(uid, 0) + AC_MIN_GAP, uid))
 
 def _ac_dur(sec):
     return (f"{int(sec // 3600)} ч {int(sec % 3600 // 60)} мин" if sec >= 3600 else
@@ -1391,8 +1742,15 @@ def ac_digest_loop():
 
 def ac_loop():
     while True:
-        uid, ts = ac_queue.get()
+        due, uid = ac_queue.get()
+        wait = due - time.time()
+        if wait > 0:
+            ac_queue.put((due, uid))
+            time.sleep(min(wait, 0.5))
+            continue
         _ac_waiting.discard(uid)
+        ts = _ac_ts.get(uid) or time.time()
+        _ac_last[uid] = time.time()
         try:
             ac_check(uid, ts)
         except Exception as e:
@@ -1583,7 +1941,7 @@ def _duel_msgs(did):
 
 def _duel_caption(R):
     w, l = (R["from"], R["to"]) if R["win"] == 0 else (R["to"], R["from"])
-    cls = {"knight": "Рыцарь", "gunner": "Стрелок", "necro": "Некромант", "assassin": "Ассасин", "gladiator": "Гладиатор"}.get(w.get("cls"), "Герой")
+    cls = {"knight": "Рыцарь", "gunner": "Стрелок", "necro": "Некромант", "assassin": "Ассасин", "gladiator": "Гладиатор", "mage": "Маг", "samurai": "Самурай"}.get(w.get("cls"), "Герой")
     return f"🏆 Победитель дуэли: {w.get('name', 'Игрок')} ({cls}, {w.get('level', '?')} ур.)\n⚔️ {w.get('name', 'Игрок')} против {l.get('name', 'Игрок')}"
 
 def duel_announce(did, R, photo=None):
@@ -1620,9 +1978,9 @@ def duel_card(user, body):
         if len(raw) > 400_000:
             return 413, {"ok": False}
         im = Image.open(io.BytesIO(raw)).convert("RGB")
-        im = im.resize((im.width * 3, im.height * 3), Image.NEAREST)
+        im = im.resize((im.width * 5, im.height * 5), Image.NEAREST)
         name = hashlib.sha256(raw).hexdigest()[:24] + ".jpg"
-        im.save(os.path.join(CARDS, name), "JPEG", quality=90)
+        im.save(os.path.join(CARDS, name), "JPEG", quality=95, subsampling=0)
     except Exception as e:
         log.info("bad duel card: %s", e)
         return 400, {"ok": False}
@@ -2117,15 +2475,28 @@ def luck_info(user):
         used = as_int((db.execute("SELECT v FROM kv WHERE k=?", (f"luck:{user['id']}:{day_id()}",)).fetchone() or ("0",))[0])
     return 200, {"left": LUCK_LIMIT - used, "limit": LUCK_LIMIT}
 
-def stars_skip(user):
-    """One bought rest skip is used: the hero may fight right now."""
+def stars_skip(user, body=None):
+    """One bought rest skip is used: the hero may fight right now.
+    v216: the game sends a one-time key {n}; the same key again (a retry after a lost answer) is answered «ok» without a
+    second charge. Skips have their own rate limit (autofarm catching up spends one a second), apart from the general one."""
+    uid, key = user["id"], str((body or {}).get("n") or "")[:40]
+    if not rate_ok(uid, "skip"):
+        with db_lock:
+            st = _stars_state(uid)
+        return 200, dict(st, ok=False, reason="slow")
     with db_lock:
-        cur = db.execute("UPDATE players SET skips=skips-1 WHERE id=? AND skips>0", (user["id"],))
+        if key:
+            r = db.execute("SELECT v FROM kv WHERE k=?", (f"skipn:{uid}",)).fetchone()
+            if r and r[0] == key:
+                return 200, dict(_stars_state(uid), ok=True, again=True)
+        cur = db.execute("UPDATE players SET skips=skips-1 WHERE id=? AND skips>0", (uid,))
         ok = cur.rowcount == 1
         if ok:
-            db.execute("INSERT INTO star_ledger(uid, delta, what, n, ts) VALUES(?,?,?,?,?)", (user["id"], 0, "skip-used", 1, time.time()))
+            db.execute("INSERT INTO star_ledger(uid, delta, what, n, ts) VALUES(?,?,?,?,?)", (uid, 0, "skip-used", 1, time.time()))
+            if key:
+                db.execute("INSERT OR REPLACE INTO kv(k, v) VALUES(?,?)", (f"skipn:{uid}", key))
         db.commit()
-        st = _stars_state(user["id"])
+        st = _stars_state(uid)
     return 200, dict(st, ok=ok)
 
 # ---------------------------------------------------------------- quests: the «Задания» tab
@@ -2229,6 +2600,10 @@ def _q_list(uid):
         n = prog.get(qid, 0)
         out.append({"id": qid, "daily": daily, "title": title, "goal": goal, "n": min(n, goal), "done": n >= goal,
                     "claimed": (qid, per) in claimed, "reward": _q_reward(uid, rw)})
+        if qid == "a_channel" and n < goal:
+            w = _chan_wait(uid)
+            if w is not None:
+                out[-1]["wait"] = w
     return {"quests": out, "resetAt": int(q_day_start(day + 1) * 1000), "wbase": _qbase(uid), "ebase": _qbase_f(uid, "ekills"), "bbase": _qbase_f(uid, "bkills")}
 
 def quests_get(user):
@@ -2239,22 +2614,76 @@ def quests_get(user):
 
 CHANNEL = os.environ.get("CHANNEL", "@yourebashnya")
 
-def quest_channel(user):
-    """«Подписаться на канал»: the bot asks Telegram whether the player is in the channel.
-    If the bot can't see the channel's members (it is not an admin there), the tap on the link is enough."""
-    uid, ok, why = user["id"], False, ""
+CHAN_WAIT = 300   # v219: a found subscription counts after 5 minutes and a second look — not for a tap on the link
+
+def _chan_member(uid):
+    """True / False from Telegram, None when the bot can't see the channel (it must be an admin there)."""
     try:
         r = tg("getChatMember", chat_id=CHANNEL, user_id=uid)
-        ok = (r.get("result") or {}).get("status") in ("member", "administrator", "creator", "restricted")
-        why = "not member" if not ok else ""
+        return (r.get("result") or {}).get("status") in ("member", "administrator", "creator", "restricted")
     except Exception as e:
-        log.info("channel check for %s: %s", uid, e)
-        ok, why = True, "unchecked"
-    if ok:
-        with db_lock:
-            db.execute("INSERT OR REPLACE INTO kv(k, v) VALUES(?,?)", (f"chan:{uid}", "1"))
+        log.warning("channel check for %s failed (is the bot an admin of %s?): %s", uid, CHANNEL, e)
+        return None
+
+def _chan_wait(uid):
+    """Seconds left of the 5-minute check, or None. Caller holds db_lock."""
+    r = db.execute("SELECT v FROM kv WHERE k=?", (f"chan_p:{uid}",)).fetchone()
+    return None if not r else max(0, int(float(r[0]) + CHAN_WAIT - time.time()))
+
+def quest_channel(user):
+    """«Подписаться на канал»: the bot asks Telegram whether the player is in the channel. A subscription that is found
+    starts a 5-minute wait («в процессе»); after it the bot looks again and only then the quest is done — a player who
+    opened the channel and came back without subscribing, or unsubscribed at once, gets nothing."""
+    uid = user["id"]
+    with db_lock:
+        if db.execute("SELECT 1 FROM kv WHERE k=?", (f"chan:{uid}",)).fetchone():
+            return 200, {"ok": True}
+    m = _chan_member(uid)
+    if m is None:
+        return 200, {"ok": False, "reason": "unchecked"}
+    with db_lock:
+        if not m:
+            db.execute("DELETE FROM kv WHERE k=?", (f"chan_p:{uid}",))
             db.commit()
-    return 200, {"ok": ok, "reason": why}
+            return 200, {"ok": False, "reason": "not member"}
+        left = _chan_wait(uid)
+        if left is None:
+            db.execute("INSERT OR REPLACE INTO kv(k, v) VALUES(?,?)", (f"chan_p:{uid}", str(time.time())))
+            left = CHAN_WAIT
+        if left > 0:
+            db.commit()
+            return 200, {"ok": False, "reason": "pending", "wait": left}
+        db.execute("DELETE FROM kv WHERE k=?", (f"chan_p:{uid}",))
+        db.execute("INSERT OR REPLACE INTO kv(k, v) VALUES(?,?)", (f"chan:{uid}", "1"))
+        db.commit()
+    return 200, {"ok": True}
+
+def chan_loop():
+    """The 5 minutes are up: look again; still subscribed — the quest is done and the bot says the reward waits,
+    unsubscribed — the wait is dropped and the bot says so."""
+    while True:
+        time.sleep(20)
+        try:
+            with db_lock:
+                due = [(int(k.split(":")[1]), float(v)) for k, v in db.execute("SELECT k, v FROM kv WHERE k LIKE 'chan_p:%'")
+                       if float(v) + CHAN_WAIT <= time.time()]
+            for uid, _ in due:
+                m = _chan_member(uid)
+                if m is None:
+                    continue
+                with db_lock:
+                    db.execute("DELETE FROM kv WHERE k=?", (f"chan_p:{uid}",))
+                    if m:
+                        db.execute("INSERT OR REPLACE INTO kv(k, v) VALUES(?,?)", (f"chan:{uid}", "1"))
+                    db.commit()
+                text = ("✅ Подписка на канал подтверждена! Награда за задание ждёт в игре: «Задания» → «Забрать»." if m else
+                        "Подписки на канал не видно — задание «Подписаться на канал» не засчитано. Подпишись и нажми «Перейти» ещё раз.")
+                try:
+                    tg("sendMessage", chat_id=uid, text=text, reply_markup={"inline_keyboard": [[{"text": "Войти в башню", "web_app": {"url": WEBAPP_URL}}]]})
+                except Exception as e:
+                    log.info("channel note to %s not sent: %s", uid, e)
+        except Exception as e:
+            log.warning("chan loop: %s", e)
 
 def quests_claim(user, body):
     qid = str(body.get("id", ""))
@@ -2262,6 +2691,11 @@ def quests_claim(user, body):
     if not q:
         return 400, {"ok": False, "reason": "quest"}
     uid = user["id"]
+    if qid == "a_channel" and _chan_member(uid) is False:   # took the check and left the channel: back to the start
+        with db_lock:
+            db.execute("DELETE FROM kv WHERE k IN (?,?)", (f"chan:{uid}", f"chan_p:{uid}"))
+            db.commit()
+        return 200, {"ok": False, "reason": "left"}
     with db_lock:
         prog = _q_progress(uid)
         if prog.get(qid, 0) < q[3]:
@@ -3000,6 +3434,7 @@ def nft_stats_line():
 
 # ---------------------------------------------------------------- http
 BOT_USERNAME = ""
+BOT_ID = 0
 
 # ---- brotli for the game page (v196): Python has no brotli of its own, Node (already here for duels) does it once per version
 _br_cache, _br_busy, _br_lock = {}, set(), threading.Lock()
@@ -3169,6 +3604,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(*gr_mine(u))
             if path == "/api/gr/list":
                 return self.send_json(*gr_list(u))
+            if path == "/api/admin/player":
+                return self.send_json(*admin_player(u, urllib.parse.parse_qs(url.query)))
             if path == "/api/admin/dash":
                 return self.send_json(*dash_data(u, urllib.parse.parse_qs(url.query)))
             if path == "/api/ghost":
@@ -3235,7 +3672,7 @@ class Handler(BaseHTTPRequestHandler):
         u, f = self.signed()
         if not u:
             return self.send_json(401, {"ok": False, "reason": "not signed in"})
-        if path not in ("/api/stars/invoice",) and not rate_ok(u["id"], "post"):
+        if path not in ("/api/stars/invoice", "/api/stars/skip") and not rate_ok(u["id"], "post"):
             return self.send_json(429, {"ok": False, "reason": "slow"})
         is_new = ensure_player(u)
         body = self.body(600_000 if path in ("/api/share/prepare", "/api/duel/card") else 2_000_000 if path == "/api/save" else 16_384 if path == "/api/ev" else 4096)
@@ -3253,14 +3690,16 @@ class Handler(BaseHTTPRequestHandler):
             "/api/session/ping": lambda: session_ping(u, body),
             "/api/quests/channel": lambda: quest_channel(u),
             "/api/admin/notice": lambda: notice_set(u, body),
+            "/api/admin/rest": lambda: rest_cfg_set(u, body),
             "/api/admin/wipe": lambda: admin_wipe(u, body),
+            "/api/admin/skips": lambda: admin_skips(u, body),
             "/api/admin/season": lambda: season_set(u, body),
             "/api/admin/ac": lambda: ac_admin_set(u, body),
             "/api/stars/topup": lambda: stars_topup(u, body),
             "/api/stars/invoice": lambda: stars_invoice(u, body),
             "/api/admin/stars": lambda: stars_mode(u, body),
             "/api/stars/buy": lambda: stars_buy(u, body),
-            "/api/stars/skip": lambda: stars_skip(u),
+            "/api/stars/skip": lambda: stars_skip(u, body),
             "/api/luck": lambda: luck_spin(u, body),
             "/api/luck/info": lambda: luck_info(u),
             "/api/quests/claim": lambda: quests_claim(u, body),
@@ -3647,15 +4086,15 @@ def app_link(param=""):
     return f"https://t.me/{BOT_USERNAME}/{APP_NAME}" + (f"?startapp={param}" if param else "")
 
 def answer_inline(q):
-    """The game's "Позвать группу" button opens this in a group: an invitation into the game.
-    The chat's boss itself is called only by the chat's creator or an admin with /boss."""
+    """The game's «Позвать чат в игру» opens this in a chat: a picture, the game, and the way to bring the boss into a chat."""
+    cap = ("🔥 <b>Зову в еБашню!</b>\nПиксельная башня, где герой сам дерётся, а ты одеваешь его и лезешь всё выше.\n\n"
+           "👹 Хотите общего босса на весь чат? Добавьте бота — он покажет боссов, админ выберет, и весь чат бьёт наперегонки.")
     tg("answerInlineQuery", inline_query_id=q["id"], cache_time=60, is_personal=False, results=[{
-        "type": "article", "id": "invite", "title": "Позвать чат в еБашню",
-        "description": "Приглашение в игру; босса чата призывает админ командой /boss",
-        "input_message_content": {"message_text":
-            "Зову в еБашню — пиксельную башню, где герой сам дерётся, а ты одеваешь его и лезешь всё выше!\n\n"
-            f"Админ чата может призвать сюда общего босса командой /boss@{BOT_USERNAME} — тогда весь чат бьёт его наперегонки."},
-        "reply_markup": {"inline_keyboard": [[{"text": "Зайти в еБашню!", "url": app_link()}]]},
+        "type": "photo", "id": "invite2", "photo_url": bot_card("invite"), "thumbnail_url": bot_card("invite"),
+        "title": "Позвать чат в еБашню", "description": "Приглашение в игру и босс чата",
+        "caption": cap, "parse_mode": "HTML",
+        "reply_markup": {"inline_keyboard": [[{"text": "🎮 Играть", "url": app_link()}],
+                                             [{"text": "👹 Добавить бота и призвать босса", "url": startgroup_link()}]]},
     }])
 
 CLS_RU = {"knight": "Рыцарь", "gunner": "Стрелок", "necro": "Некромант", "assassin": "Ассасин", "gladiator": "Гладиатор", "mage": "Маг",
@@ -3919,12 +4358,13 @@ def broadcast_run(job, chat, mid):
         bc_running.clear()
 
 def bot_loop():
-    global BOT_USERNAME
+    global BOT_USERNAME, BOT_ID
     if not WEBAPP_URL:
         log.warning("WEBAPP_URL is empty: the bot will not offer the game button")
     for _ in range(10):
         try:
-            BOT_USERNAME = tg("getMe")["result"]["username"]
+            me = tg("getMe")["result"]
+            BOT_USERNAME, BOT_ID = me["username"], me["id"]
             break
         except Exception as e:
             log.warning("getMe: %s", e)
@@ -3964,7 +4404,7 @@ def bot_loop():
     offset = 0
     while True:
         try:
-            res = tg("getUpdates", offset=offset, timeout=30, allowed_updates=["message", "inline_query", "chosen_inline_result", "callback_query", "pre_checkout_query"])
+            res = tg("getUpdates", offset=offset, timeout=30, allowed_updates=["message", "my_chat_member", "inline_query", "chosen_inline_result", "callback_query", "pre_checkout_query"])
             for upd in res.get("result", []):
                 offset = upd["update_id"] + 1
                 if upd.get("pre_checkout_query"):
@@ -4020,6 +4460,12 @@ def bot_loop():
                     except Exception as e:
                         log.warning("inline answer: %s", e)
                     continue
+                if upd.get("my_chat_member"):
+                    try:
+                        bot_rights(upd["my_chat_member"])
+                    except Exception as e:
+                        log.warning("my_chat_member: %s", e)
+                    continue
                 msg = upd.get("message") or {}
                 if any((u.get("username") or "").lower() == (BOT_USERNAME or "").lower() for u in msg.get("new_chat_members") or []) \
                         and msg.get("chat", {}).get("type") in ("group", "supergroup"):
@@ -4027,6 +4473,21 @@ def bot_loop():
                     continue
                 text = msg.get("text") or ""
                 first = text.split()[0] if text.split() else ""
+                if first.split("@")[0].lower() == "/start" and set(text.lower().split()[1:2]) & {"boss", "raid"} and msg.get("chat", {}).get("type") in ("group", "supergroup"):
+                    try:
+                        boss_command(msg)
+                    except Exception as e:
+                        log.warning("/start boss: %s", e)
+                    continue
+                # v222: «@bot raid Андре» / «@bot босс» typed as a plain message (not picked from the inline card) calls the panel too
+                tw = text.lower().split()
+                if BOT_USERNAME and tw and tw[0] == "@" + BOT_USERNAME.lower() and len(tw) > 1 and tw[1] in ("raid", "boss", "рейд", "босс") \
+                        and msg.get("chat", {}).get("type") in ("group", "supergroup"):
+                    try:
+                        boss_command(dict(msg, text=" ".join(["/boss"] + text.split()[2:])))
+                    except Exception as e:
+                        log.warning("@bot boss: %s", e)
+                    continue
                 if first.split("@")[0].lower() == "/boss" and ("@" not in first or first.split("@", 1)[1].lower() == (BOT_USERNAME or "").lower()) \
                         and msg.get("chat", {}).get("type") in ("group", "supergroup"):
                     try:
@@ -4083,7 +4544,7 @@ def bot_loop():
                         db.commit()
                 if (msg.get("text") or "").startswith("/start") and msg.get("chat", {}).get("type") == "private":
                     tg("sendMessage", chat_id=msg["chat"]["id"],
-                       text="Башня Emberspire ждёт. Выбери героя и поднимайся всё выше: на каждом десятом этаже элита, на каждом пятидесятом — босс.",
+                       text="Ебашня ждёт. Выбери героя и поднимайся всё выше: на каждом десятом этаже элита, на каждом пятидесятом — босс.",
                        reply_markup={"inline_keyboard": [[{"text": "Войти в башню", "web_app": {"url": WEBAPP_URL}}]]})
         except Exception as e:
             log.warning("bot polling: %s", e)
@@ -4125,6 +4586,7 @@ if __name__ == "__main__":
     if os.environ.get("EMBER_NO_BOT") != "1":
         threading.Thread(target=bot_loop, daemon=True).start()
         threading.Thread(target=reminder_loop, daemon=True).start()
+        threading.Thread(target=chan_loop, daemon=True).start()
         threading.Thread(target=events_loop, daemon=True).start()
     threading.Thread(target=housekeeping_loop, daemon=True).start()
     def _br_warm():
@@ -4144,4 +4606,9 @@ if __name__ == "__main__":
     if os.environ.get("EMBER_NO_BOT") != "1":
         threading.Thread(target=ac_digest_loop, daemon=True).start()
     log.info("Emberspire on 127.0.0.1:%s, game folder %s", PORT, PUBLIC)
-    ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
+    # v231: the standard backlog is 5 waiting connections — under a burst (a few hundred players at once) the rest were
+    # refused and Caddy answered 502. 256 waiting connections, and request threads never hold the process at exit.
+    class _Server(ThreadingHTTPServer):
+        request_queue_size = 256
+        daemon_threads = True
+    _Server(("127.0.0.1", PORT), Handler).serve_forever()

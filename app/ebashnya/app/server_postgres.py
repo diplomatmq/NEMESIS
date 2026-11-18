@@ -60,7 +60,7 @@ if __name__ == "__main__":
     import threading
     import time
     from server import (
-        bot_loop, reminder_loop, events_loop, housekeeping_loop,
+        bot_loop, reminder_loop, chan_loop, events_loop, housekeeping_loop,
         ac_loop, ac_scan, ac_digest_loop, ThreadingHTTPServer, Handler,
         BOT_TOKEN, PORT, PUBLIC, log
     )
@@ -71,6 +71,7 @@ if __name__ == "__main__":
     if os.environ.get("EMBER_NO_BOT") != "1":
         threading.Thread(target=bot_loop, daemon=True).start()
         threading.Thread(target=reminder_loop, daemon=True).start()
+        threading.Thread(target=chan_loop, daemon=True).start()
         threading.Thread(target=events_loop, daemon=True).start()
     
     threading.Thread(target=housekeeping_loop, daemon=True).start()
@@ -101,5 +102,9 @@ if __name__ == "__main__":
         threading.Thread(target=ac_digest_loop, daemon=True).start()
     
     log.info("Emberspire on 0.0.0.0:%s, game folder %s", PORT, PUBLIC)
-    # Listen on 0.0.0.0 instead of 127.0.0.1 for Docker
-    ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
+    # Listen on 0.0.0.0 instead of 127.0.0.1 for Docker.
+    # Same tuning as server.py's own main block (v231): 256 waiting connections, daemon request threads.
+    class _Server(ThreadingHTTPServer):
+        request_queue_size = 256
+        daemon_threads = True
+    _Server(("0.0.0.0", PORT), Handler).serve_forever()

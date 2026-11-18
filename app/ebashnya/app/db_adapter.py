@@ -63,6 +63,10 @@ class PostgreSQLAdapter:
                 """
                 return pg_query
         
+        # PRAGMA journal_mode / synchronous are SQLite tuning knobs with no PostgreSQL equivalent
+        if query.strip().upper().startswith(('PRAGMA JOURNAL_MODE', 'PRAGMA SYNCHRONOUS')):
+            return "SELECT 1"
+
         # This is a simple approach - for production, consider using proper SQL parsing
         # Common table names from the original SQLite schema
         tables = [
@@ -96,6 +100,11 @@ class PostgreSQLAdapter:
         result = result.replace('REAL DEFAULT 0', 'DOUBLE PRECISION DEFAULT 0')
         result = result.replace('REAL', 'TIMESTAMP')
         
+        # SQLite scalar MAX(a, b) / MIN(a, b) -> PostgreSQL GREATEST / LEAST
+        import re
+        result = re.sub(r'\bMAX\s*\(\s*([^(),]+?)\s*,\s*([^()]+?)\s*\)', r'GREATEST(\1, \2)', result, flags=re.IGNORECASE)
+        result = re.sub(r'\bMIN\s*\(\s*([^(),]+?)\s*,\s*([^()]+?)\s*\)', r'LEAST(\1, \2)', result, flags=re.IGNORECASE)
+
         # AUTOINCREMENT -> SERIAL (PostgreSQL auto-increment)
         result = result.replace('INTEGER PRIMARY KEY AUTOINCREMENT', 'SERIAL PRIMARY KEY')
         result = result.replace('AUTOINCREMENT', '')
