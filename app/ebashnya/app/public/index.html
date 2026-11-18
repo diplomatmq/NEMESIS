@@ -2726,7 +2726,11 @@ window.EmberFS=(()=>{const W=window.Telegram&&window.Telegram.WebApp,tg=W&&W.ini
   N.starsSkip=k=>Promise.race([call('/stars/skip',{x:1,n:k||''}),new Promise((_,no)=>setTimeout(()=>no(new Error('timeout')),15000))]);
   /* a prepared message carries the card and the "Войти в башню" button; plain share link is the fallback */
   N.share=async(text,image,link,button,duel)=>{
-    if(tg&&at('8.0')){try{const r=await call('/share/prepare',{text,image,link,button,duel});if(r&&r.id){tg.shareMessage(r.id);return 'tg';}}catch(e){}}
+    try{
+      const r=await call('/share/prepare',{text,image,link,button,duel});
+      if(r&&r.id&&tg&&at('8.0')){try{tg.shareMessage(r.id);return 'tg';}catch(e){}}
+      if(r&&r.sent){toast('Карточка с кнопкой отправлена в чат с ботом — перешли её куда нужно',UI.win);return 'sent';}
+    }catch(e){}
     if(tg){tg.openTelegramLink('https://t.me/share/url?url='+encodeURIComponent(link)+'&text='+encodeURIComponent(text));return 'link';}
     try{if(navigator.share){await navigator.share({text,url:link});return 'native';}}catch(e){}
     try{await navigator.clipboard.writeText(text+'\n'+link);return 'copied';}catch(e){return 'fail';}

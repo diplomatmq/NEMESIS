@@ -1410,18 +1410,28 @@ def share_prepare(user, body):
     url = WEBAPP_URL + "cards/" + name
     did = str(body.get("duel") or "")
     rid = ("duel_" + did) if did.isalnum() and len(did) <= 16 else name[:24]
-    result = {"type": "photo", "id": rid, "photo_url": url, "thumbnail_url": url, "caption": text,
-              "reply_markup": {"inline_keyboard": [[{"text": {"duel": "⚔️ Принять вызов", "gr": "🛡 Вступить в группу"}.get(body.get("button"), "Войти в башню"), "url": link}]]}}
+    btn_text = {"duel": "⚔️ Принять вызов", "gr": "🛡 Вступить в группу"}.get(body.get("button"), "Войти в башню")
+    kb = {"inline_keyboard": [[{"text": btn_text, "url": link}]]}
+    result = {"type": "photo", "id": rid, "photo_url": url, "thumbnail_url": url, "caption": text, "reply_markup": kb}
     try:
         r = tg("savePreparedInlineMessage", user_id=user["id"], result=result,
                allow_user_chats=True, allow_group_chats=True, allow_channel_chats=True, allow_bot_chats=False)
-        if not r.get("ok"):
-            log.warning("savePreparedInlineMessage not ok: %s", r)
-            return 502, {"ok": False, "reason": "tg"}
-        return 200, {"id": r["result"]["id"]}
+        if r.get("ok"):
+            return 200, {"id": r["result"]["id"]}
+        log.warning("savePreparedInlineMessage not ok: %s", r)
     except Exception as e:
         log.warning("savePreparedInlineMessage: %s", e)
-        return 502, {"ok": False}
+    # Fallback: the pretty share needs inline mode + a fresh Telegram client. If either is missing,
+    # send the photo + button straight to the player's own chat with the bot — they can forward it.
+    try:
+        r = tg("sendPhoto", chat_id=user["id"], photo=url, caption=text, reply_markup=kb)
+        if r.get("ok"):
+            log.info("share fallback: sent card to user %s", user["id"])
+            return 200, {"ok": True, "sent": True}
+        log.warning("share fallback sendPhoto not ok: %s", r)
+    except Exception as e:
+        log.warning("share fallback sendPhoto: %s", e)
+    return 502, {"ok": False, "reason": "tg"}
 
 def cards_cleanup():
     cutoff = time.time() - 14 * 86400
