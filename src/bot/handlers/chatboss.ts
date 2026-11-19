@@ -36,8 +36,16 @@ export async function handleBossCommand(ctx: Context) {
 
     if (isAdmin) {
       // Admin can directly summon the boss
+      // The mini app reads start_param/startapp to detect raid context
+      // Format: rg_<chat_id> where negative IDs become rg_m123 (m instead of -)
+      const chatId = ctx.chat.id;
+      const startParam = chatId < 0 ? `rg_m${Math.abs(chatId)}` : `rg_${chatId}`;
+      
+      // Build URL with startapp parameter for deep linking
+      const deepLinkUrl = `https://t.me/${process.env.BOT_USERNAME || 'your_bot'}/${process.env.APP_NAME || 'game'}?startapp=${startParam}`;
+      
       const keyboard = new InlineKeyboard()
-        .url('⚔️ Бить босса!', raidUrl)
+        .url('⚔️ Бить босса!', deepLinkUrl)
         .row()
         .text('📊 Статистика', `chat_boss:stats:${ctx.from.id}`);
 

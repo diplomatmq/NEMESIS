@@ -6,139 +6,51 @@ import { PlayerProgressModel } from '../../database/models/PlayerProgress';
 
 /**
  * Handle inline queries like @ebashnya дуэль
- * This allows users to share boss fight invitations in group chats
+ * Simple invite card - like in Python bot
  */
 export async function handleInlineQuery(ctx: Context) {
   if (!ctx.from || !ctx.inlineQuery) return;
 
-  const query = ctx.inlineQuery.query.toLowerCase().trim();
-  const results: InlineQueryResult[] = [];
-
   try {
-    // Get user info
-    const user = await UserModel.findByTelegramId(ctx.from.id);
-    if (!user) {
-      // Show message that user needs to start the bot first
-      results.push({
-        type: 'article',
-        id: 'need_start',
-        title: '❌ Начните игру',
-        description: 'Сначала отправьте /start боту в личном чате',
-        input_message_content: {
-          message_text: '❌ Для использования игры сначала отправьте /start боту в личном чате',
-        },
-      });
-      await ctx.answerInlineQuery(results, {
-        cache_time: 0,
-        is_personal: true,
-      });
-      return;
-    }
+    const botUsername = process.env.BOT_USERNAME || 'your_bot';
+    const appName = process.env.APP_NAME || 'game';
+    
+    // Deep link to open the game
+    const gameLink = `https://t.me/${botUsername}/${appName}`;
+    
+    // Deep link to add bot to group and summon boss
+    const addBotLink = `https://t.me/${botUsername}?startgroup=boss&admin=pin_messages`;
 
-    // Check if query is about raid/дуэль/boss
-    const isRaidQuery = 
-      query.includes('raid') || 
-      query.includes('дуэль') || 
-      query.includes('дуел') ||
-      query.includes('босс') ||
-      query.includes('boss') ||
-      query === '';
+    const caption = 
+      `🔥 <b>Зову в NEMESIS Tower!</b>\n` +
+      `Пиксельная башня, где герой сам дерётся, а ты одеваешь его и лезешь всё выше.\n\n` +
+      `👹 Хотите общего босса на весь чат? Добавьте бота — он покажет боссов, админ выберет, и весь чат бьёт наперегонки.`;
 
-    if (isRaidQuery) {
-      // Get user's current progress to show their level
-      const season = await SeasonModel.getCurrentSeason();
-      let userLevel = 1;
-      
-      if (season) {
-        const progress = await PlayerProgressModel.find(user.id, season.id);
-        userLevel = progress?.level || 1;
-      }
-      
-      const keyboard = new InlineKeyboard()
-        .text('⚔️ Вызвать босса!', `chat_boss:start:${ctx.from.id}`)
-        .row()
-        .text('📊 Статистика', `chat_boss:stats:${ctx.from.id}`);
+    const keyboard = new InlineKeyboard()
+      .url('🎮 Играть', gameLink)
+      .row()
+      .url('👹 Добавить бота и призвать босса', addBotLink);
 
-      results.push({
-        type: 'article',
-        id: 'boss_fight',
-        title: '⚔️ Вызвать босса в чат',
-        description: 'Сразитесь с боссом всем чатом!',
-        thumbnail_url: 'https://img.icons8.com/fluency/96/sword.png',
-        input_message_content: {
-          message_text: 
-            `⚔️ <b>ВЫЗОВ БОССА!</b>\n\n` +
-            `👤 ${ctx.from.first_name || 'Игрок'} (Ур. ${userLevel}) бросает вызов!\n\n` +
-            `🎯 Присоединяйтесь к битве!\n` +
-            `💪 Чем больше игроков - тем выше награды!\n\n` +
-            `⚡ Нажмите кнопку ниже, чтобы начать бой!`,
-          parse_mode: 'HTML',
-        },
-        reply_markup: keyboard,
-      });
-
-      results.push({
-        type: 'article',
-        id: 'boss_invite',
-        title: '👥 Пригласить друзей',
-        description: 'Пригласите друзей в игру',
-        thumbnail_url: 'https://img.icons8.com/fluency/96/add-user-group-man-man.png',
-        input_message_content: {
-          message_text: 
-            `🎮 <b>Приглашение в NEMESIS Tower!</b>\n\n` +
-            `${ctx.from.first_name || 'Игрок'} приглашает вас в эпическую RPG-игру прямо в Telegram!\n\n` +
-            `⚔️ Сражайтесь с боссами\n` +
-            `🏆 Прокачивайте персонажа\n` +
-            `💎 Собирайте легендарные предметы\n` +
-            `👥 Играйте с друзьями в групповых чатах!\n\n` +
-            `🚀 Начните игру: /start`,
-          parse_mode: 'HTML',
-        },
-      });
-    }
-
-    // If no results matched, show help
-    if (results.length === 0) {
-      results.push({
-        type: 'article',
-        id: 'help',
-        title: '❓ Доступные команды',
-        description: 'Попробуйте: дуэль, raid, босс',
-        input_message_content: {
-          message_text: 
-            `📋 <b>Доступные inline команды:</b>\n\n` +
-            `⚔️ <code>@${ctx.me.username} дуэль</code> - вызвать босса в чат\n` +
-            `⚔️ <code>@${ctx.me.username} raid</code> - вызвать босса в чат\n` +
-            `⚔️ <code>@${ctx.me.username} босс</code> - вызвать босса в чат\n` +
-            `👥 <code>@${ctx.me.username}</code> - просто оставьте пустым для выбора`,
-          parse_mode: 'HTML',
-        },
-      });
-    }
+    const results: InlineQueryResult[] = [{
+      type: 'article',
+      id: 'invite',
+      title: 'Позвать чат в NEMESIS',
+      description: 'Приглашение в игру и босс чата',
+      thumbnail_url: 'https://img.icons8.com/fluency/96/sword.png',
+      input_message_content: {
+        message_text: caption,
+        parse_mode: 'HTML',
+      },
+      reply_markup: keyboard,
+    }];
 
     await ctx.answerInlineQuery(results, {
       cache_time: 10,
-      is_personal: true,
+      is_personal: false,
     });
 
   } catch (error) {
     console.error('Error handling inline query:', error);
-    
-    // Show error result
-    results.push({
-      type: 'article',
-      id: 'error',
-      title: '❌ Ошибка',
-      description: 'Произошла ошибка. Попробуйте позже.',
-      input_message_content: {
-        message_text: '❌ Произошла ошибка. Попробуйте позже.',
-      },
-    });
-
-    await ctx.answerInlineQuery(results, {
-      cache_time: 0,
-      is_personal: true,
-    });
   }
 }
 
@@ -158,8 +70,8 @@ export async function handleChatBossCallback(ctx: any) {
   const initiatorId = parseInt(parts[2], 10);
 
   try {
-    if (action === 'start') {
-      // When a player clicks "Attack Boss", redirect them to the mini app with the chat raid
+    if (action === 'start' || action === 'open') {
+      // When a player clicks "Attack Boss", open the mini app with the chat raid
       const chatId = ctx.callbackQuery?.message?.chat?.id;
       if (!chatId) {
         await ctx.answerCallbackQuery({
@@ -169,13 +81,17 @@ export async function handleChatBossCallback(ctx: any) {
         return;
       }
 
-      // The mini app in app/ebashnya handles chat raids natively
-      // Open the mini app with rg_<chat_id> parameter to join the raid
-      const miniAppUrl = `${process.env.WEBAPP_URL || ''}?startapp=rg_${Math.abs(chatId)}`;
+      // Build the start parameter: rg_<chat_id> or rg_m<abs_id> for negative IDs
+      const startParam = chatId < 0 ? `rg_m${Math.abs(chatId)}` : `rg_${chatId}`;
       
+      // Build deep link URL to open mini app with raid context
+      const botUsername = process.env.BOT_USERNAME || 'your_bot';
+      const appName = process.env.APP_NAME || 'game';
+      const deepLinkUrl = `https://t.me/${botUsername}/${appName}?startapp=${startParam}`;
+      
+      // answerCallbackQuery with url opens the link
       await ctx.answerCallbackQuery({
-        text: '⚔️ Открываю босса в игре...',
-        url: miniAppUrl,
+        url: deepLinkUrl,
       });
       
     } else if (action === 'stats') {
