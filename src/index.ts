@@ -11,6 +11,8 @@ import { handleDbStats, handleTop, handleSeasonStart, handleSeasonStartCallback,
 import { handleSlotSpinCount, handleDiceMessage, handleSlotPayment } from './bot/handlers/slots';
 import { handleNewRef, handleRef, handleReferralCallback, handleReferralTextInput } from './bot/handlers/referral';
 import { handleBan, handleUnban, handleGoblins, handleBannedUser } from './bot/handlers/bans';
+import { handleInlineQuery, handleChatBossCallback } from './bot/handlers/inline';
+import { handleBossCommand, handleBossMention, handleRaidKeywords } from './bot/handlers/chatboss';
 import { InvoiceService } from './payment/InvoiceService';
 import { gameService } from './game/GameService';
 import { seasonService } from './game/SeasonService';
@@ -159,8 +161,18 @@ bot.command('unban', handleUnban);
 bot.command('new_ref', handleNewRef);
 bot.command('ref', handleRef);
 
+// Chat boss commands
+bot.command('boss', handleBossCommand);
+bot.command('босс', handleBossCommand);
+bot.command('raid', handleBossCommand);
+bot.command('рейд', handleBossCommand);
+
+// Inline query handler (for @botname commands in any chat)
+bot.on('inline_query', handleInlineQuery);
+
 // Callback query handlers
 bot.on('callback_query:data', async (ctx) => {
+  await handleChatBossCallback(ctx);
   await handleSeasonStartCallback(ctx);
   await handleClassCallback(ctx);
   await handleTrailCallback(ctx);
@@ -180,16 +192,26 @@ bot.on('callback_query:data', async (ctx) => {
 bot.hears(/^(атака|атаковать|удар|attack|a)$/i, (ctx) => handleGameAction(ctx, invoiceService));
 bot.hears(/^(защита|защититься|блок|defend|block|d)$/i, (ctx) => handleGameAction(ctx, invoiceService));
 
-// Slots system - handle text messages (spin count) in private chats
+// Chat boss mentions: @botname raid, @botname босс
 bot.on('message:text', async (ctx) => {
-  if (ctx.message.text && !ctx.message.text.startsWith('/')) {
-    // Pin number entry takes priority over the slots spin count.
-    if (await handlePinTextInput(ctx)) return;
-    // Referral wizard answers (admins configuring /new_ref).
-    if (await handleReferralTextInput(ctx)) return;
-    if (ctx.chat.type === 'private') {
-      await handleSlotSpinCount(ctx);
-    }
+  const text = ctx.message.text;
+  if (!text) return;
+  
+  // Check for bot mentions with raid/boss keywords
+  if (text.startsWith('@')) {
+    await handleBossMention(ctx);
+    return;
+  }
+  
+  // Check for standalone raid keywords
+  await handleRaidKeywords(ctx);
+  
+  // Pin number entry takes priority over the slots spin count.
+  if (await handlePinTextInput(ctx)) return;
+  // Referral wizard answers (admins configuring /new_ref).
+  if (await handleReferralTextInput(ctx)) return;
+  if (ctx.chat.type === 'private') {
+    await handleSlotSpinCount(ctx);
   }
 });
 
