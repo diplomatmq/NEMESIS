@@ -2669,18 +2669,51 @@ def quests_get(user):
         db.commit()
     return 200, v
 
-CHANNEL = os.environ.get("CHANNEL", "@yourebashnya")
+CHANNEL = os.environ.get("CHANNEL", "").strip() or "@yourebashnya"
 
 CHAN_WAIT = 300   # v219: a found subscription counts after 5 minutes and a second look — not for a tap on the link
 
 def _chan_member(uid):
     """True / False from Telegram, None when the bot can't see the channel (it must be an admin there)."""
     try:
+        if not CHANNEL:
+            raise RuntimeError("CHANNEL is empty")
         r = tg("getChatMember", chat_id=CHANNEL, user_id=uid)
-        return (r.get("result") or {}).get("status") in ("member", "administrator", "creator", "restricted")
-    except Exception as e:
-        log.warning("channel check for %s failed (is the bot an admin of %s?): %s", uid, CHANNEL, e)
+        if not r.get("ok"):
+            raise RuntimeError(r.get("description") or "Telegram returned ok=false")
+        member = r.get("result") or {}
+        status = member.get("status")
+        return status in ("member", "administrator", "creator") or (status == "restricted" and member.get("is_member") is True)
+    except urllib.error.HTTPError as e:
+        try:
+            detail = json.loads(e.read().decode("utf-8")).get("description", str(e))
+        except Exception:
+            detail = str(e)
+        log.warning("channel check for %s failed (CHANNEL=%r, bot must be channel admin): Telegram %s: %s",
+                    uid, CHANNEL, e.code, detail)
         return None
+    except Exception as e:
+        log.warning("channel check for %s failed (CHANNEL=%r, bot must be channel admin): %s", uid, CHANNEL, e)
+        return None
+
+def check_channel_access():
+    """Log a clear startup diagnostic when the configured channel cannot be checked."""
+    if not BOT_ID:
+        log.warning("channel check skipped: bot identity is not available")
+        return
+    try:
+        r = tg("getChatMember", chat_id=CHANNEL, user_id=BOT_ID)
+        if not r.get("ok"):
+            raise RuntimeError(r.get("description") or "Telegram returned ok=false")
+        status = (r.get("result") or {}).get("status")
+        if status not in ("administrator", "creator"):
+            log.error("CHANNEL check is not reliable: bot status in %r is %r; promote it to administrator",
+                      CHANNEL, status)
+        else:
+            log.info("channel membership checks enabled for %s", CHANNEL)
+    except Exception as e:
+        log.error("CHANNEL check is unavailable for %r: %s; verify the channel username and make the bot an administrator",
+                  CHANNEL, e)
 
 def _chan_wait(uid):
     """Seconds left of the 5-minute check, or None. Caller holds db_lock."""
@@ -4276,10 +4309,11 @@ CLS_RU = {"knight": "Рыцарь", "gunner": "Стрелок", "necro": "Нек
           "shaman": "Шаман", "orc": "Орк", "vampire": "Вампир"}
 
 def stats_command(msg):
-    """/статистика (or /stats) in a private chat with the bot, owner only: how many players and who is where.
+    """/статистика (or /stats) in a private chat with the bot, admins only: mini-app totals and who is where.
     "/статистика все" lists everybody, otherwise the 50 seen most recently."""
     chat = msg["chat"]["id"]
     if (msg.get("from") or {}).get("id") not in ADMIN_IDS:
+        tg("sendMessage", chat_id=chat, text="⛔ Эта статистика доступна только администраторам.")
         return
     full = "все" in (msg.get("text") or "").lower() or "all" in (msg.get("text") or "").lower()
     now = time.time()
@@ -4294,6 +4328,7 @@ def stats_command(msg):
             except (ValueError, TypeError):
                 pass
         nft_ln = nft_stats_line()
+        can_pm = db.execute("SELECT COUNT(*) FROM players WHERE can_pm=1").fetchone()[0]
     def last(r):
         return r[6] or r[7] or 0
     total = len(rows)
@@ -4304,12 +4339,13 @@ def stats_command(msg):
     if not full and WEBAPP_URL:
         # v193: a short line and a button; everything else lives on the statistics page
         return tg("sendMessage", chat_id=chat, parse_mode="HTML",
-                  text=(f"📊 <b>Статистика</b>\nИгроков: <b>{total}</b> · за сутки: <b>{d1}</b> · за неделю: <b>{d7}</b>\n"
+                  text=(f"🎮 <b>Статистика мини-аппа</b>\nИгроков: <b>{total}</b> · за сутки: <b>{d1}</b> · за неделю: <b>{d7}</b>\n"
+                        f"Личные сообщения доступны: <b>{can_pm}</b>\n"
                         f"Графики, стены, классы и звёзды — на странице."),
                   reply_markup={"inline_keyboard": [[{"text": "📊 Открыть статистику", "web_app": {"url": WEBAPP_URL + "stats"}}],
                                                     [{"text": "Список текстом", "callback_data": "stats_all"}]]})
-    head = (f"📊 Статистика башни\n\nВсего игроков: {total}\nХоть раз прошли этаж: {played}\n"
-            f"Заходили за сутки: {d1}\nЗаходили за неделю: {d7}\n{nft_ln}\n\n"
+    head = (f"🎮 Статистика мини-аппа\n\nВсего игроков: {total}\nХоть раз прошли этаж: {played}\n"
+            f"Заходили за сутки: {d1}\nЗаходили за неделю: {d7}\nЛичные сообщения доступны: {can_pm}\n{nft_ln}\n\n"
             + ("Все игроки" if full else f"Последние {min(50, total)} по времени входа") + " (этаж · ур. · вход):")
     lines = []
     for r in (rows if full else rows[:50]):
@@ -4361,7 +4397,41 @@ def bc_send(job, chat_id):
 
 def bc_targets():
     with db_lock:
-        return [r[0] for r in db.execute("SELECT id FROM players WHERE can_pm=1 ORDER BY id").fetchall()]
+        # Mini-app players who allowed PMs plus users who started the main bot.
+        # UNION deduplicates people who exist in both games.
+        try:
+            rows = db.execute("""SELECT id FROM players WHERE can_pm=1
+                                 UNION
+                                 SELECT telegram_id AS id FROM users
+                                 WHERE last_start_at IS NOT NULL AND is_active=TRUE
+                                 ORDER BY id""").fetchall()
+        except Exception as e:
+            # Standalone SQLite installs may not have the main bot's users table.
+            log.info("main-bot users unavailable for broadcast; using mini-app players only: %s", e)
+            rows = db.execute("SELECT id FROM players WHERE can_pm=1 ORDER BY id").fetchall()
+        return [int(r[0]) for r in rows]
+
+def bc_mark_unreachable(uid):
+    """Exclude a blocked user from future broadcasts until they start the bot again."""
+    with db_lock:
+        try:
+            db.execute("UPDATE users SET is_active=FALSE WHERE telegram_id=?", (uid,))
+        except Exception:
+            # The main bot's users table is absent in standalone SQLite mode.
+            db.rollback()
+        db.execute("UPDATE players SET can_pm=0 WHERE id=?", (uid,))
+        db.commit()
+
+def bc_is_unreachable(result):
+    if result.get("error_code") == 403:
+        return True
+    if result.get("error_code") != 400:
+        return False
+    description = (result.get("description") or "").lower()
+    return any(phrase in description for phrase in (
+        "chat not found", "user is deactivated", "bot was blocked", "blocked by the user",
+        "can't initiate conversation", "cannot initiate conversation",
+    ))
 
 def terms_command(msg, cmd):
     """/terms: the rules page; /paysupport: what to do when a purchase went wrong (required for bots that take Stars)."""
@@ -4434,10 +4504,11 @@ def broadcast_command(msg):
         job = {"text": body, "entities": ents}
     else:
         tg("sendMessage", chat_id=chat, parse_mode="HTML", text=
-           "<b>Рассылка всем игрокам</b>\n\n"
+           "<b>Рассылка всем пользователям</b>\n\n"
            "• <code>/рассылка текст</code> — разослать текст (жирный, курсив и ссылки сохранятся)\n"
            "• фото, видео или гифка с подписью <code>/рассылка текст</code> — разошлю файл с этой подписью\n"
            "• или ответь командой <code>/рассылка</code> на любое своё сообщение — с картинкой, видео, чем угодно\n\n"
+           "В аудиторию входят игроки мини-аппа и пользователи, которые запускали основной бот.\n"
            f"Под каждым сообщением будет кнопка «{BC_BUTTON}». Сначала покажу, как это будет выглядеть, и спрошу подтверждение.")
         return
     if bc_running.is_set():
@@ -4454,7 +4525,7 @@ def broadcast_command(msg):
         db.execute("INSERT OR REPLACE INTO kv(k, v) VALUES(?,?)", (key, json.dumps(job)))
         db.commit()
     tg("sendMessage", chat_id=chat, text=f"Отправить это {n} {plural_ru(n, 'игроку', 'игрокам', 'игрокам')}?\n"
-       "(получат все, кто запускал бота и не заблокировал его)",
+       "(игроки мини-аппа и те, кто запускал основной бот; заблокировавшие бота исключаются)",
        reply_markup={"inline_keyboard": [[{"text": f"✅ Отправить всем ({n})", "callback_data": key + ":go"},
                                           {"text": "Отмена", "callback_data": key + ":no"}]]})
 
@@ -4507,11 +4578,9 @@ def broadcast_run(job, chat, mid):
                 if code == 429:
                     time.sleep(int((r.get("parameters") or {}).get("retry_after", 3)) + 1)
                     continue
-                if code in (400, 403):
+                if bc_is_unreachable(r):
                     blocked += 1
-                    with db_lock:
-                        db.execute("UPDATE players SET can_pm=0 WHERE id=?", (uid,))
-                        db.commit()
+                    bc_mark_unreachable(uid)
                 else:
                     failed += 1
                 break
@@ -4698,6 +4767,7 @@ def bot_loop():
             log.warning("getMe: %s", e)
             time.sleep(5)
     log.info("bot @%s, Mini App link %s", BOT_USERNAME, app_link())
+    check_channel_access()
     threading.Thread(target=lambda: bot_card_file_id("invite"), daemon=True).start()
     try:
         tg("setChatMenuButton", menu_button={"type": "web_app", "text": "Играть", "web_app": {"url": WEBAPP_URL}})
@@ -4786,6 +4856,7 @@ if __name__ == "__main__":
             BOT_USERNAME, BOT_ID = _me["username"], _me["id"]
         except Exception as e:
             log.warning("getMe: %s", e)
+        check_channel_access()
     # These loops never call getUpdates, so they must run in both modes: with
     # EMBER_NO_BOT the reminders, channel checks and event closings still happen.
     threading.Thread(target=reminder_loop, daemon=True).start()

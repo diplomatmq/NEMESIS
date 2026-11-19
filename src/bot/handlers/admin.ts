@@ -44,7 +44,8 @@ export async function handleDbStats(ctx: Context) {
 
     let message =
       `📊 **Статистика базы данных**\n\n` +
-      `👥 **Игроков:** ${stats.totalPlayers}\n` +
+      `👥 **Пользователей основного бота:** ${stats.totalPlayers}\n` +
+      `🎮 **Игроков мини-аппа:** ${stats.miniAppPlayers}\n` +
       `💬 **Чатов:** ${stats.totalChats} (без личных)\n\n` +
       `⭐ **Всего звёзд:** ${stats.totalStars}\n` +
       `   └ Чат-игра: ${stats.chatStars} ⭐\n` +

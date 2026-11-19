@@ -7,7 +7,7 @@ import { handleGameAction, handleStatus, handleInventory, handleUsePotion, handl
 import { handleSuccessfulPayment, handlePreCheckoutQuery } from './bot/handlers/payment';
 import { handleClassSelection, handleClassCallback } from './bot/handlers/class';
 import { handleAchievements } from './bot/handlers/achievements';
-import { handleDbStats, handleTop, handleSeasonStart, handleSeasonStartCallback, handleAdminCommand, handleGiveItem, handleNftGive } from './bot/handlers/admin';
+import { ADMIN_IDS, handleDbStats, handleTop, handleSeasonStart, handleSeasonStartCallback, handleAdminCommand, handleGiveItem, handleNftGive } from './bot/handlers/admin';
 import { handleSlotSpinCount, handleDiceMessage, handleSlotPayment } from './bot/handlers/slots';
 import { handleNewRef, handleRef, handleReferralCallback, handleReferralTextInput } from './bot/handlers/referral';
 import { handleBan, handleUnban, handleGoblins, handleBannedUser } from './bot/handlers/bans';
@@ -393,6 +393,29 @@ async function start() {
     };
     runSeasonCheck();
     setInterval(runSeasonCheck, 5 * 60 * 1000);
+
+    // Python no longer polls Telegram, so the TS poller owns the admin command
+    // menu too. /stats is relayed to Python; /dbstats is handled here.
+    const adminCommands = [
+      { command: 'start', description: 'Запустить бота' },
+      { command: 'dbstats', description: 'Статистика общей базы' },
+      { command: 'stats', description: 'Статистика мини-аппа' },
+      { command: 'broadcast', description: 'Рассылка всем пользователям' },
+      { command: 'wipe', description: 'Сброс игрока мини-аппа' },
+      { command: 'refund', description: 'Возврат покупки' },
+      { command: 'nft', description: 'Заявки на NFT' },
+      { command: 'terms', description: 'Условия использования' },
+      { command: 'paysupport', description: 'Помощь с оплатой' },
+    ];
+    for (const adminId of ADMIN_IDS) {
+      try {
+        await bot.api.setMyCommands(adminCommands, {
+          scope: { type: 'chat', chat_id: adminId },
+        });
+      } catch (error) {
+        console.warn(`⚠️ Could not set admin commands for ${adminId}:`, error);
+      }
+    }
 
     // Start bot as the only getUpdates poller. inline_query / chosen_inline_result
     // are received here and relayed to the Python bot (see the relay above).

@@ -58,7 +58,7 @@ source/                   нужно только для новых версий
    nano /opt/emberspire/emberspire.env      # BOT_TOKEN, WEBAPP_URL, APP_NAME, ADMIN_IDS, CHANNEL, SUPPORT_URL
    chmod 600 /opt/emberspire/emberspire.env
    ```
-   `ADMIN_IDS` — Telegram id владельцев, через запятую. Им доступны `/stats`, админ-кнопки в игре и ежедневная сводка античита. Бот должен быть администратором канала из `CHANNEL`, иначе задание «подписаться на канал» не проверится.
+   `ADMIN_IDS` — Telegram id владельцев, через запятую. Им доступны `/stats`, админ-кнопки в игре и ежедневная сводка античита. `CHANNEL` по умолчанию — `@yourebashnya`; если указан другой канал, используй его username или ID. Бот должен быть администратором этого канала, иначе Telegram не позволит проверять подписку. При старте сервер пишет в лог, доступна ли проверка канала.
 4. **Служба.**
    ```
    cp config/emberspire.service /etc/systemd/system/

@@ -183,6 +183,7 @@ export class PaymentService {
 
   async getDatabaseStats(): Promise<{
     totalPlayers: number;
+    miniAppPlayers: number;
     totalChats: number;
     totalStars: number;
     chatStars: number;
@@ -191,6 +192,16 @@ export class PaymentService {
     // Get total players
     const playersResult = await db.query('SELECT COUNT(DISTINCT id) as count FROM users');
     const totalPlayers = parseInt(playersResult.rows[0].count);
+
+    // Mini-app profiles live in the shared database under the app_ prefix.
+    let miniAppPlayers = 0;
+    try {
+      const miniAppPlayersResult = await db.query('SELECT COUNT(*) as count FROM app_players');
+      miniAppPlayers = parseInt(miniAppPlayersResult.rows[0].count || '0');
+    } catch (error) {
+      // Keep /dbstats useful if the mini-app migration has not run yet.
+      console.warn('⚠️ Could not fetch app_players data:', error);
+    }
 
     // Get total chats (excluding private chats)
     const chatsResult = await db.query(
@@ -219,6 +230,7 @@ export class PaymentService {
 
     return {
       totalPlayers,
+      miniAppPlayers,
       totalChats,
       totalStars,
       chatStars,

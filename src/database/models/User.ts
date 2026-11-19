@@ -46,7 +46,7 @@ export class UserModel {
 
   static async updateLastStart(telegramId: number): Promise<void> {
     await db.query(
-      'UPDATE users SET last_start_at = NOW() WHERE telegram_id = $1',
+      'UPDATE users SET last_start_at = NOW(), is_active = TRUE WHERE telegram_id = $1',
       [telegramId]
     );
   }
