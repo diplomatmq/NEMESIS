@@ -161,13 +161,8 @@ bot.command('unban', handleUnban);
 bot.command('new_ref', handleNewRef);
 bot.command('ref', handleRef);
 
-// Chat boss commands and inline queries are handled by Python server (app/ebashnya)
-// Comment these out to let Python bot handle them
-// bot.command('boss', handleBossCommand);
-// bot.command('босс', handleBossCommand);
-// bot.command('raid', handleBossCommand);
-// bot.command('рейд', handleBossCommand);
-// bot.on('inline_query', handleInlineQuery);
+// Chat boss commands - DO NOT HANDLE, let Python bot handle them
+// Python bot (app/ebashnya/app/server.py) processes /boss and inline_query
 
 // Callback query handlers
 bot.on('callback_query:data', async (ctx) => {
@@ -299,9 +294,18 @@ async function start() {
     runSeasonCheck();
     setInterval(runSeasonCheck, 5 * 60 * 1000);
 
-    // Start bot
+    // Start bot with limited update types - don't handle inline_query
+    // Python bot handles inline_query for duels and raids
     console.log('🚀 Starting bot...');
-    await bot.start();
+    await bot.start({
+      allowed_updates: [
+        'message',
+        'callback_query',
+        'my_chat_member',
+        'pre_checkout_query',
+        // NOT inline_query - handled by Python bot
+      ],
+    });
     
     console.log('✅ Bot is running!');
     console.log(`👤 Bot username: @${config.bot.username || 'unknown'}`);
