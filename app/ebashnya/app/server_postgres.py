@@ -81,10 +81,12 @@ if __name__ == "__main__":
     
     if os.environ.get("EMBER_NO_BOT") != "1":
         threading.Thread(target=bot_loop, daemon=True).start()
-        threading.Thread(target=reminder_loop, daemon=True).start()
-        threading.Thread(target=chan_loop, daemon=True).start()
-        threading.Thread(target=events_loop, daemon=True).start()
-    
+
+    # These loops never call getUpdates, so they run in both modes: with
+    # EMBER_NO_BOT the reminders, channel checks and event closings still happen.
+    threading.Thread(target=reminder_loop, daemon=True).start()
+    threading.Thread(target=chan_loop, daemon=True).start()
+    threading.Thread(target=events_loop, daemon=True).start()
     threading.Thread(target=housekeeping_loop, daemon=True).start()
     
     def _br_warm():
@@ -108,9 +110,7 @@ if __name__ == "__main__":
     threading.Thread(target=_br_warm, daemon=True).start()
     threading.Thread(target=ac_loop, daemon=True).start()
     threading.Thread(target=ac_scan, daemon=True).start()
-    
-    if os.environ.get("EMBER_NO_BOT") != "1":
-        threading.Thread(target=ac_digest_loop, daemon=True).start()
+    threading.Thread(target=ac_digest_loop, daemon=True).start()
     
     log.info("Emberspire on 0.0.0.0:%s, game folder %s", PORT, PUBLIC)
     # Listen on 0.0.0.0 instead of 127.0.0.1 for Docker.

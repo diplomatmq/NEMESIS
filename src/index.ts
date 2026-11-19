@@ -33,6 +33,106 @@ const invoiceService = new InvoiceService(bot);
 console.log('🤖 NEMESIS Tower Game Bot starting...');
 
 // ---------------------------------------------------------------------------
+// Update relay to the Python mini-app bot.
+// Only one process may call Telegram's getUpdates for a token, otherwise
+// Telegram answers 409 Conflict. This TypeScript bot is that poller now; the
+// Python bot runs without polling (EMBER_NO_BOT=1) but still owns a few chat
+// features, so the updates it needs are relayed to it over the Docker network
+// (POST /api/tg-update). Every other update is handled here as before.
+// ---------------------------------------------------------------------------
+const PY_FORWARD_URL = process.env.PY_FORWARD_URL || 'http://miniapp:8080/api/tg-update';
+
+// Callback prefixes and commands the Python bot answers (this bot has no handler for them).
+const PY_CALLBACK_PREFIXES = ['bs:', 'wp:', 'nf:', 'grm:'];
+const PY_PRIVATE_COMMANDS = new Set([
+  '/рассылка', '/broadcast', '/wipe', '/refund', '/возврат', '/terms', '/paysupport', '/support',
+  '/nft', '/нфт', '/статистика', '/stats',
+]);
+
+function shouldForwardToPython(update: any): boolean {
+  if (update.inline_query || update.chosen_inline_result || update.my_chat_member) {
+    return true;
+  }
+
+  // Stars top-ups for the mini app: the Python bot credits the account and confirms.
+  const preCheckout = update.pre_checkout_query;
+  if (preCheckout && typeof preCheckout.invoice_payload === 'string' && preCheckout.invoice_payload.startsWith('st:')) {
+    return true;
+  }
+
+  const callbackQuery = update.callback_query;
+  if (callbackQuery) {
+    const data: string = callbackQuery.data || '';
+    if (PY_CALLBACK_PREFIXES.some((prefix) => data.startsWith(prefix))) return true;
+    if (data === 'stats_all' || data.startsWith('bc:')) return true;
+  }
+
+  const message = update.message;
+  if (message) {
+    if (message.successful_payment?.invoice_payload?.startsWith('st:')) return true;
+
+    const chatType = message.chat?.type;
+    const username = (config.bot.username || '').toLowerCase();
+    const text: string = message.text || message.caption || '';
+
+    if (chatType === 'group' || chatType === 'supergroup') {
+      // The Python bot greets a group when it is added there.
+      if ((message.new_chat_members || []).some(
+        (member: any) => (member.username || '').toLowerCase() === username
+      )) {
+        return true;
+      }
+      if (!text) return false;
+
+      // Group boss panel and group /start are drawn by the Python bot.
+      const first = text.split(/\s+/)[0] || '';
+      const command = first.split('@')[0].toLowerCase();
+      if (command === '/boss' || command === '/start') return true;
+      const words = text.toLowerCase().split(/\s+/);
+      if (username && words[0] === '@' + username && ['raid', 'boss', 'рейд', 'босс'].includes(words[1])) {
+        return true;
+      }
+      return false;
+    }
+
+    if (chatType === 'private' && text) {
+      const command = (text.split(/\s+/)[0] || '').split('@')[0].toLowerCase();
+      return PY_PRIVATE_COMMANDS.has(command);
+    }
+  }
+
+  return false;
+}
+
+async function forwardUpdateToPython(update: unknown): Promise<void> {
+  try {
+    const response = await fetch(PY_FORWARD_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-TG-Forward': config.bot.token,
+      },
+      body: JSON.stringify(update),
+    });
+    if (!response.ok) {
+      console.error(`⚠️ Forward to Python returned HTTP ${response.status}`);
+    }
+  } catch (error) {
+    console.error('⚠️ Failed to forward update to the Python bot:', error);
+  }
+}
+
+// Registered first: once an update is relayed to Python, this bot must not also
+// process it (that would double-answer callbacks, payments and boss panels).
+bot.use(async (ctx, next) => {
+  if (shouldForwardToPython(ctx.update)) {
+    void forwardUpdateToPython(ctx.update);
+    return;
+  }
+  return next();
+});
+
+// ---------------------------------------------------------------------------
 // Anti-automation: scheduled ("отложенные") Telegram messages must never drive
 // gameplay. Telegram flags such updates with `is_from_offline`, so the check
 // only reads that flag instead of guessing from timings or message delays.
@@ -294,8 +394,8 @@ async function start() {
     runSeasonCheck();
     setInterval(runSeasonCheck, 5 * 60 * 1000);
 
-    // Start bot with limited update types - don't handle inline_query
-    // Python bot handles inline_query for duels and raids
+    // Start bot as the only getUpdates poller. inline_query / chosen_inline_result
+    // are received here and relayed to the Python bot (see the relay above).
     console.log('🚀 Starting bot...');
     await bot.start({
       allowed_updates: [
@@ -303,7 +403,8 @@ async function start() {
         'callback_query',
         'my_chat_member',
         'pre_checkout_query',
-        // NOT inline_query - handled by Python bot
+        'inline_query',
+        'chosen_inline_result',
       ],
     });
     

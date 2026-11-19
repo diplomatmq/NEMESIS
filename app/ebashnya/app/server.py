@@ -1368,10 +1368,12 @@ def reminder_loop():
         try:
             with db_lock:
                 # only those away for a while, at most once per REMIND_EVERY; the game reports rest_at whenever it is closed
-                due = db.execute("""SELECT id, room FROM players WHERE notify=1 AND can_pm=1 AND rest_at>0 AND rest_at<=?
-                                    AND seen<=? AND reminded<?""", (now, now - REMIND_AWAY, now - REMIND_EVERY)).fetchall()
+                # rest_at / reminded are TIMESTAMP columns: the numeric bounds go through the adapter's to_timestamp() wrapper,
+                # so they must be bound parameters (rest_at>? with 0), not literals — "rest_at>0" is invalid in PostgreSQL.
+                due = db.execute("""SELECT id, room FROM players WHERE notify=1 AND can_pm=1 AND rest_at>? AND rest_at<=?
+                                    AND seen<=? AND reminded<?""", (0, now, now - REMIND_AWAY, now - REMIND_EVERY)).fetchall()
                 for (uid, _r) in due:
-                    db.execute("UPDATE players SET reminded=?, rest_at=0 WHERE id=?", (now, uid))
+                    db.execute("UPDATE players SET reminded=?, rest_at=? WHERE id=?", (now, 0, uid))
                 db.commit()
             for (uid, room) in due:
                 try:
@@ -3722,8 +3724,26 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             pass
 
+    def tg_update(self):
+        """Accept an update the TypeScript bot relayed to us. This bot is the only
+        getUpdates poller, so it hands us the updates we own (/boss, inline duels,
+        admin/support commands, my_chat_member, Stars top-ups). The body is the raw
+        Telegram update; the request is authorised with the token both containers share."""
+        if self.headers.get("X-TG-Forward", "") != BOT_TOKEN:
+            return self.send_json(403, {"ok": False})
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+            upd = json.loads(self.rfile.read(n).decode("utf-8"))
+        except Exception as e:
+            log.warning("tg-update body: %s", e)
+            return self.send_json(400, {"ok": False})
+        threading.Thread(target=_handle_update_safe, args=(upd,), daemon=True).start()
+        return self.send_json(200, {"ok": True})
+
     def do_POST(self):
         path = urllib.parse.urlparse(self.path).path
+        if path == "/api/tg-update":
+            return self.tg_update()
         u, f = self.signed()
         if not u:
             return self.send_json(401, {"ok": False, "reason": "not signed in"})
@@ -4508,6 +4528,160 @@ def broadcast_run(job, chat, mid):
     finally:
         bc_running.clear()
 
+def _handle_update_safe(upd):
+    """Runs a relayed update off the HTTP thread; a bad update must not kill the request."""
+    try:
+        handle_update(upd)
+    except Exception as e:
+        log.warning("forwarded update: %s", e)
+
+def handle_update(upd):
+    """Process a single Telegram update.
+    Called by bot_loop when this process is the getUpdates poller, and by the
+    /api/tg-update endpoint when the TypeScript bot polls and relays the updates
+    this bot owns (/boss, inline duels, admin/support commands, my_chat_member,
+    Stars top-ups)."""
+    if upd.get("pre_checkout_query"):
+        try:
+            stars_precheckout(upd["pre_checkout_query"])
+        except Exception as e:
+            log.warning("pre-checkout: %s", e)
+        return
+    if (upd.get("message") or {}).get("successful_payment"):
+        try:
+            stars_paid(upd["message"])
+        except Exception as e:
+            log.warning("payment: %s", e)
+        return
+    cq = upd.get("callback_query")
+    if cq:
+        try:
+            if (cq.get("data") or "").startswith("bs:"):
+                boss_callback(cq)
+                return
+            if (cq.get("data") or "").startswith("wp:"):
+                wipe_callback(cq)
+                return
+            if (cq.get("data") or "").startswith("nf:"):
+                nft_callback(cq)
+                return
+            if (cq.get("data") or "").startswith("grm:"):
+                gr_mute_callback(cq)
+                return
+            if (cq.get("data") or "") == "stats_all":
+                tg_try("answerCallbackQuery", callback_query_id=cq["id"])
+                m = cq.get("message") or {}
+                stats_command({"chat": m.get("chat") or {"id": cq["from"]["id"]}, "from": cq["from"], "text": "/статистика все"})
+                return
+            broadcast_callback(cq)
+        except Exception as e:
+            log.warning("callback: %s", e)
+        return
+    cir = upd.get("chosen_inline_result")
+    if cir:
+        rid, imid = str(cir.get("result_id", "")), cir.get("inline_message_id")
+        if rid.startswith("duel_") and imid:
+            with db_lock:
+                k = "dmsg:" + rid[5:]
+                old = db.execute("SELECT v FROM kv WHERE k=?", (k,)).fetchone()
+                lst = (json.loads(old[0]) if old else [])[-9:] + [imid]
+                db.execute("INSERT OR REPLACE INTO kv(k, v) VALUES(?,?)", (k, json.dumps(lst)))
+                db.commit()
+        return
+    if upd.get("inline_query"):
+        try:
+            answer_inline(upd["inline_query"])
+        except Exception as e:
+            log.warning("inline answer: %s", e)
+        return
+    if upd.get("my_chat_member"):
+        try:
+            bot_rights(upd["my_chat_member"])
+        except Exception as e:
+            log.warning("my_chat_member: %s", e)
+        return
+    msg = upd.get("message") or {}
+    if any((u.get("username") or "").lower() == (BOT_USERNAME or "").lower() for u in msg.get("new_chat_members") or []) \
+            and msg.get("chat", {}).get("type") in ("group", "supergroup"):
+        bot_joined(msg)
+        return
+    text = msg.get("text") or ""
+    first = text.split()[0] if text.split() else ""
+    if first.split("@")[0].lower() == "/start" and msg.get("chat", {}).get("type") in ("group", "supergroup"):
+        # plain /start@bot after adding the bot (or /start boss|raid): show the boss panel
+        try:
+            boss_command(dict(msg, text="/boss " + " ".join(text.split()[1:])))
+        except Exception as e:
+            log.warning("/start in group: %s", e)
+        return
+    # v222: «@bot raid Андре» / «@bot босс» typed as a plain message (not picked from the inline card) calls the panel too
+    tw = text.lower().split()
+    if BOT_USERNAME and tw and tw[0] == "@" + BOT_USERNAME.lower() and len(tw) > 1 and tw[1] in ("raid", "boss", "рейд", "босс") \
+            and msg.get("chat", {}).get("type") in ("group", "supergroup"):
+        try:
+            boss_command(dict(msg, text=" ".join(["/boss"] + text.split()[2:])))
+        except Exception as e:
+            log.warning("@bot boss: %s", e)
+        return
+    if first.split("@")[0].lower() == "/boss" and ("@" not in first or first.split("@", 1)[1].lower() == (BOT_USERNAME or "").lower()) \
+            and msg.get("chat", {}).get("type") in ("group", "supergroup"):
+        try:
+            boss_command(msg)
+        except Exception as e:
+            log.warning("/boss: %s", e)
+        return
+    cmd = (text.split()[0] if text.split() else "").split("@")[0].lower()
+    if not text and msg.get("caption"):
+        cap = msg["caption"].split()
+        if cap and cap[0].split("@")[0].lower() in ("/рассылка", "/broadcast"):
+            cmd = cap[0].split("@")[0].lower()
+    if cmd in ("/рассылка", "/broadcast") and msg.get("chat", {}).get("type") == "private":
+        try:
+            broadcast_command(msg)
+        except Exception as e:
+            log.warning("/broadcast: %s", e)
+        return
+    if cmd in ("/сброс", "/wipe") and msg.get("chat", {}).get("type") == "private":
+        try:
+            wipe_command(msg)
+        except Exception as e:
+            log.warning("/wipe: %s", e)
+        return
+    if cmd in ("/refund", "/возврат") and msg.get("chat", {}).get("type") == "private":
+        try:
+            refund_command(msg)
+        except Exception as e:
+            log.warning("/refund: %s", e)
+        return
+    if cmd in ("/terms", "/paysupport", "/support") and msg.get("chat", {}).get("type") == "private":
+        try:
+            terms_command(msg, cmd)
+        except Exception as e:
+            log.warning("/terms: %s", e)
+        return
+    if cmd in ("/nft", "/нфт") and msg.get("chat", {}).get("type") == "private":
+        try:
+            nft_command(msg)
+        except Exception as e:
+            log.warning("/nft: %s", e)
+        return
+    if cmd in ("/статистика", "/stats") and msg.get("chat", {}).get("type") == "private":
+        try:
+            stats_command(msg)
+        except Exception as e:
+            log.warning("/stats: %s", e)
+        return
+    if text.startswith("/start") and msg.get("chat", {}).get("type") == "private" and msg.get("from"):
+        fr = msg["from"]
+        ensure_player(fr)
+        with db_lock:
+            db.execute("UPDATE players SET can_pm=1, notify=CASE WHEN notify_off=1 THEN notify ELSE 1 END WHERE id=?", (fr["id"],))
+            db.commit()
+    if (msg.get("text") or "").startswith("/start") and msg.get("chat", {}).get("type") == "private":
+        tg("sendMessage", chat_id=msg["chat"]["id"],
+           text="Ебашня ждёт. Выбери героя и поднимайся всё выше: на каждом десятом этаже элита, на каждом пятидесятом — босс.",
+           reply_markup={"inline_keyboard": [[{"text": "Войти в башню", "web_app": {"url": WEBAPP_URL}}]]})
+
 def bot_loop():
     global BOT_USERNAME, BOT_ID
     if not WEBAPP_URL:
@@ -4559,146 +4733,10 @@ def bot_loop():
             res = tg("getUpdates", offset=offset, timeout=30, allowed_updates=["message", "my_chat_member", "inline_query", "chosen_inline_result", "callback_query", "pre_checkout_query"])
             for upd in res.get("result", []):
                 offset = upd["update_id"] + 1
-                if upd.get("pre_checkout_query"):
-                    try:
-                        stars_precheckout(upd["pre_checkout_query"])
-                    except Exception as e:
-                        log.warning("pre-checkout: %s", e)
-                    continue
-                if (upd.get("message") or {}).get("successful_payment"):
-                    try:
-                        stars_paid(upd["message"])
-                    except Exception as e:
-                        log.warning("payment: %s", e)
-                    continue
-                cq = upd.get("callback_query")
-                if cq:
-                    try:
-                        if (cq.get("data") or "").startswith("bs:"):
-                            boss_callback(cq)
-                            continue
-                        if (cq.get("data") or "").startswith("wp:"):
-                            wipe_callback(cq)
-                            continue
-                        if (cq.get("data") or "").startswith("nf:"):
-                            nft_callback(cq)
-                            continue
-                        if (cq.get("data") or "").startswith("grm:"):
-                            gr_mute_callback(cq)
-                            continue
-                        if (cq.get("data") or "") == "stats_all":
-                            tg_try("answerCallbackQuery", callback_query_id=cq["id"])
-                            m = cq.get("message") or {}
-                            stats_command({"chat": m.get("chat") or {"id": cq["from"]["id"]}, "from": cq["from"], "text": "/статистика все"})
-                            continue
-                        broadcast_callback(cq)
-                    except Exception as e:
-                        log.warning("callback: %s", e)
-                    continue
-                cir = upd.get("chosen_inline_result")
-                if cir:
-                    rid, imid = str(cir.get("result_id", "")), cir.get("inline_message_id")
-                    if rid.startswith("duel_") and imid:
-                        with db_lock:
-                            k = "dmsg:" + rid[5:]
-                            old = db.execute("SELECT v FROM kv WHERE k=?", (k,)).fetchone()
-                            lst = (json.loads(old[0]) if old else [])[-9:] + [imid]
-                            db.execute("INSERT OR REPLACE INTO kv(k, v) VALUES(?,?)", (k, json.dumps(lst)))
-                            db.commit()
-                    continue
-                if upd.get("inline_query"):
-                    try:
-                        answer_inline(upd["inline_query"])
-                    except Exception as e:
-                        log.warning("inline answer: %s", e)
-                    continue
-                if upd.get("my_chat_member"):
-                    try:
-                        bot_rights(upd["my_chat_member"])
-                    except Exception as e:
-                        log.warning("my_chat_member: %s", e)
-                    continue
-                msg = upd.get("message") or {}
-                if any((u.get("username") or "").lower() == (BOT_USERNAME or "").lower() for u in msg.get("new_chat_members") or []) \
-                        and msg.get("chat", {}).get("type") in ("group", "supergroup"):
-                    bot_joined(msg)
-                    continue
-                text = msg.get("text") or ""
-                first = text.split()[0] if text.split() else ""
-                if first.split("@")[0].lower() == "/start" and msg.get("chat", {}).get("type") in ("group", "supergroup"):
-                    # plain /start@bot after adding the bot (or /start boss|raid): show the boss panel
-                    try:
-                        boss_command(dict(msg, text="/boss " + " ".join(text.split()[1:])))
-                    except Exception as e:
-                        log.warning("/start in group: %s", e)
-                    continue
-                # v222: «@bot raid Андре» / «@bot босс» typed as a plain message (not picked from the inline card) calls the panel too
-                tw = text.lower().split()
-                if BOT_USERNAME and tw and tw[0] == "@" + BOT_USERNAME.lower() and len(tw) > 1 and tw[1] in ("raid", "boss", "рейд", "босс") \
-                        and msg.get("chat", {}).get("type") in ("group", "supergroup"):
-                    try:
-                        boss_command(dict(msg, text=" ".join(["/boss"] + text.split()[2:])))
-                    except Exception as e:
-                        log.warning("@bot boss: %s", e)
-                    continue
-                if first.split("@")[0].lower() == "/boss" and ("@" not in first or first.split("@", 1)[1].lower() == (BOT_USERNAME or "").lower()) \
-                        and msg.get("chat", {}).get("type") in ("group", "supergroup"):
-                    try:
-                        boss_command(msg)
-                    except Exception as e:
-                        log.warning("/boss: %s", e)
-                    continue
-                cmd = (text.split()[0] if text.split() else "").split("@")[0].lower()
-                if not text and msg.get("caption"):
-                    cap = msg["caption"].split()
-                    if cap and cap[0].split("@")[0].lower() in ("/рассылка", "/broadcast"):
-                        cmd = cap[0].split("@")[0].lower()
-                if cmd in ("/рассылка", "/broadcast") and msg.get("chat", {}).get("type") == "private":
-                    try:
-                        broadcast_command(msg)
-                    except Exception as e:
-                        log.warning("/broadcast: %s", e)
-                    continue
-                if cmd in ("/сброс", "/wipe") and msg.get("chat", {}).get("type") == "private":
-                    try:
-                        wipe_command(msg)
-                    except Exception as e:
-                        log.warning("/wipe: %s", e)
-                    continue
-                if cmd in ("/refund", "/возврат") and msg.get("chat", {}).get("type") == "private":
-                    try:
-                        refund_command(msg)
-                    except Exception as e:
-                        log.warning("/refund: %s", e)
-                    continue
-                if cmd in ("/terms", "/paysupport", "/support") and msg.get("chat", {}).get("type") == "private":
-                    try:
-                        terms_command(msg, cmd)
-                    except Exception as e:
-                        log.warning("/terms: %s", e)
-                    continue
-                if cmd in ("/nft", "/нфт") and msg.get("chat", {}).get("type") == "private":
-                    try:
-                        nft_command(msg)
-                    except Exception as e:
-                        log.warning("/nft: %s", e)
-                    continue
-                if cmd in ("/статистика", "/stats") and msg.get("chat", {}).get("type") == "private":
-                    try:
-                        stats_command(msg)
-                    except Exception as e:
-                        log.warning("/stats: %s", e)
-                    continue
-                if text.startswith("/start") and msg.get("chat", {}).get("type") == "private" and msg.get("from"):
-                    fr = msg["from"]
-                    ensure_player(fr)
-                    with db_lock:
-                        db.execute("UPDATE players SET can_pm=1, notify=CASE WHEN notify_off=1 THEN notify ELSE 1 END WHERE id=?", (fr["id"],))
-                        db.commit()
-                if (msg.get("text") or "").startswith("/start") and msg.get("chat", {}).get("type") == "private":
-                    tg("sendMessage", chat_id=msg["chat"]["id"],
-                       text="Ебашня ждёт. Выбери героя и поднимайся всё выше: на каждом десятом этаже элита, на каждом пятидесятом — босс.",
-                       reply_markup={"inline_keyboard": [[{"text": "Войти в башню", "web_app": {"url": WEBAPP_URL}}]]})
+                try:
+                    handle_update(upd)
+                except Exception as e:
+                    log.warning("update %s: %s", upd.get("update_id"), e)
         except Exception as e:
             log.warning("bot polling: %s", e)
             time.sleep(5)
@@ -4738,9 +4776,18 @@ if __name__ == "__main__":
         raise SystemExit("BOT_TOKEN is not set (see emberspire.env.example)")
     if os.environ.get("EMBER_NO_BOT") != "1":
         threading.Thread(target=bot_loop, daemon=True).start()
-        threading.Thread(target=reminder_loop, daemon=True).start()
-        threading.Thread(target=chan_loop, daemon=True).start()
-        threading.Thread(target=events_loop, daemon=True).start()
+    else:
+        # The TypeScript bot polls; learn the @username for app links without polling.
+        try:
+            _me = tg("getMe")["result"]
+            BOT_USERNAME, BOT_ID = _me["username"], _me["id"]
+        except Exception as e:
+            log.warning("getMe: %s", e)
+    # These loops never call getUpdates, so they must run in both modes: with
+    # EMBER_NO_BOT the reminders, channel checks and event closings still happen.
+    threading.Thread(target=reminder_loop, daemon=True).start()
+    threading.Thread(target=chan_loop, daemon=True).start()
+    threading.Thread(target=events_loop, daemon=True).start()
     threading.Thread(target=housekeeping_loop, daemon=True).start()
     def _br_warm():
         """v196: ask ourselves for the game page and its picture files, so the brotli copies are ready before the first player comes."""
@@ -4756,8 +4803,7 @@ if __name__ == "__main__":
     threading.Thread(target=_br_warm, daemon=True).start()
     threading.Thread(target=ac_loop, daemon=True).start()
     threading.Thread(target=ac_scan, daemon=True).start()
-    if os.environ.get("EMBER_NO_BOT") != "1":
-        threading.Thread(target=ac_digest_loop, daemon=True).start()
+    threading.Thread(target=ac_digest_loop, daemon=True).start()
     log.info("Emberspire on 127.0.0.1:%s, game folder %s", PORT, PUBLIC)
     # v231: the standard backlog is 5 waiting connections — under a burst (a few hundred players at once) the rest were
     # refused and Caddy answered 502. 256 waiting connections, and request threads never hold the process at exit.

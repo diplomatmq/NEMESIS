@@ -74,6 +74,11 @@ services:
       # Server configuration
       PORT: 3000
       NODE_ENV: ${NODE_ENV:-production}
+
+      # Where to relay the updates the Python mini-app bot handles (/boss, inline
+      # duels, admin/support commands, my_chat_member, Stars top-ups). The TS bot
+      # is the only getUpdates poller; see src/index.ts.
+      PY_FORWARD_URL: http://miniapp:${MINIAPP_PORT:-8080}/api/tg-update
     ports:
       - "3000:3000"
     depends_on:
@@ -123,9 +128,12 @@ services:
       # Reminder settings
       REMIND_GAP_H: ${REMIND_GAP_H:-8}
       REMIND_AWAY_MIN: ${REMIND_AWAY_MIN:-30}
-      
-      # Python bot MUST be enabled to handle /boss and inline_query!
-      # Do NOT set EMBER_NO_BOT - Python bot needs to run
+
+      # The TypeScript bot is the only getUpdates poller (one poller per token,
+      # otherwise Telegram answers 409 Conflict). The Python bot keeps every
+      # non-polling loop (reminders, channel, events, digest) and receives the
+      # updates it owns through POST /api/tg-update from the TS bot.
+      EMBER_NO_BOT: "1"
     ports:
       - "${MINIAPP_PORT:-8080}:8080"
     depends_on:
