@@ -161,14 +161,13 @@ bot.command('unban', handleUnban);
 bot.command('new_ref', handleNewRef);
 bot.command('ref', handleRef);
 
-// Chat boss commands
-bot.command('boss', handleBossCommand);
-bot.command('босс', handleBossCommand);
-bot.command('raid', handleBossCommand);
-bot.command('рейд', handleBossCommand);
-
-// Inline query handler (for @botname commands in any chat)
-bot.on('inline_query', handleInlineQuery);
+// Chat boss commands and inline queries are handled by Python server (app/ebashnya)
+// Comment these out to let Python bot handle them
+// bot.command('boss', handleBossCommand);
+// bot.command('босс', handleBossCommand);
+// bot.command('raid', handleBossCommand);
+// bot.command('рейд', handleBossCommand);
+// bot.on('inline_query', handleInlineQuery);
 
 // Callback query handlers
 bot.on('callback_query:data', async (ctx) => {
