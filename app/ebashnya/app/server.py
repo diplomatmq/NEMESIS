@@ -498,10 +498,13 @@ def raid_hit(user, fields, body):
         dmg = min(as_int(body.get("dmg"), 0, 10**15), 15 * try_dmg(min(max(as_int(body.get("room"), 0, 100000), 1), room + 20)))
         if is_flagged(user["id"]):
             dmg = 0
+        # In PostgreSQL a bare column name in ON CONFLICT DO UPDATE SET is ambiguous
+        # (it exists both in the target table and in "excluded"), so the existing row
+        # must be referenced by table name: raid_hits.dmg. SQLite accepts the same form.
         db.execute("""INSERT INTO raid_hits(ci, week, uid, dmg) VALUES(?,?,?,?)
-                      ON CONFLICT(ci, week, uid) DO UPDATE SET dmg=dmg+excluded.dmg""", (ci, week, user["id"], dmg))
+                      ON CONFLICT(ci, week, uid) DO UPDATE SET dmg=raid_hits.dmg+excluded.dmg""", (ci, week, user["id"], dmg))
         db.execute("""INSERT INTO raid_stats(uid, ci, dmg, best, hits) VALUES(?,?,?,?,1)
-                      ON CONFLICT(uid, ci) DO UPDATE SET dmg=dmg+excluded.dmg, best=MAX(best, excluded.best), hits=hits+1""",
+                      ON CONFLICT(uid, ci) DO UPDATE SET dmg=raid_stats.dmg+excluded.dmg, best=MAX(raid_stats.best, excluded.best), hits=raid_stats.hits+1""",
                    (user["id"], ci, dmg, dmg))
         chat_label(ci)
         db.commit()

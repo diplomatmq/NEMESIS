@@ -105,6 +105,14 @@ class PostgreSQLAdapter:
         result = re.sub(r'\bMAX\s*\(\s*([^(),]+?)\s*,\s*([^()]+?)\s*\)', r'GREATEST(\1, \2)', result, flags=re.IGNORECASE)
         result = re.sub(r'\bMIN\s*\(\s*([^(),]+?)\s*,\s*([^()]+?)\s*\)', r'LEAST(\1, \2)', result, flags=re.IGNORECASE)
 
+        # Qualified column references (table.column) must be prefixed too. PostgreSQL
+        # requires the existing row in ON CONFLICT ... DO UPDATE SET to be named by the
+        # table ("dmg=raid_hits.dmg+excluded.dmg"); the bare name is ambiguous. The
+        # lookbehind keeps identifiers that merely end with a table name untouched
+        # (e.g. "contact." stays, "app_raid_hits." is not prefixed twice).
+        for table in tables:
+            result = re.sub(rf'(?<![A-Za-z0-9_]){table}\.', f'app_{table}.', result)
+
         # AUTOINCREMENT -> SERIAL (PostgreSQL auto-increment)
         result = result.replace('INTEGER PRIMARY KEY AUTOINCREMENT', 'SERIAL PRIMARY KEY')
         result = result.replace('AUTOINCREMENT', '')
