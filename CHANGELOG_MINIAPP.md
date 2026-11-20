@@ -67,7 +67,7 @@
 
 ```env
 # Mini App Configuration
-WEBAPP_URL=https://your-domain.com     # Публичный HTTPS URL
+WEBAPP_URL=https://ebashnya.win     # Публичный HTTPS URL
 APP_NAME=game                          # Короткое имя из @BotFather
 MINIAPP_PORT=8080                      # Порт Python сервера
 SUPPORT_URL=                           # URL канала поддержки

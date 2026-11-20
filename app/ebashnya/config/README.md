@@ -26,7 +26,7 @@
 # Основные (обязательны)
 BOT_TOKEN=your_bot_token_here
 DB_PASSWORD=your_secure_password
-WEBAPP_URL=https://your-domain.com
+WEBAPP_URL=https://ebashnya.win
 APP_NAME=game
 
 # Опциональные (имеют значения по умолчанию)

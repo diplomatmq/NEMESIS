@@ -110,7 +110,7 @@ DB_PASSWORD=YOUR_PASSWORD
 REDIS_URL=redis://localhost:6379
 
 # Mini App Configuration
-WEBAPP_URL=https://your-domain.com
+WEBAPP_URL=https://ebashnya.win
 APP_NAME=game
 MINIAPP_PORT=8080
 

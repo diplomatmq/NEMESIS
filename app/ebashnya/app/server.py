@@ -7,7 +7,7 @@ the JPEG Telegram needs for the "send to a chat" card; without it the game share
 
 Settings come from environment variables (see emberspire.env.example):
   BOT_TOKEN   token from @BotFather (required)
-  WEBAPP_URL  public https address of the game, e.g. https://emberspire.example.com/
+  WEBAPP_URL  public https address of the game, e.g. https://ebashnya.win/
   APP_NAME    short name of the Mini App made with /newapp in @BotFather, default "game"
   PORT        local port, default 8080 (Caddy forwards https traffic here)
   DB_PATH     sqlite file, default ./emberspire.db
@@ -103,6 +103,18 @@ db.execute("""CREATE TABLE IF NOT EXISTS fight_log(uid INTEGER, ts REAL, room IN
   dur INTEGER, cls TEXT, level INTEGER, hp INTEGER, atk INTEGER, df INTEGER, q INTEGER, auto INTEGER)""")
 db.execute("CREATE INDEX IF NOT EXISTS fl_ts ON fight_log(ts)")
 db.execute("CREATE TABLE IF NOT EXISTS ref_hits(inviter INTEGER, visitor INTEGER, day INTEGER, PRIMARY KEY(inviter, visitor, day))")
+# v238 partner program: given by the owners to bloggers/streamers only. A partner's referrals are new players who came by his
+# link (startapp=p_<code>) or typed his code in their first days; he earns pct % of every Stars payment they make, forever.
+# Amounts in hundredths of a star (INTEGER). Times are INTEGER unix seconds; column names avoid the PostgreSQL adapter's
+# timestamp names (seen, updated, created, last, ends, ...) on purpose.
+db.execute("""CREATE TABLE IF NOT EXISTS partners(uid INTEGER PRIMARY KEY, code TEXT, pct INTEGER DEFAULT 0, active INTEGER DEFAULT 1,
+  gave INTEGER DEFAULT 0, earned_c INTEGER DEFAULT 0, paid_c INTEGER DEFAULT 0)""")
+db.execute("""CREATE TABLE IF NOT EXISTS partner_refs(ref INTEGER PRIMARY KEY, partner INTEGER, joined INTEGER DEFAULT 0,
+  spent INTEGER DEFAULT 0, earned_c INTEGER DEFAULT 0)""")
+db.execute("""CREATE TABLE IF NOT EXISTS partner_pays(id INTEGER PRIMARY KEY AUTOINCREMENT, uid INTEGER, amount_c INTEGER DEFAULT 0,
+  at_t INTEGER DEFAULT 0, by_uid INTEGER DEFAULT 0)""")
+db.execute("CREATE INDEX IF NOT EXISTS by_partner ON partner_refs(partner)")
+db.commit()
 db.execute("""CREATE TABLE IF NOT EXISTS raids(ci TEXT, week INTEGER, max INTEGER, hp INTEGER, killed REAL,
   PRIMARY KEY(ci, week))""")
 db.execute("""CREATE TABLE IF NOT EXISTS raid_hits(ci TEXT, week INTEGER, uid INTEGER, dmg INTEGER DEFAULT 0,
@@ -309,6 +321,14 @@ def hello(user, fields, is_new, body):
     with db_lock:
         _qbase(user["id"]); _qbase_f(user["id"], "ekills"); _qbase_f(user["id"], "bkills")
         db.commit()
+    if start.startswith("p_"):
+        pj = partner_attach(user["id"], code=start[2:], is_new=is_new)
+        with db_lock:     # v239: a partner's link counts for his «кто-то зашёл по твоей ссылке» too
+            pr = db.execute("SELECT uid FROM partners WHERE code=?", (_pcode(start[2:]),)).fetchone()
+            if pr and pr[0] != user["id"]:
+                db.execute("INSERT OR IGNORE INTO ref_hits(inviter, visitor, day) VALUES(?,?,?)", (pr[0], user["id"], q_day()))
+                db.commit()
+        return 200, {"ok": True, "admin": admin, "partner_joined": pj.get("name") if pj.get("ok") else None}
     if not (start.startswith("ref_") or start.startswith("rr_") or start.startswith("duel_")):
         return 200, {"ok": True, "admin": admin}
     with db_lock:
@@ -318,9 +338,9 @@ def hello(user, fields, is_new, body):
             inviter = d[0] if d else 0
         else:
             inviter = as_int(start.split("_", 1)[1])
-        # the daily «someone came by your link»: any player but the link's owner, once a day each. Only an invite link counts:
-        # opening a duel challenge is the duel itself (it counts for «Сыграть дуэль»), not an invitation
-        if inviter and inviter != user["id"] and not start.startswith("duel_"):
+        # the daily «someone came by your link»: any player but the link's owner, once a day each. v239: a duel challenge
+        # thrown into a chat counts too — the quest's hint tells players to send one, and before it silently didn't count
+        if inviter and inviter != user["id"]:
             db.execute("INSERT OR IGNORE INTO ref_hits(inviter, visitor, day) VALUES(?,?,?)", (inviter, user["id"], q_day()))
             db.commit()
         # «new» is not only the very first request: the game loads the cloud save before it says hello, and a friend may
@@ -1063,7 +1083,7 @@ def season_close():
             log.info("season post to %s: %s", cid, e)
     for i, (u, n, un, r) in enumerate(top):
         _tell(u, f"🏆 Ты занял {i + 1} место в сезоне {S['n']} Ебашни!" + (f"\nПриз: {pz[i]}" if pz[i] else "") +
-              "\nОрганизатор свяжется с тобой.")
+              "\nОрганизатор свяжется с тобой.", ("Войти в башню", ""))
 
 # ---------------------------------------------------------------- cloud save
 # one copy per Telegram user: the copy that has played more wins, ties go to the newer one
@@ -1171,6 +1191,170 @@ def wipe_all():
         db.commit()
     log.warning("wipe: EVERYONE (%s saves)", n)
     return n
+
+# ---------------------------------------------------------------- v238 partner program
+PARTNER_NEW_DAYS = 3                 # who may become a partner's referral: a player seen for the first time within these days
+PARTNER_CODE_ABC = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+def _epoch(v):
+    """first_seen is REAL in SQLite and TIMESTAMP behind the PostgreSQL adapter."""
+    if v is None:
+        return 0
+    if hasattr(v, "timestamp"):
+        return v.timestamp()
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return 0
+
+def _pcode(c):
+    c = str(c or "").strip().upper().replace(" ", "")
+    return c if 3 <= len(c) <= 16 and all(ch.isalnum() or ch == "_" for ch in c) and c.isascii() else ""
+
+def partner_credit(uid, n):
+    """Caller holds db_lock. A referral paid n stars (n<0: a refund): his partner gets pct % of it."""
+    r = db.execute("SELECT partner FROM partner_refs WHERE ref=?", (uid,)).fetchone()
+    if not r:
+        return
+    p = db.execute("SELECT pct, active FROM partners WHERE uid=?", (r[0],)).fetchone()
+    pct = (p[0] or 0) if p and p[1] else 0
+    c = int(n) * int(pct)                 # n stars * pct % = hundredths of a star
+    db.execute("UPDATE partner_refs SET spent=spent+?, earned_c=earned_c+? WHERE ref=?", (int(n), c, uid))
+    if c:
+        db.execute("UPDATE partners SET earned_c=earned_c+? WHERE uid=?", (c, r[0]))
+    log.info("partner %s: referral %s paid %s, %s%% -> %+.2f", r[0], uid, n, pct, c / 100)
+
+def partner_attach(uid, code, is_new=False):
+    """A new player joins a partner by link or code. Once, for good; an old player can't be claimed."""
+    code = _pcode(code)
+    if not code:
+        return {"ok": False, "reason": "Нет такого кода"}
+    with db_lock:
+        p = db.execute("SELECT uid, active FROM partners WHERE code=?", (code,)).fetchone()
+        if not p or not p[1]:
+            return {"ok": False, "reason": "Нет такого кода"}
+        if p[0] == uid:
+            return {"ok": False, "reason": "Это твой собственный код"}
+        if db.execute("SELECT 1 FROM partner_refs WHERE ref=?", (uid,)).fetchone():
+            return {"ok": False, "reason": "Код уже введён раньше"}
+        me = db.execute("SELECT first_seen FROM players WHERE id=?", (uid,)).fetchone()
+        if not is_new and (not me or time.time() - _epoch(me[0]) > PARTNER_NEW_DAYS * 86400):
+            return {"ok": False, "reason": f"Код можно ввести только в первые {PARTNER_NEW_DAYS} дня игры"}
+        db.execute("INSERT OR IGNORE INTO partner_refs(ref, partner, joined, spent, earned_c) VALUES(?,?,?,?,?)", (uid, p[0], int(time.time()), 0, 0))
+        db.commit()
+        nm = db.execute("SELECT name FROM players WHERE id=?", (p[0],)).fetchone()
+    log.info("partner %s: new referral %s (code %s)", p[0], uid, code)
+    return {"ok": True, "name": (nm[0] if nm else "") or "партнёр"}
+
+def partner_attach_api(user, body):
+    if not rate_ok(user["id"], "pcode"):
+        return SLOW(user["id"], "pcode")
+    r = partner_attach(user["id"], body.get("code"))
+    return 200, r
+
+def partner_info(user):
+    uid = user["id"]
+    with db_lock:
+        p = db.execute("SELECT code, pct, active, earned_c, paid_c FROM partners WHERE uid=?", (uid,)).fetchone()
+        mine = db.execute("SELECT partner FROM partner_refs WHERE ref=?", (uid,)).fetchone()
+        me = db.execute("SELECT first_seen FROM players WHERE id=?", (uid,)).fetchone()
+        out = {"ok": True, "partner": None, "joined": None,
+               "can_enter": not mine and not p and bool(me) and time.time() - _epoch(me[0]) <= PARTNER_NEW_DAYS * 86400,
+               "days": PARTNER_NEW_DAYS}
+        if mine:
+            nm = db.execute("SELECT name FROM players WHERE id=?", (mine[0],)).fetchone()
+            out["joined"] = (nm[0] if nm else "") or "партнёр"
+        if p and p[2]:
+            n, spent = db.execute("SELECT COUNT(*), COALESCE(SUM(spent),0) FROM partner_refs WHERE partner=?", (uid,)).fetchone()
+            payers = db.execute("SELECT COUNT(*) FROM partner_refs WHERE partner=? AND spent>0", (uid,)).fetchone()[0]
+            top = db.execute("""SELECT pl.name, r.spent, r.earned_c, r.joined FROM partner_refs r LEFT JOIN players pl ON pl.id=r.ref
+                                WHERE r.partner=? ORDER BY r.spent DESC, r.joined DESC LIMIT 30""", (uid,)).fetchall()
+            out["partner"] = {"code": p[0] or "", "link": app_link("p_" + p[0]) if p[0] else "", "pct": p[1] or 0,
+                              "refs": n, "payers": payers, "spent": spent, "earned": (p[3] or 0) / 100, "paid": (p[4] or 0) / 100,
+                              "due": ((p[3] or 0) - (p[4] or 0)) / 100,
+                              "top": [{"name": a or "Игрок", "spent": b or 0, "earned": (c or 0) / 100, "at": (d or 0) * 1000} for a, b, c, d in top]}
+    return 200, out
+
+def partner_code(user):
+    """The partner presses «Сгенерировать код»: once; after that his code and link stay the same."""
+    with db_lock:
+        p = db.execute("SELECT code, active FROM partners WHERE uid=?", (user["id"],)).fetchone()
+        if not p or not p[1]:
+            return 403, {"ok": False}
+        code = p[0]
+        if not code:
+            for _ in range(50):
+                c = "".join(random.choice(PARTNER_CODE_ABC) for _ in range(6))
+                if not db.execute("SELECT 1 FROM partners WHERE code=?", (c,)).fetchone():
+                    code = c
+                    break
+            db.execute("UPDATE partners SET code=? WHERE uid=?", (code, user["id"]))
+            db.commit()
+    return 200, {"ok": True, "code": code, "link": app_link("p_" + code)}
+
+def admin_partners(user):
+    if user["id"] not in ADMIN_IDS:
+        return 403, {"ok": False}
+    with db_lock:
+        rows = db.execute("""SELECT p.uid, pl.name, pl.username, p.code, p.pct, p.active, p.earned_c, p.paid_c, p.gave FROM partners p
+                             LEFT JOIN players pl ON pl.id=p.uid ORDER BY p.active DESC, p.earned_c DESC""").fetchall()
+        res = []
+        for uid, name, un, code, pct, act, ec, pc, gave in rows:
+            n, spent = db.execute("SELECT COUNT(*), COALESCE(SUM(spent),0) FROM partner_refs WHERE partner=?", (uid,)).fetchone()
+            res.append({"id": uid, "name": name or "", "username": un or "", "code": code or "", "pct": pct or 0, "active": bool(act),
+                        "refs": n, "spent": spent, "earned": (ec or 0) / 100, "paid": (pc or 0) / 100, "due": ((ec or 0) - (pc or 0)) / 100,
+                        "gave": (gave or 0) * 1000})
+    return 200, {"ok": True, "list": res}
+
+def admin_partner_set(user, body):
+    """Grant the partner program to a player, change his percent, his code, or switch it off (active=0)."""
+    if user["id"] not in ADMIN_IDS:
+        return 403, {"ok": False}
+    with db_lock:
+        r = find_player(body.get("who"))
+        if not r:
+            return 404, {"ok": False, "reason": "Игрок не найден (id или @ник; он должен хоть раз открыть игру)"}
+        uid = r[0]
+        cur = db.execute("SELECT pct, active, code FROM partners WHERE uid=?", (uid,)).fetchone()
+        pct = as_int(body.get("pct"), 0, 100) if body.get("pct") is not None else (cur[0] if cur else 10)
+        act = (1 if body.get("active") else 0) if body.get("active") is not None else (cur[1] if cur else 1)
+        code = cur[2] if cur else ""
+        if body.get("code"):
+            c = _pcode(body.get("code"))
+            if not c:
+                return 400, {"ok": False, "reason": "Код: 3–16 латинских букв/цифр"}
+            o = db.execute("SELECT uid FROM partners WHERE code=?", (c,)).fetchone()
+            if o and o[0] != uid:
+                return 400, {"ok": False, "reason": "Такой код уже у другого партнёра"}
+            code = c
+        if cur:
+            db.execute("UPDATE partners SET pct=?, active=?, code=? WHERE uid=?", (pct, act, code, uid))
+        else:
+            db.execute("INSERT INTO partners(uid, code, pct, active, gave, earned_c, paid_c) VALUES(?,?,?,?,?,?,?)",
+                       (uid, code, pct, act, int(time.time()), 0, 0))
+        db.commit()
+    log.info("admin %s: partner %s pct=%s active=%s code=%s", user["id"], uid, pct, act, code)
+    return 200, {"ok": True, "id": uid, "pct": pct, "active": bool(act), "code": code}
+
+def admin_partner_pay(user, body):
+    """Owners paid a partner by hand: note it, the «к выплате» goes down."""
+    if user["id"] not in ADMIN_IDS:
+        return 403, {"ok": False}
+    try:
+        amt = round(float(str(body.get("amount")).replace(",", ".")) * 100)
+    except (TypeError, ValueError):
+        return 400, {"ok": False, "reason": "Сумма"}
+    if not -10**9 < amt < 10**9 or not amt:
+        return 400, {"ok": False, "reason": "Сумма"}
+    with db_lock:
+        r = find_player(body.get("who"))
+        if not r or not db.execute("SELECT 1 FROM partners WHERE uid=?", (r[0],)).fetchone():
+            return 404, {"ok": False, "reason": "Это не партнёр"}
+        db.execute("UPDATE partners SET paid_c=paid_c+? WHERE uid=?", (amt, r[0]))
+        db.execute("INSERT INTO partner_pays(uid, amount_c, at_t, by_uid) VALUES(?,?,?,?)", (r[0], amt, int(time.time()), user["id"]))
+        db.commit()
+    log.info("admin %s: partner %s paid %+.2f", user["id"], r[0], amt / 100)
+    return 200, {"ok": True}
 
 def find_player(q):
     """@username, username or a numeric id. Caller holds db_lock."""
@@ -1517,7 +1701,7 @@ RL = {                       # action: (times, seconds)
     "post": (150, 60),       # any request that changes something: far above what playing needs
     "duel_new": (10, 3600), "duel_direct": (1, 15), "duel_answer": (30, 60),
     "gr_new": (6, 600), "gr_join": (20, 60), "gr_public": (8, 600), "gr_start": (10, 60), "gr_kick": (20, 60),
-    "share": (12, 60), "duel_card": (12, 60), "ghost": (20, 60),
+    "share": (12, 60), "duel_card": (12, 60), "ghost": (20, 60), "pcode": (8, 60),
     "gr_notify": (3, 3600),
     "skip": (150, 60),       # v216: rest skips on their own (autofarm catching up spends about one a second)  # a host may call players by bot message to three groups an hour (admins too)
 }
@@ -1549,6 +1733,7 @@ SLOW = lambda uid, key: (200, {"ok": False, "reason": "slow", "wait": rate_wait(
 DUEL_PM_PER_DAY = 10         # challenge messages one player gets from the bot a day; past that the challenge waits in the game
 
 DUEL_OPEN_MAX = 3            # open challenge links per player
+DUEL_CANCEL_AFTER = 3600     # v240: a challenge nobody answered can be taken back by its author after an hour
 DUEL_TTL = 3 * 86400         # an unanswered link expires
 DUEL_PAID_PER_DAY = 5        # duels a day that pay gold (to each player)
 DUEL_DIRECT_PER_DAY = 15     # direct challenges a player may throw a day
@@ -1911,17 +2096,19 @@ def _fight(a_uid, b_uid, seed):
     r["from"], r["to"] = _card(a_uid, sa, st[0]), _card(b_uid, sb, st[1])
     return r, None
 
-def _duel_pm(uid, txt):
+def _duel_pm(uid, txt, btn=None):
+    """btn = (text, start param). v241: a group message had «Посмотреть дуэль» — now each message gets its own button."""
+    bt, sp = btn or ("Посмотреть дуэль", "duels")
     try:
         tg("sendMessage", chat_id=uid, text=txt,
-           reply_markup={"inline_keyboard": [[{"text": "Посмотреть дуэль", "url": app_link("duels")}]]})
+           reply_markup={"inline_keyboard": [[{"text": bt, "url": app_link(sp) if sp else app_link()}]]})
     except Exception as e:
         log.info("duel pm to %s: %s", uid, e)
 
-def _tell(uid, txt):
+def _tell(uid, txt, btn=None):
     pm = db.execute("SELECT can_pm FROM players WHERE id=?", (uid,)).fetchone()
     if pm and pm[0]:
-        threading.Thread(target=_duel_pm, args=(uid, txt), daemon=True).start()
+        threading.Thread(target=_duel_pm, args=(uid, txt, btn), daemon=True).start()
 
 def _seed(did):
     return int(hashlib.sha256(did.encode()).hexdigest()[:7], 16)   # fits a 32-bit int for the engine
@@ -1935,7 +2122,7 @@ def duel_new(user, body):
             return 200, {"ok": False, "reason": "review"}
         if not _save_of(user["id"]):
             return 200, {"ok": False, "reason": "nosave"}
-        n = db.execute("SELECT COUNT(*) FROM duels WHERE from_uid=? AND to_uid IS NULL AND kind='link' AND created>?",
+        n = db.execute("SELECT COUNT(*) FROM duels WHERE from_uid=? AND to_uid IS NULL AND kind='link' AND declined=0 AND result IS NULL AND created>?",
                        (user["id"], now - DUEL_TTL)).fetchone()[0]
         if n >= DUEL_OPEN_MAX:
             return 200, {"ok": False, "reason": "many", "max": DUEL_OPEN_MAX}
@@ -1973,7 +2160,7 @@ def duel_get(user, did):
             side = 0 if fu == uid else 1 if tu == uid else -1
             return 200, {"ok": True, "id": did, "status": "done", "from": R.get("from"), "to": R.get("to"), "result": R, "side": side}
         if declined:
-            st = "declined"
+            st = "cancelled" if declined == 2 else "declined"
         elif created < time.time() - DUEL_TTL:
             st = "expired"
         elif fu == uid:
@@ -2059,7 +2246,7 @@ def duel_accept(user, body):
         if res or (kind != "direct" and tu):
             return 200, {"ok": False, "reason": "taken"}
         if declined:
-            return 200, {"ok": False, "reason": "declined"}
+            return 200, {"ok": False, "reason": "cancelled" if declined == 2 else "declined"}
         if fu == uid:
             return 200, {"ok": False, "reason": "self"}
         if kind == "direct" and tu != uid:
@@ -2098,6 +2285,30 @@ def duel_decline(user, body):
         fu = r[0]
         name = (db.execute("SELECT name FROM players WHERE id=?", (uid,)).fetchone() or ("Игрок",))[0]
     _tell(fu, f"🛡 {name} отказался от дуэли.")
+    return 200, {"ok": True}
+
+def duel_cancel(user, body):
+    """v240: the author takes back his challenge (a link in a chat or a personal one) that waited an hour or more without
+    an answer. It frees a place among the 3 open links; the link then says the challenge was cancelled."""
+    if not rate_ok(user["id"], "duel_answer"):
+        return SLOW(user["id"], "duel_answer")
+    did, uid, now = str(body.get("id", ""))[:16], user["id"], time.time()
+    with db_lock:
+        r = db.execute("SELECT from_uid, to_uid, result, kind, declined, created FROM duels WHERE id=?", (did,)).fetchone()
+        if not r or r[0] != uid or r[2] or r[4] or r[3] == "ghost":
+            return 200, {"ok": False, "reason": "none"}
+        if now - (r[5] or 0) < DUEL_CANCEL_AFTER:
+            return 200, {"ok": False, "reason": "early", "left": int(DUEL_CANCEL_AFTER - (now - (r[5] or 0)))}
+        db.execute("UPDATE duels SET declined=2, done_at=? WHERE id=? AND result IS NULL", (now, did))
+        db.commit()
+        pm = db.execute("SELECT v FROM kv WHERE k=?", ("dpm:" + did,)).fetchone()
+    if pm:      # the personal invite in the bot chat goes away too
+        try:
+            c, m = json.loads(pm[0])
+            threading.Thread(target=lambda: tg("deleteMessage", chat_id=c, message_id=m), daemon=True).start()
+        except Exception:
+            pass
+    log.info("duel %s cancelled by its author %s", did, uid)
     return 200, {"ok": True}
 
 def duel_direct(user, body):
@@ -2159,15 +2370,18 @@ def duel_mine(user):
             other = tu if mine else fu
             alive = created > now - DUEL_TTL
             if not res:
-                if declined:
-                    hist.append({"id": did, "vs": name(other), "cls": cls(other), "state": "declined", "mine": mine, "at": int((done or created) * 1000),
-                                 "tag": _tag(other)})
+                if declined == 2 and kind != "direct":
+                    pass                            # v240: a link its author took back just disappears
+                elif declined:
+                    hist.append({"id": did, "vs": name(other), "cls": cls(other), "state": "cancelled" if declined == 2 else "declined", "mine": mine,
+                                 "at": int((done or created) * 1000), "tag": _tag(other)})
                 elif not alive:
                     if kind == "direct":
                         hist.append({"id": did, "vs": name(other), "cls": cls(other), "state": "expired", "mine": mine, "at": int(created * 1000), "tag": _tag(other)})
                 elif mine:
                     opened += 1 if kind != "direct" else 0
-                    out.append({"id": did, "vs": name(other) if other else None, "kind": kind, "at": int(created * 1000)})
+                    out.append({"id": did, "vs": name(other) if other else None, "kind": kind, "at": int(created * 1000),
+                                "cancel_in": max(0, int(DUEL_CANCEL_AFTER - (now - created)))})
                 elif kind == "direct" and tu == uid:
                     inc.append({"id": did, "vs": name(fu), "cls": cls(fu), "at": int(created * 1000)})
                 continue
@@ -2378,6 +2592,7 @@ def stars_paid(msg):
         db.execute("INSERT INTO star_pay(charge, uid, n, payload, ts) VALUES(?,?,?,?,?)", (charge, uid, n, sp.get("invoice_payload"), time.time()))
         db.execute("UPDATE players SET stars=stars+? WHERE id=?", (n, uid))
         db.execute("INSERT INTO star_ledger(uid, delta, what, n, ts) VALUES(?,?,?,?,?)", (uid, n, "topup", n, time.time()))
+        partner_credit(uid, n)
         db.commit()
     log.info("stars paid: %s +%s (%s)", uid, n, charge)
     try:
@@ -2423,6 +2638,7 @@ def refund_command(msg):
         db.execute("UPDATE star_pay SET refunded=1 WHERE charge=?", (charge,))
         db.execute("UPDATE players SET stars=stars-? WHERE id=?", (r[1], r[0]))
         db.execute("INSERT INTO star_ledger(uid, delta, what, n, ts) VALUES(?,?,?,?,?)", (r[0], -r[1], "refund", r[1], time.time()))
+        partner_credit(r[0], -r[1])
         db.commit()
     tg("sendMessage", chat_id=chat, text=f"Вернул {r[1]} ★ игроку {r[0]}.")
 
@@ -2571,10 +2787,11 @@ QUESTS = [
     ("d_elite5",  1, "Пройти 5 элитных этажей",         5,   {"skips": 1, "G": 3, "X": 2, "cores": 1}),
     ("d_boss2",   1, "Убить 2 боссов",                  2,   {"skips": 2, "G": 5, "X": 4, "cores": 2}),
     ("d_share",   1, "Позвать друга: кто-то зашёл по твоей ссылке", 1, {"skips": 1, "G": 2, "X": 1, "cores": 1}),
+    # v239: was the one-time «a_skip10»; daily now, so buying is worth it every day (100 stays a one-time achievement)
+    ("d_skip10",  1, "Купить 10 пропусков отдыха за сегодня", 10, {"skips": 5, "G": 10, "X": 3, "cores": 2}),
     ("a_invite1", 0, "Пригласить друга",                1,   {"skips": 3, "G": 5, "X": 2}),
     ("a_invite3", 0, "Пригласить трёх друзей",          3,   {"skips": 10, "G": 10, "X": 5, "cores": 3}),
     ("a_skip1",   0, "Купить пропуск отдыха",           1,   {"skips": 3, "G": 5, "X": 2, "cores": 1}),
-    ("a_skip10",  0, "Купить 10 пропусков отдыха",      10,  {"skips": 5, "G": 10, "X": 3, "cores": 2}),
     ("a_skip100", 0, "Купить 100 пропусков отдыха",     100, {"skips": 20, "G": 30, "X": 10, "cores": 5}),
     ("a_duel10",  0, "Выиграть 10 дуэлей",              10,  {"skips": 5, "G": 10, "X": 5, "cores": 3}),
     ("a_channel", 0, "Подписаться на канал eBashnya (@yourebashnya)", 1,   {"skips": 3, "G": 5, "X": 2, "cores": 1}),
@@ -2630,6 +2847,7 @@ def _q_progress(uid):
                                 AND (from_uid=? OR to_uid=?)""", (t0, uid, uid)).fetchone()[0]
     invites = db.execute("SELECT COUNT(*) FROM players WHERE ref_by=?", (uid,)).fetchone()[0]
     bought = db.execute("SELECT COALESCE(SUM(n),0) FROM star_ledger WHERE uid=? AND what='skips'", (uid,)).fetchone()[0]
+    bought_today = db.execute("SELECT COALESCE(SUM(n),0) FROM star_ledger WHERE uid=? AND what='skips' AND ts>=?", (uid, t0)).fetchone()[0]
     dw = 0
     for fu, res in db.execute("SELECT from_uid, result FROM duels WHERE result IS NOT NULL AND (from_uid=? OR to_uid=?)", (uid, uid)):
         try:
@@ -2645,7 +2863,7 @@ def _q_progress(uid):
     chan = 1 if db.execute("SELECT 1 FROM kv WHERE k=?", (f"chan:{uid}",)).fetchone() else 0
     return {"d_login": 1, "d_win10": won_today, "d_win30": won_today, "d_duel": duels_today,
             "d_elite5": today("ekills"), "d_boss2": today("bkills"), "d_share": hits, "a_channel": chan,
-            "a_invite1": invites, "a_invite3": invites, "a_skip1": bought, "a_skip10": bought, "a_skip100": bought, "a_duel10": dw}
+            "a_invite1": invites, "a_invite3": invites, "a_skip1": bought, "d_skip10": bought_today, "a_skip100": bought, "a_duel10": dw}
 
 def _q_list(uid):
     day = q_day()
@@ -2980,6 +3198,14 @@ def _gr_view(L, uid, full=False):
                 v["claimed"] = bool(c[1])
     return v
 
+def _gr_stale_close(L, why="Создатель группы перерос этого босса — группа закрыта."):
+    """Caller holds db_lock. v241: an open group whose HOST no longer fits its boss (he levelled up past it) can never
+    start: close it instead of letting players keep joining a group nobody can lead."""
+    db.execute("UPDATE gr_lobby SET status='closed' WHERE id=? AND status='open'", (L["id"],))
+    threading.Thread(target=gr_note_done, args=(L["id"], why), daemon=True).start()
+    log.info("group %s (boss %s) closed: host %s no longer fits", L["id"], L["b"], L["host"])
+    return [m for m in L["members"] if m > 0 and m != L["host"]]
+
 def gr_new(user, body):
     if not rate_ok(user["id"], "gr_new"):
         return SLOW(user["id"], "gr_new")
@@ -3041,6 +3267,13 @@ def gr_join(user, body):
             return 200, {"ok": False, "reason": "level", "b": L["b"], "lv": lv}
         if _gr_won_today(uid, L["b"]):
             return 200, {"ok": False, "reason": "today"}
+        hlv, _ = _gr_level(L["host"])
+        if hlv and L["b"] not in gr_for(hlv):
+            left = _gr_stale_close(L)
+            db.commit()
+            for m in left:
+                _tell(m, f"🛡 Группа на босса {L['b']} уровня закрыта: её создатель уже перерос этого босса. Собери свою!", ("Открыть игру", ""))
+            return 200, {"ok": False, "reason": "closed"}
         L["members"].append(uid)
         db.execute("UPDATE gr_lobby SET members=? WHERE id=?", (json.dumps(L["members"]), gid))
         db.commit()
@@ -3050,7 +3283,7 @@ def gr_join(user, body):
         db.commit()
         host = L["host"]
         name = (db.execute("SELECT name FROM players WHERE id=?", (uid,)).fetchone() or ("Игрок",))[0]
-    _tell(host, f"🛡 {name} вступил в твою группу на босса {L['b']} уровня ({len(L['members'])}/{GR_MAX}).")
+    _tell(host, f"🛡 {name} вступил в твою группу на босса {L['b']} уровня ({len(L['members'])}/{GR_MAX}).", ("🛡 Открыть группу", "gr_" + gid))
     return 200, v
 
 def gr_leave(user, body):
@@ -3157,6 +3390,8 @@ def gr_list(user):
                 continue
             hp = db.execute("SELECT name FROM players WHERE id=?", (L["host"],)).fetchone()
             hsv = _save_of(L["host"]) or {}
+            if hsv and L["b"] not in gr_for(as_int(hsv.get("level"), 1, 100000)):
+                continue                      # v241: its host outgrew the boss — nobody could start it
             out.append({"id": L["id"], "b": L["b"], "n": len(L["members"]), "host": hp[0] if hp else "Игрок",
                         "hlv": as_int(hsv.get("level"), 1, 100000), "hcls": str(hsv.get("cls", "knight"))[:16]})
             if len(out) >= 50:
@@ -3228,7 +3463,7 @@ def gr_start(user, body):
         members = list(L["members"])
     for m in members:
         if m != uid and m > 0:
-            _tell(m, f"🛡 Группа вышла на босса {L['b']} уровня — " + ("победа! Открой игру, чтобы посмотреть бой и забрать награду." if R.get("win") else "босс оказался сильнее. Соберитесь ещё раз!"))
+            _tell(m, f"🛡 Группа вышла на босса {L['b']} уровня — " + ("победа! Открой игру, чтобы посмотреть бой и забрать награду." if R.get("win") else "босс оказался сильнее. Соберитесь ещё раз!"), ("🛡 Посмотреть бой", "gr_" + L["id"]))
     return 200, v
 
 def gr_claim(user, body):
@@ -3255,7 +3490,8 @@ def gr_mine(user):
         done = [r[0] for r in db.execute("SELECT b FROM gr_claims WHERE uid=? AND day=?", (uid, day))]
         rows = db.execute("SELECT id FROM gr_lobby WHERE created>? AND status IN ('open','fighting','done') AND members LIKE ? ORDER BY created DESC LIMIT 20",
                           (time.time() - 2 * 86400, f"%{uid}%")).fetchall()
-        open_, fresh = [], []
+        open_, fresh, stale_tell = [], [], []
+        mylv = _gr_level(uid)[0]
         for (gid,) in rows:
             L = _gr_row(gid)
             if not L or uid not in L["members"]:
@@ -3263,8 +3499,12 @@ def gr_mine(user):
             # keep 'fighting' in open: otherwise a refresh mid-fight clears the bar and cancels
             # the member's watch loop, and they never get the «Подключиться» offer
             if L["status"] in ("open", "fighting") and L["created"] > time.time() - GR_TTL:
+                if L["status"] == "open" and L["host"] == uid and mylv and L["b"] not in gr_for(mylv):
+                    for m in _gr_stale_close(L, "Создатель группы перерос этого босса — группа закрыта."):
+                        stale_tell.append((m, L["b"]))
+                    continue
                 open_.append({"id": gid, "b": L["b"], "n": len(L["members"]), "host": L["host"] == uid,
-                              "fighting": 1 if L["status"] == "fighting" else 0})
+                              "fighting": 1 if L["status"] == "fighting" else 0, "created": int(L["created"] * 1000)})
             elif L["status"] == "done":
                 c = db.execute("SELECT claimed FROM gr_claims WHERE uid=? AND lobby=?", (uid, gid)).fetchone()
                 try:
@@ -3274,6 +3514,8 @@ def gr_mine(user):
                 fresh.append({"id": gid, "b": L["b"], "win": bool(R.get("win")), "test": 1 if R.get("test") else 0, "unclaimed": bool(c and not c[0]), "at": L["done_at"]})
         lv, _ = _gr_level(uid)
         db.commit()
+    for m, b in stale_tell:
+        _tell(m, f"🛡 Группа на босса {b} уровня закрыта: её создатель уже перерос этого босса. Собери свою!", ("Открыть игру", ""))
     return 200, {"ok": True, "done": done, "open": open_, "recent": fresh[:8], "level": lv, "bosses": gr_for(lv) if lv else []}
 
 
@@ -3673,6 +3915,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(*leaderboard(u, urllib.parse.parse_qs(url.query).get("cls", [""])[0]))
             if path == "/api/ref":
                 return self.send_json(*ref_info(u))
+            if path == "/api/partner":
+                return self.send_json(*partner_info(u))
+            if path == "/api/admin/partners":
+                return self.send_json(*admin_partners(u))
             if path == "/api/raid":
                 return self.send_json(*raid_get(u, f, urllib.parse.parse_qs(url.query).get("ci", [""])[0]))
             if path == "/api/raid/stats":
@@ -3794,6 +4040,10 @@ class Handler(BaseHTTPRequestHandler):
             "/api/hello": lambda: hello(u, f, is_new, body),
             "/api/ev": lambda: ev_log(u, body),
             "/api/ref/claim": lambda: ref_claim(u),
+            "/api/partner/code": lambda: partner_code(u),
+            "/api/partner/enter": lambda: partner_attach_api(u, body),
+            "/api/admin/partner": lambda: admin_partner_set(u, body),
+            "/api/admin/partner/pay": lambda: admin_partner_pay(u, body),
             "/api/raid/hit": lambda: raid_hit(u, f, body),
             "/api/raid/join": lambda: raid_join(u, f, body),
             "/api/raid/claim": lambda: raid_claim(u, f, body),
@@ -3823,6 +4073,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/duel/accept": lambda: duel_accept(u, body),
             "/api/duel/direct": lambda: duel_direct(u, body),
             "/api/duel/decline": lambda: duel_decline(u, body),
+            "/api/duel/cancel": lambda: duel_cancel(u, body),
             "/api/ghost/fight": lambda: ghost_fight(u, body),
             "/api/duel/card": lambda: duel_card(u, body),
             "/api/gr/new": lambda: gr_new(u, body),

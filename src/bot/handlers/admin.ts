@@ -217,7 +217,7 @@ export async function handleAdminCommand(ctx: Context) {
     return; // Silently ignore for non-admins
   }
 
-  const miniAppUrl = process.env.WEBAPP_URL || 'https://your-domain.com';
+  const miniAppUrl = process.env.WEBAPP_URL || 'https://ebashnya.win';
   
   await ctx.reply(
     '🔐 **Админ-панель**\n\n' +

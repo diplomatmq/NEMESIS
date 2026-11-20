@@ -383,6 +383,10 @@ h2 small{font-size:11px;letter-spacing:.06em;color:var(--dim);text-transform:non
 .lbcls{display:flex;flex-wrap:wrap;justify-content:center;gap:4px;margin:2px 0 10px}.lbcls .btn.lball:not(.gold){box-shadow:inset 0 0 0 2px #e0a84a;color:#ffd890}.lbcls .btn{flex:none;white-space:nowrap;padding-left:7px;padding-right:7px}
 .lbnote{margin:6px 0 0;font-size:12px;color:var(--muted)}
 .statgrid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.ptn .pcode{display:flex;flex-direction:column;align-items:center;background:#120e18;border:2px solid var(--line);padding:6px}.ptn .pcode b{font-family:var(--f-disp);font-size:24px;letter-spacing:3px;color:#f4c95d}
+.pst>div{display:flex;flex-direction:column;background:#120e18;border:2px solid var(--line);padding:5px 8px}.pst small{opacity:.7;font-size:11px}.pst b{font-size:15px}
+.pdue{text-align:center;font-size:15px}.pdue b{color:#f4c95d}
+.padm{border:2px solid var(--line);padding:8px;margin-top:8px;display:flex;flex-direction:column;gap:6px;background:#120e18}.padm.off{opacity:.6}
 .st{display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--inset);box-shadow:inset 0 0 0 2px var(--line)}
 .st img{width:18px;height:18px}
 .st .k{font-size:11px;letter-spacing:.08em;color:var(--muted);flex:1;line-height:1.1}
@@ -1105,7 +1109,7 @@ const Logic = (() => {
     const targets=[{t:'auto',rar:r,ch,up1:r<4?FUSE_UP1[c]:0,up2:r<3?FUSE_UP2[c]:0}];
     if(r<4)targets.push({t:r+1,rar:r+1,ch:ch*FUSE_K1[c]});
     if(r<3)targets.push({t:r+2,rar:r+2,ch:ch*FUSE_K2[c]});
-    if(top===4&&items[0].slot==='weapon'&&cTop>=3)targets.push({t:'demon',rar:4,ch:ch*FUSE_K2[cTop]*0.8});
+    if(top===4&&items[0].slot==='weapon'&&cTop>=3&&Math.min(...items.map(i=>i.ilvl))>=FUSE_DEMON_LV)targets.push({t:'demon',rar:4,ch:ch*FUSE_K2[cTop]*0.4}); // v242: weapons of floor 200+ only, half the chance
     // the top grades: infernal from 3–4 legendary armour pieces of floor 350+, ashen from 3–4 infernal ones
     // (or demonic weapons, or legendary rings) of floor 500+ — ashen with a very small chance
     const sl=items[0].slot,setOf=i=>(TMAP[i.tid]||{}).set,armour=sl==='helmet'||sl==='armor'||sl==='boots',minL=Math.min(...items.map(i=>i.ilvl)),kk=FUSE_K2[n]||0;
@@ -1115,6 +1119,7 @@ const Logic = (() => {
     for(let i=targets.length-1;i>0;i--)if(targets[i].ch<0.01&&targets[i].t!=='ashen')targets.splice(i,1);
     return {n,r,top,cTop,c,base,by,ilvl,bonus,targets,cost:{gold:Math.round((20+ilvl*6)*n*(1+r*0.5))}};
   }
+  const FUSE_DEMON_LV=200;
   function buildFused(items,I,rar,rng,demon){
     const n=I.n,ilvl=I.ilvl,base=I.base;let tpl=TMAP[base.tid]||{base:{}};
     let it0=null;if(demon){it0=makeItem(rng||Math.random,ilvl,4,null,0,base.slot,demon==='infernal'?{infernal:1}:demon==='ashen'?{legendSet:1}:{demonic:1});tpl=TMAP[it0.tid];}
@@ -2552,13 +2557,14 @@ const Logic = (() => {
       alive:D.F.map(f=>f.hero.hp>0?1:0),died:D.F.map(f=>f.hero.hp>0?0:1)};
   }
   /* the prize: everyone who fought gets something; whoever hit harder gets a little more (and a better chance at the item) */
+  const GR_DEMON_B=20;
   function grRewards(b,shares,rng,eff){const R=grRoom(eff||b),n=shares.length,tot=shares.reduce((a,x)=>a+x,0)||1;
     return shares.map(s=>{const w=0.7+0.6*(s/tot)*n,k=Math.min(1.6,w); // equal share → 1.3×, the top hitter up to 1.6×, a bystander 0.7×
       // measured against a whole day of the chat boss (3 tries ≈ 3×(120+18·floor) gold, ~3 cores): about 1.5× its gold,
       // a third to half a level of experience (not several levels at once), cores and dust for the forge, and always an item
       const lv=eff||b,gold=Math.round((120+R*18)*3*1.15*k*(0.9+0.2*rng())),xp=Math.round(Math.max(xpNeed(lv)*0.25,(18+R*7+R*R*0.05)*3*1.2)*k*(0.9+0.2*rng())); // never below ~1.5 floor bosses
       const dust=Math.round((2+R*0.12)*18*k*(0.8+0.4*rng())),core=Math.max(2,Math.round((2+R/100)*k*(0.8+0.4*rng())));
-      let item=null;{const r=rng()<0.04*k?4:rng()<0.38*k?3:2;item={rarity:r,ilvl:R+5};if(r===4&&rng()<0.2)item.demonic=1;}
+      let item=null;{const r=rng()<0.04*k?4:rng()<0.38*k?3:2;item={rarity:r,ilvl:R+5};if(r===4&&b>=GR_DEMON_B&&rng()<0.05)item.demonic=1;} // v242: demonic only from the 20th boss, 1 legendary in 20 (was 1 in 5 from any)
       return {gold,xp,dust,core,item};});}
   const raidTryDmg=room=>{const r=Math.max(1,room);return Math.round(curve(r-1,0.24,0.006)*(500+4*r));};
   return {capFx,SIGS,farmQuality,raidTryDmg,mulberry32,clamp,RARITIES,BOSS_TABLE,SHOP_TABLE,SLOTS,SLOT_RU,STAT_ORDER,STAT_INFO,TEMPLATES,TMAP,ENEMIES,
@@ -2666,7 +2672,7 @@ window.EmberFS=(()=>{const W=window.Telegram&&window.Telegram.WebApp,tg=W&&W.ini
   const API=(window.EMBER_API||'/api').replace(/\/$/,''),BOT=window.EMBER_BOT||'',APP=window.EMBER_APP||'game';
   const at=v=>!!(tg&&tg.isVersionAtLeast&&tg.isVersionAtLeast(v));
   const U=tg&&tg.initDataUnsafe||{};
-  async function call(path,body){const r=await fetch(API+path,{method:body?'POST':'GET',headers:{'Content-Type':'application/json','X-Init-Data':tg?tg.initData:''},body:body?JSON.stringify(body):undefined});if(r.status===429){/* anti-spam (v194): too many requests in a minute */const t=Date.now();if(!N._slowT||t-N._slowT>8000){N._slowT=t;try{toast('Слишком много действий подряд — подожди минутку',null);}catch(e){}}}if(!r.ok)throw new Error(r.status);return r.json();}
+  async function call(path,body){const r=await fetch(API+path,{method:body?'POST':'GET',headers:{'Content-Type':'application/json','X-Init-Data':tg?tg.initData:''},body:body?JSON.stringify(body):undefined});if(r.status===429){/* anti-spam (v194): too many requests in a minute */const t=Date.now();if(!N._slowT||t-N._slowT>8000){N._slowT=t;try{toast('Слишком много действий подряд — подожди минутку',null);}catch(e){}}}if(!r.ok){N._errReason='';try{const j=await r.clone().json();N._errReason=(j&&j.reason)||'';}catch(e){}throw new Error(r.status);}return r.json();}
   /* group context: Telegram tells which chat the game was opened from */
   N.startParam=()=>U.start_param||new URLSearchParams(location.search).get('startapp')||'';
   /* which raid: an admin's chat event (button «Бить босса» carries rg_<chat>) wins, then the group the game was opened from */
@@ -2682,6 +2688,7 @@ window.EmberFS=(()=>{const W=window.Telegram&&window.Telegram.WebApp,tg=W&&W.ini
   N.refLink=pid=>`https://t.me/${BOT||'your_bot'}/${APP}?startapp=ref_${tg&&U.user?U.user.id:pid}`;
   N.hello=()=>tg?call('/hello',{start:N.startParam()}):Promise.resolve(null);
   N.refInfo=()=>call('/ref');
+  N.partner=()=>call('/partner');N.partnerCode=()=>call('/partner/code',{});N.partnerEnter=c=>call('/partner/enter',{code:c});
   N.refClaim=()=>call('/ref/claim',{});
   N.luck=n=>call('/luck',{n});N.luckInfo=()=>call('/luck/info',{});
   N.raidGet=()=>call('/raid?ci='+encodeURIComponent(N.chat()));
@@ -2704,7 +2711,7 @@ window.EmberFS=(()=>{const W=window.Telegram&&window.Telegram.WebApp,tg=W&&W.ini
   N.duelGet=id=>call('/duel?id='+encodeURIComponent(id));
   N.duelAccept=id=>call('/duel/accept',{id});
   N.duelDirect=tag=>call('/duel/direct',{tag});
-  N.duelDecline=id=>call('/duel/decline',{id});
+  N.duelDecline=id=>call('/duel/decline',{id});N.duelCancel=id=>call('/duel/cancel',{id});
   N.duelCard=(id,image)=>call('/duel/card',{id,image});
   N.ghostFind=room=>call('/ghost?room='+room);
   N.ghostFight=(tag,room)=>call('/ghost/fight',{tag,room});
@@ -6832,12 +6839,18 @@ function musicWake(){try{if(SFX.ctx&&SFX.ctx.state!=='running')SFX.ctx.resume();
 for(const ev of ['pointerdown','touchend','click','keydown'])addEventListener(ev,musicWake,{capture:true,passive:true});
 function musicKind(){return titleOn?'title':duel||GRS||(fight&&(fight.f.raid||fight.f.boss))?'boss':'tower';}
 /* the title music starts with the game; a phone that forbids sound before the first touch starts it on that touch */
-function musicAtLaunch(){if(!S||S.musicOn===false)return;Music.on=true;
+/* v239: the music choice lives on the device as well: switched off (button or slider at 0) stays off at the next launch,
+   even if a cloud save from before the switch arrives. Otherwise every launch starts at 10%. */
+function musPrefSave(){try{localStorage.setItem('ember.mus',JSON.stringify({on:S.musicOn!==false,vol:S.musicVol}));}catch(e){}}
+function musicPrefs(){if(!S)return;let mp=null;try{mp=JSON.parse(localStorage.getItem('ember.mus')||'null');}catch(e){}
+  if(mp&&mp.on===false)S.musicOn=false;if(mp&&mp.on===true&&S.musicOn===false)S.musicOn=true;
+  const muted=(mp?mp.vol===0:S.musicVol===0);S.musicVol=muted?0:0.1;Music.vol=S.musicVol;Music.on=S.musicOn!==false;}
+function musicAtLaunch(){musicPrefs();if(!S||S.musicOn===false)return;Music.on=true;
   // what played last time is remembered, so each launch starts with a different track of the block
   try{Object.assign(Music.last,JSON.parse(localStorage.getItem('ember.musicLast')||'{}'));}catch(e){}
   try{if(!Music.started)Music.start();Music.set('title');}catch(e){}}
 let musicTick=0;
-const APP_VER='236';
+const APP_VER='243';
 /* one bad frame must never freeze the game: the error is shown once and the loop goes on */
 let errShown='';
 function showErr(m){m=String(m||'').slice(0,140);if(m===errShown)return;errShown=m;try{toast('Ошибка (v'+APP_VER+'): '+esc(m),null);}catch(e){}}
@@ -7473,7 +7486,7 @@ function setTab(t){
   for(const v of ['tower','bag','shop','hero','fort','quest','path'])$('v-'+v).hidden=v!==t;
   if(t==='quest')questsRefresh();
   if(t==='tower')requestAnimationFrame(resize);
-  if(t==='path'){raidRefresh();refRefresh();duelRefresh();seasonRefresh();grRefresh();}
+  if(t==='path'){raidRefresh();refRefresh();partnerRefresh();duelRefresh();seasonRefresh();grRefresh();}
   renderActive();
   if(window.EmberNet){EmberNet.nav({modal:!$('modal').hidden,tab:t});EmberNet.haptic('tab');}
 }
@@ -7532,20 +7545,28 @@ function luckChip(){const n=S.luckCharges||0;
 var QST=null,questBusy=false;
 const QDEF=[['d_login',1,'Зайти в игру',1,{skips:1,G:1,X:1}],['d_win10',1,'Пройти 10 комнат за сегодня',10,{skips:1,G:2,X:1}],['d_win30',1,'Пройти 30 комнат за сегодня',30,{skips:2,G:4,X:2}],
   ['d_duel',1,'Сыграть дуэль',1,{G:2,X:1,cores:1}],['d_elite5',1,'Пройти 5 элитных этажей',5,{skips:1,G:3,X:2,cores:1}],['d_boss2',1,'Убить 2 боссов',2,{skips:2,G:5,X:4,cores:2}],
-  ['d_share',1,'Позвать друга: кто-то зашёл по твоей ссылке',1,{skips:1,G:2,X:1,cores:1}],['a_invite1',0,'Пригласить друга',1,{skips:3,G:5,X:2}],['a_invite3',0,'Пригласить трёх друзей',3,{skips:10,G:10,X:5,cores:3}],
-  ['a_skip1',0,'Купить пропуск отдыха',1,{skips:3,G:5,X:2,cores:1}],['a_skip10',0,'Купить 10 пропусков отдыха',10,{skips:5,G:10,X:3,cores:2}],
+  ['d_share',1,'Позвать друга: кто-то зашёл по твоей ссылке',1,{skips:1,G:2,X:1,cores:1}],['d_skip10',1,'Купить 10 пропусков отдыха за сегодня',10,{skips:5,G:10,X:3,cores:2}],['a_invite1',0,'Пригласить друга',1,{skips:3,G:5,X:2}],['a_invite3',0,'Пригласить трёх друзей',3,{skips:10,G:10,X:5,cores:3}],
+  ['a_skip1',0,'Купить пропуск отдыха',1,{skips:3,G:5,X:2,cores:1}],
   ['a_skip100',0,'Купить 100 пропусков отдыха',100,{skips:20,G:30,X:10,cores:5}],['a_duel10',0,'Выиграть 10 дуэлей',10,{skips:5,G:10,X:5,cores:3}],
   ['a_channel',0,'Подписаться на канал eBashnya (@yourebashnya)',1,{skips:3,G:5,X:2,cores:1}]];
 const QHINT={d_elite5:'Элиты — на каждом 10-м этаже (кроме боссов). Фарм тоже считается',d_boss2:'Боссы — на каждом 50-м этаже. Фарм босса тоже считается',
   d_share:'Отправь вызов на дуэль («Мир» → «Дуэли») или свою ссылку («Мир» → «Я»). Засчитается, когда кто-то откроет игру по ней',a_channel:'Нажми «Перейти», подпишись на @yourebashnya и вернись в игру',d_win10:'Считаются все выигранные бои, и фарм тоже',d_win30:'Считаются все выигранные бои, и фарм тоже',d_duel:'Дуэли — во вкладке «Мир» → «Дуэли»: вызови друга (кнопка «Вызвать друга» — отправь ему ссылку), игрока из топа, прими чужой вызов или сразись с призраком',
   a_invite1:'Друг должен зайти в игру по твоей ссылке («Мир» → «Я»)',a_invite3:'Друзья заходят по твоей ссылке («Мир» → «Я»)',a_skip1:'Пропуски покупаются за звёзды — кнопка «+» у «АВТО»',
-  a_skip10:'Считаются все купленные пропуски',a_skip100:'Считаются все купленные пропуски',a_duel10:'Дуэли — во вкладке «Мир» → «Дуэли»: с друзьями, с игроками из топа и с призраками. Считаются все победы'};
+  d_skip10:'Считаются пропуски, купленные сегодня. Каждый день заново',a_skip100:'Считаются все купленные пропуски',a_duel10:'Дуэли — во вкладке «Мир» → «Дуэли»: с друзьями, с игроками из топа и с призраками. Считаются все победы'};
+/* v239: «Перейти» on a quest takes the player where it is done */
+const QGO={d_share:'friends',a_invite1:'friends',a_invite3:'friends',d_duel:'duel',a_duel10:'duel',d_skip10:'skips',a_skip1:'skips',a_skip100:'skips',
+  d_win10:'tower',d_win30:'tower',d_elite5:'tower',d_boss2:'tower'};
+function questGo(id){const w=QGO[id];SFX.play('click');
+  if(w==='friends'){setPathView('me');setTimeout(()=>{const h=[...document.querySelectorAll('#v-path h2')].find(x=>/^Друзья/.test(x.textContent));if(h)h.scrollIntoView({behavior:'smooth',block:'start'});},120);}
+  else if(w==='duel')setPathView('duel');
+  else if(w==='skips')skipModal();
+  else if(w==='tower')setTab('tower');}
 const qDayLocal=()=>Math.floor((Date.now()+3*3600e3)/86400e3);
 function qLocal(){const day=qDayLocal(),q=S.qloc&&S.qloc.day===day?S.qloc:(S.qloc={day,base:(S.st&&S.st.wins)||0,claimed:Object.fromEntries(Object.entries((S.qloc||{}).claimed||{}).filter(([k])=>k[0]==='a'))});
   const room=Math.max(1,S.maxCleared||1),G=Math.round((8+room*3.2)*10),X=Math.round((18+room*7+room*room*0.05)*1);
   if(q.eb==null){q.eb=(S.st&&S.st.ekills)||0;q.bb=(S.st&&S.st.bkills)||0;}
   const won=Math.max(0,((S.st&&S.st.wins)||0)-q.base),bought=(S.devStars&&S.devStars.bought)||0;
-  const prog={d_login:1,d_win10:won,d_win30:won,d_duel:0,d_elite5:Math.max(0,((S.st&&S.st.ekills)||0)-q.eb),d_boss2:Math.max(0,((S.st&&S.st.bkills)||0)-q.bb),d_share:0,a_channel:S.qloc.chan?1:0,a_invite1:0,a_invite3:0,a_skip1:bought,a_skip10:bought,a_skip100:bought,a_duel10:0};
+  const prog={d_login:1,d_win10:won,d_win30:won,d_duel:0,d_elite5:Math.max(0,((S.st&&S.st.ekills)||0)-q.eb),d_boss2:Math.max(0,((S.st&&S.st.bkills)||0)-q.bb),d_share:0,a_channel:S.qloc.chan?1:0,a_invite1:0,a_invite3:0,a_skip1:bought,d_skip10:Math.max(0,bought-(q.sb!=null?q.sb:(q.sb=bought))),a_skip100:bought,a_duel10:0};
   return {local:1,wbase:q.base,ebase:q.eb,bbase:q.bb,resetAt:(day+1)*86400e3-3*3600e3,quests:QDEF.map(([id,daily,title,goal,rw])=>{const n=prog[id]||0;return {id,daily,title,goal,n:Math.min(n,goal),done:n>=goal,claimed:!!q.claimed[id],
     reward:{skips:rw.skips||0,gold:G*(rw.G||0),xp:X*(rw.X||0),cores:rw.cores||0}};})};}
 async function questsRefresh(){
@@ -7567,7 +7588,7 @@ function renderQuests(){const el=$('v-quest');if(!el)return;
   const left=Math.max(0,QST.resetAt-Date.now()),h=Math.floor(left/3600e3),m=Math.floor(left%3600e3/60e3);
   const card=q=>{const n=qN(q),dn=n>=q.goal;return `<div class="qcard px ${q.claimed?'qgot':dn?'qready':''}"><div class="qtop"><b>${esc(q.title)}</b>${q.claimed?'<span class="qok">✓ получено</span>':`<span class="qn">${n} / ${q.goal}</span>`}</div>
     ${q.claimed?'':`<div class="qbar"><i style="width:${Math.round(100*n/q.goal)}%"></i></div>`}${!dn&&q.wait!=null?`<small class="qhint">Проверяем подписку — ещё около ${Math.max(1,Math.ceil(q.wait/60))} мин. Не отписывайся: бот напишет, когда награду можно забрать</small>`:!dn&&QHINT[q.id]?`<small class="qhint">${QHINT[q.id]}</small>`:''}
-    <div class="qbot"><div class="qrw">${rewardChips(q.reward)}</div>${dn&&!q.claimed?`<button class="btn sm ember" data-act="q-claim" data-q="${q.id}" ${questBusy?'disabled':''}>Забрать</button>`:q.id==='a_channel'&&!dn?(q.wait!=null?`<span class="qwait">⏳ В процессе выполнения</span>`:`<button class="btn sm gold" data-act="q-chan">Перейти</button>`):''}</div></div>`;};
+    <div class="qbot"><div class="qrw">${rewardChips(q.reward)}</div>${dn&&!q.claimed?`<button class="btn sm ember" data-act="q-claim" data-q="${q.id}" ${questBusy?'disabled':''}>Забрать</button>`:q.id==='a_channel'&&!dn?(q.wait!=null?`<span class="qwait">⏳ В процессе выполнения</span>`:`<button class="btn sm gold" data-act="q-chan">Перейти</button>`):!dn&&!q.claimed&&QGO[q.id]?`<button class="btn sm gold" data-act="q-go" data-q="${q.id}">Перейти</button>`:''}</div></div>`;};
   const order=a=>a.slice().sort((x,y)=>(qDone(y)&&!y.claimed)-(qDone(x)&&!x.claimed)||x.claimed-y.claimed);
   const D=order(QST.quests.filter(q=>q.daily)),A=order(QST.quests.filter(q=>!q.daily));
   const nNew=(NFTS||[]).filter(x=>x.status==='new').length;
@@ -8139,7 +8160,7 @@ const shopIconCache={};
 function shopIcon(tid){const k=tid+'|'+(S&&S.cls);return shopIconCache[k]||(shopIconCache[k]=itemIconCanvas(tid));}
 const QUOTES=['Чувствуешь удачу? Выбирай с полки.','Сталь с верхних этажей. Без возврата.','Говорят, Король Скелетов боится заточки. Врут.','Продаёшь хлам? Плачу честно. Почти.','Золото вперёд, герой.','Кружку не трогай — она не продаётся. Остальное — пожалуйста.','Нож на прилавке — для сыра. Для героев — полка.','Заходи после босса — привезу новинки.'];
 /* v234: «Болтать» — Морроу и правда болтает: спрашивает, рассказывает о башне. Изредка (5%) — пасхалка: шепчет ник и тайное слово */
-const EGG_USER='emperort1me',EGG_WORD='ЕБАШНЯ-ЕБАШИР',EGG_P=0.05;
+const EGG_USER='emperort1me',EGG_WORD='ЕБАШНЯ-ЕБАШИР',EGG_P=0.005;   // v243: 1 in 200 «Болтать» on average (v242: 1%, before: 5%)
 const MTALK=[
  {t:['Знаешь, почему башню зовут Ебашней?','Потому что наверх тут не идут — тут ебашат. Этаж за этажом, монстр за монстром.','Кто перестал ебашить — тот и остановился. Так что не стой, герой.']},
  {t:['Скажи честно: ты зачем лезешь наверх?'],q:[['За славой','Слава… На сотом этаже про неё все забывают. Остаётся только лестница.'],['За золотом','Вот это я понимаю! Человек дела. Неси его сюда.'],['Сам не знаю','Самый честный ответ за неделю. Таких башня и любит.']]},
@@ -8340,7 +8361,8 @@ ${shopTabsHtml()}
   const say=$('sbSay');if(say)typeInto(say,shopTalk||QUOTES[(S.st.wins+S.inv.length)%QUOTES.length]);
 }
 let shopShow=false;
-function shopPick(i){if(!SHOP().items[i])return;if(shopSel===i&&shopShow&&!shopTalk){shopShow=false;SFX.play('click');renderShop();return;}shopSel=i;shopTalk=null;shopShow=true;SFX.play('click');renderShop();}
+function shopPick(i){if(!SHOP().items[i])return;if(shopSel===i&&shopShow&&!shopTalk)return;   /* v239: a second tap no longer moves the card from the top to the bottom — ✕ closes it */
+  shopSel=i;shopTalk=null;shopShow=true;SFX.play('click');renderShop();}
 function buy(i){
   const SH=SHOP(),it=SH.items[i];if(!it)return;const pr=L.buyPrice(it);if(S.gold<pr||S.inv.length>=invCap())return;
   S.gold-=pr;SH.items[i]=null;delete it.premium;addItem(it);persist();SFX.play('coin');toast(`Куплено: <span class="rc${it.rarity}">${esc(it.name)}</span> · −${pr}`,itemIcon(it.tid));
@@ -8848,7 +8870,7 @@ function raidAnnounce(){if(!raidHotNow())return;const key=(RAID.chat||'')+':'+RA
   if(seen===key||(tab==='path'&&pathView==='raid'))return;try{localStorage.setItem('ember.raidSeen',key);}catch(e){}
   toast(`Босс в чате «${esc(RAID.chat||'чат')}»! Мир → Рейд, попыток: ${raidTries()}`,UI.skull);SFX.play('buff');}
 /* the world is checked in the background too: the badge appears without opening the tab */
-setTimeout(()=>{if(S&&S.cls&&window.EmberNet&&EmberNet.tg){raidRefresh();duelRefresh();refRefresh();grRefresh();}},2500);
+setTimeout(()=>{if(S&&S.cls&&window.EmberNet&&EmberNet.tg){raidRefresh();duelRefresh();refRefresh();grRefresh();partnerRefresh();}},2500);
 setInterval(()=>{if(document.visibilityState==='visible'&&S&&S.cls&&!titleOn&&window.EmberNet&&EmberNet.tg&&tab!=='path'){raidRefresh();duelRefresh();refRefresh();grRefresh();}},90000);
 function raidStatsHtml(){const R=RSTATS;if(!R||!R.chats||!R.chats.length)return '';
   return `<div class="rstats"><b>Мои рейды</b><div class="rsrow"><span>Всего урона</span><b>${fmtN(R.total)}</b></div><div class="rsrow"><span>Лучший удар</span><b>${fmtN(R.best)}</b></div><div class="rsrow"><span>Попыток</span><b>${R.hits||0}</b></div>
@@ -8940,7 +8962,7 @@ async function duelFlush(){if(!(window.EmberNet&&EmberNet.tg))return;cloudDirty=
   try{await EmberNet.savePut({save:S,score:playScore(S),ts:S.savedAt});}catch(e){}}
 const DUEL_ERR={slow:'Слишком часто — подожди немного и попробуй снова.',taken:'Этот вызов уже кто-то принял.',self:'Нельзя драться с самим собой.',expired:'Вызов устарел.',none:'Игрок или вызов не найден.',
   nosave:'У соперника ещё нет сохранения на сервере — пусть зайдёт в игру.',review:'Один из героев сейчас на проверке — дуэль недоступна.',nosave_me:'Твой герой ещё не сохранился на сервере — подожди пару секунд.',engine:'Сервер дуэлей сейчас недоступен.',limit:'На сегодня вызовов хватит — приходи завтра.',
-  pending:'Ты уже вызвал этого игрока — ждём ответа.',declined:'От этой дуэли отказались.',notyou:'Этот вызов адресован другому игроку.'};
+  pending:'Ты уже вызвал этого игрока — ждём ответа.',declined:'От этой дуэли отказались.',cancelled:'Автор отменил этот вызов.',notyou:'Этот вызов адресован другому игроку.'};
 async function duelRefresh(){
   if(!(window.EmberNet&&EmberNet.tg))return;
   try{DUELS=await EmberNet.duelMine();}catch(e){return;}
@@ -8957,8 +8979,10 @@ function duelSection(){
   const on=window.EmberNet&&EmberNet.tg,D=DUELS||{};
   const when=ms=>{const d=new Date(ms),now=new Date();return d.toDateString()===now.toDateString()?d.toTimeString().slice(0,5):d.getDate()+'.'+String(d.getMonth()+1).padStart(2,'0');};
   const inc=(D.incoming||[]).map(d=>`<li class="dinc"><span class="lr">⚑</span><span class="ln">${esc(d.vs)} <small>вызывает · ${when(d.at)}</small></span><span class="lc"></span><span class="dbtns"><button class="btn sm" data-act="duel-decline" data-id="${d.id}">Нет</button><button class="btn sm ember" data-act="duel-open" data-id="${d.id}">Ответить</button></span></li>`).join('');
-  const out=(D.outgoing||[]).map(d=>`<li><span class="lr">…</span><span class="ln">${d.vs?esc(d.vs):'ссылка в чате'} <small>ждём ответа · ${when(d.at)}</small></span><span class="lc"></span><span></span></li>`).join('');
-  const ST={won:['✓','победа','dwin'],lost:['✗','поражение','dlose'],declined:['–','отказ','dno'],expired:['–','не ответил','dno']};
+  /* v240: an hour after the challenge its author may take it back */
+  const out=(D.outgoing||[]).map(d=>{const left=Math.max(0,3600e3-(Date.now()-d.at));
+    return `<li><span class="lr">…</span><span class="ln">${d.vs?esc(d.vs):'ссылка в чате'} <small>ждём ответа · ${when(d.at)}${left?` · отменить через ${Math.ceil(left/60e3)} мин`:''}</small></span><span class="lc"></span><span class="dbtns">${left?'':`<button class="btn sm" data-act="duel-cancel" data-id="${d.id}">Отменить</button>`}</span></li>`;}).join('');
+  const ST={won:['✓','победа','dwin'],lost:['✗','поражение','dlose'],declined:['–','отказ','dno'],cancelled:['–','отменён','dno'],expired:['–','не ответил','dno']};
   const hist=(D.history||[]).slice(0,10).map(d=>{const t=ST[d.state]||ST.expired,fought=d.state==='won'||d.state==='lost';
     return `<li class="${t[2]}"${fought?` data-act="duel-view" data-id="${d.id}"`:''}><span class="lr">${t[0]}</span><span class="ln">${esc(d.vs)} <small>${d.kind==='ghost'?(d.mine?'призрак, этаж '+(d.room||'?'):'бился с твоим призраком'):d.mine?'ты вызвал':'вызвал тебя'} · ${when(d.at)}</small></span><span class="lc">${t[1]}</span><span class="dbtns">${fought?`<button class="btn sm" data-act="duel-view" data-id="${d.id}">Повтор</button>`:''}${d.tag?`<button class="btn sm" data-act="duel-pick" data-tag="${esc(d.tag)}" data-name="${esc(d.vs)}" data-cls="${esc(d.cls||'')}">Вызов</button>`:''}</span></li>`;}).join('');
   return `<h2>Дуэли <small>${D.wins!=null?'победы '+D.wins+' · поражения '+D.losses:'вызов любому игроку'}</small></h2><div class="raid px px-in">
@@ -9027,7 +9051,7 @@ async function duelInviteModal(id,tries){
   let d=null;try{d=await EmberNet.duelGet(id);}catch(e){}
   if(!d||!d.ok){openModal(`<div class="sheet px"><h3>Дуэль</h3><p class="note">Вызов не найден.</p><button class="btn" data-act="close" data-focus>Закрыть</button></div>`);return;}
   if(d.status==='done'){duelReplay(d);return;}
-  const msg=d.status==='mine'?(d.kind==='direct'?'Это твой вызов — ждём ответа соперника.':'Это твой вызов. Отправь его в чат — кто первым примет, с тем и бой.'):d.status==='expired'?'Вызов устарел: на него не ответили за 3 дня.':d.status==='declined'?'От этой дуэли отказались.':d.status==='notyou'?'Этот вызов адресован другому игроку.':'';
+  const msg=d.status==='mine'?(d.kind==='direct'?'Это твой вызов — ждём ответа соперника.':'Это твой вызов. Отправь его в чат — кто первым примет, с тем и бой.'):d.status==='expired'?'Вызов устарел: на него не ответили за 3 дня.':d.status==='declined'?'От этой дуэли отказались.':d.status==='cancelled'?'Автор отменил этот вызов.':d.status==='notyou'?'Этот вызов адресован другому игроку.':'';
   openModal(`<div class="sheet px px-gold"><div class="rw-title">Вызов на дуэль</div>
     ${dvsPair(d.from,meCard())}
     ${msg?`<p class="note">${msg}</p><button class="btn" data-act="close" data-focus>Закрыть</button>`:
@@ -9151,6 +9175,60 @@ function pid(){if(!S.pid){S.pid=Math.random().toString(36).slice(2,10);persist()
 async function refRefresh(){if(window.EmberNet&&EmberNet.tg){try{REF=await EmberNet.refInfo();}catch(e){REF={error:1};}updateBadge();
   if(refReady()&&!(tab==='path'&&pathView==='me')){const c=REF.claimable,k=c.skips+':'+c.cores;if(refSeen!==k){refSeen=k;toast(`Друзья принесли награду: ${c.skips} пропусков · ${c.cores} ядра — Мир → Я`,TICKET_ICON);}}
   if(tab==='path')renderPath();}}
+/* v238 partner program (see server): the block shows only for partners the owners appointed; newcomers may type a partner's code */
+let PARTNER=null;
+async function partnerRefresh(){if(!(window.EmberNet&&EmberNet.tg))return;try{PARTNER=await EmberNet.partner();}catch(e){return;}if(tab==='path'&&pathView==='me')renderPath();}
+const fmtStar=v=>{v=Math.round((+v||0)*100)/100;return (Number.isInteger(v)?v:v.toFixed(2))+' ★';};
+function partnerSection(){const P=PARTNER;if(!P||!P.ok)return '';let h='';
+  if(P.partner){const p=P.partner;
+    h+=`<h2>Партнёрка <small>${p.pct}% с покупок</small></h2><div class="raid px px-in ptn">`;
+    if(!p.code)h+=`<p class="note" style="margin:0;text-align:left">Тебе открыта партнёрская программа: игроки, пришедшие по твоей ссылке или с твоим кодом, становятся твоими рефералами, а тебе идёт <b>${p.pct}%</b> от всех звёзд, которые они потратят в игре.</p><button class="btn ember" data-act="p-gen">Сгенерировать код и ссылку</button>`;
+    else h+=`<div class="pcode"><small>Твой код</small><b>${esc(p.code)}</b></div>
+      <input class="ninput" readonly value="${esc(p.link)}" id="pLink">
+      <div class="dbgrow"><button class="btn sm ember" data-act="p-send">Отправить</button><button class="btn sm" data-act="p-copy" data-v="link">Ссылку</button><button class="btn sm" data-act="p-copy" data-v="code">Код</button></div>`;
+    h+=`<div class="statgrid pst"><div><small>Рефералов</small><b>${p.refs}</b></div><div><small>Из них платят</small><b>${p.payers}</b></div>
+      <div><small>Твой процент</small><b>${p.pct}%</b></div><div><small>Они потратили</small><b>${fmtStar(p.spent)}</b></div>
+      <div><small>Заработано</small><b>${fmtStar(p.earned)}</b></div><div><small>Выплачено</small><b>${fmtStar(p.paid)}</b></div></div>
+      <div class="pdue">К выплате: <b>${fmtStar(p.due)}</b></div><p class="note" style="margin:0">Выплату делают админы вручную — напиши им, когда захочешь вывести.</p>`;
+    if(p.top&&p.top.length)h+=`<ol class="lb">${p.top.slice(0,15).map((f,i)=>`<li><span class="lr">${i+1}</span><span class="ln">${esc(f.name)}</span><span class="lc">+${fmtStar(f.earned)}</span><b class="lv">${f.spent}★</b></li>`).join('')}</ol>`;
+    else if(p.code)h+=`<p class="note" style="margin:0">Пока никто не пришёл. Рефералом становится только новый игрок — по ссылке или введя код в первые ${P.days} дня.</p>`;
+    h+=`</div>`;}
+  if(P.can_enter)h+=`<h2>Код партнёра</h2><div class="raid px px-in"><p class="note" style="margin:0;text-align:left">Пришёл от блогера или стримера? Введи его код — один раз, в первые ${P.days} дня игры.</p>
+    <div class="dbgrow"><input class="ninput" id="pIn" maxlength="16" placeholder="Код" autocapitalize="characters" style="flex:1;min-width:0;margin:0"><button class="btn sm gold" data-act="p-enter">Ввести</button></div><p class="note nstat" id="pStat" style="margin:0"></p></div>`;
+  else if(P.joined&&!P.partner)h+=`<p class="note">Ты пришёл от партнёра: ${esc(P.joined)}</p>`;
+  return h;}
+async function partnerGen(){try{const r=await EmberNet.partnerCode();if(r&&r.ok){toast('Код готов: '+r.code,UI.check);SFX.play('coin');}}catch(e){toast('Сервер не ответил',null);}partnerRefresh();}
+async function partnerEnter(){const v=(($('pIn')||{}).value||'').trim(),st=$('pStat');if(!v){if(st)st.textContent='Введи код';return;}
+  try{const r=await EmberNet.partnerEnter(v);if(r&&r.ok){toast('Готово! Ты от партнёра: '+r.name,UI.check);SFX.play('buff');partnerRefresh();}else if(st){st.textContent='✗ '+((r&&r.reason)||'Не получилось');st.style.color='#ff8a8a';}}
+  catch(e){if(st)st.textContent='✗ Сервер не ответил';}}
+function partnerCopy(what){const p=PARTNER&&PARTNER.partner;if(!p)return;const v=what==='code'?p.code:p.link;
+  const ok=()=>toast((what==='code'?'Код':'Ссылка')+' скопирован'+(what==='code'?'':'а'),UI.check);
+  try{navigator.clipboard.writeText(v).then(ok).catch(()=>{const el=$('pLink');if(el){el.select();document.execCommand('copy');ok();}});}catch(e){}}
+function partnerSend(){const p=PARTNER&&PARTNER.partner;if(!p||!p.link)return;const t='Заходи в Ебашню — пиксельная башня, где герой сам дерётся. Мой код: '+p.code;
+  const u='https://t.me/share/url?url='+encodeURIComponent(p.link)+'&text='+encodeURIComponent(t);
+  try{const W=window.Telegram&&Telegram.WebApp;if(W&&W.openTelegramLink)W.openTelegramLink(u);else window.open(u,'_blank');}catch(e){window.open(u,'_blank');}}
+/* owners: who is a partner, his percent, his code; payouts are marked here after paying by hand */
+const PADM={list:null,msg:''};
+function admReq(path,body){const W=window.Telegram&&Telegram.WebApp;return fetch(NOTICE_API+path,{method:body?'POST':'GET',headers:{'Content-Type':'application/json','X-Init-Data':(W&&W.initData)||''},body:body?JSON.stringify(body):undefined}).then(async r=>{const j=await r.json().catch(()=>null);return j||{ok:false,reason:'код '+r.status};}).catch(()=>({ok:false,reason:'нет связи'}));}
+async function admPartnersLoad(){const j=await admReq('/admin/partners');PADM.list=j&&j.ok?j.list:[];if(!(j&&j.ok))PADM.msg='Сервер не ответил: '+((j&&j.reason)||'');if(ADM.open&&ADM.tab==='partners')adminModal();}
+function admPartners(){if(PADM.list==null){admPartnersLoad();}
+  const L2=PADM.list||[];
+  return `<h2>Партнёры</h2><p class="note" style="margin:0">Партнёрка видна только тем, кому вы её выдали. Его рефералы — новые игроки по его ссылке или коду (первые 3 дня). Процент считается с каждой покупки звёзд реферала. Выплаты — вручную, здесь только отметка.</p>
+  <div class="dbgrow"><input id="paWho" class="ninput" placeholder="id или @ник" style="flex:2;min-width:0;margin:0"><input id="paPct" class="ninput" type="number" min="0" max="100" placeholder="%" style="flex:1;min-width:0;margin:0"></div>
+  <div class="dbgrow"><input id="paCode" class="ninput" placeholder="свой код (необязательно)" style="flex:1;min-width:0;margin:0"><button class="btn sm gold" data-act="pa-set">Выдать / изменить</button></div>
+  <p class="note nstat" id="paStat" style="margin:0">${esc(PADM.msg)}</p>
+  ${PADM.list==null?'<p class="note">Загружаю…</p>':!L2.length?'<p class="note">Партнёров пока нет.</p>':L2.map(p=>`<div class="padm ${p.active?'':'off'}">
+    <div><b>${esc(p.name||('id '+p.id))}</b>${p.username?' @'+esc(p.username):''} <small>id ${p.id}</small>${p.active?'':' <small style="color:#ff8a8a">отключён</small>'}</div>
+    <div class="note" style="margin:0;text-align:left">Код <b>${esc(p.code||'—')}</b> · ${p.pct}% · рефералов ${p.refs} · потратили ${p.spent}★<br>заработал ${fmtStar(p.earned)} · выплачено ${fmtStar(p.paid)} · <b>к выплате ${fmtStar(p.due)}</b></div>
+    <div class="dbgrow"><input class="ninput" id="pp_${p.id}" type="number" min="0" max="100" value="${p.pct}" style="width:64px;margin:0"><button class="btn sm" data-act="pa-pct" data-id="${p.id}">% сохранить</button><button class="btn sm" data-act="pa-on" data-id="${p.id}" data-on="${p.active?0:1}">${p.active?'Отключить':'Включить'}</button></div>
+    <div class="dbgrow"><input class="ninput" id="pv_${p.id}" type="number" min="0" step="0.01" placeholder="★ выплачено" style="flex:1;min-width:0;margin:0"><button class="btn sm gold" data-act="pa-pay" data-id="${p.id}">Отметить выплату</button></div></div>`).join('')}`;}
+async function admPartnerDo(act,el){const st=(m,ok)=>{PADM.msg=m;const e=$('paStat');if(e){e.textContent=m;e.style.color=ok?'#7be38a':'#ff8a8a';}};let j;
+  if(act==='set'){const who=($('paWho').value||'').trim(),pct=$('paPct').value,code=($('paCode').value||'').trim();if(!who){st('Укажи id или @ник',false);return;}
+    const b={who};if(pct!=='')b.pct=+pct;if(code)b.code=code;if(pct===''&&!code)b.active=1;j=await admReq('/admin/partner',b);}
+  else if(act==='pct')j=await admReq('/admin/partner',{who:el.dataset.id,pct:+(($('pp_'+el.dataset.id)||{}).value||0)});
+  else if(act==='on')j=await admReq('/admin/partner',{who:el.dataset.id,active:+el.dataset.on});
+  else if(act==='pay'){const v=(($('pv_'+el.dataset.id)||{}).value||'').trim();if(!v){st('Укажи сумму',false);return;}j=await admReq('/admin/partner/pay',{who:el.dataset.id,amount:v});}
+  if(j&&j.ok){st('✓ Сохранено',true);SFX.play('coin');PADM.list=null;await admPartnersLoad();PADM.msg='✓ Сохранено';}else st('✗ '+((j&&j.reason)||'не вышло'),false);}
 let refSeen='';
 function friendsSection(){
   const on=window.EmberNet&&EmberNet.tg;
@@ -9169,7 +9247,7 @@ function challengeCard(){
   q.fillStyle='#16121c';q.fillRect(0,0,W,3);q.fillRect(0,H-3,W,3);q.fillStyle='#f4c95d';q.fillRect(3,3,W-6,1);q.fillRect(3,H-4,W-6,1);
   const img=new Image();img.src=portraitURL;try{q.drawImage(img,6,10,80,88);}catch(e){}
   const P=S.path&&L.pathOf(S.cls,S.path),C=L.CLASSES[S.cls]||{ru:''};
-  q.textBaseline='top';q.font="700 12px 'Ember Pixel',monospace";q.fillStyle='#f4c95d';q.fillText('ПЕПЕЛЬНЫЙ ШПИЛЬ',92,10);
+  q.textBaseline='top';q.font="700 12px 'Ember Pixel',monospace";q.fillStyle='#f4c95d';q.fillText('ЕБАШНЯ',92,10);
   q.font="400 9px 'Ember Pixel',monospace";q.fillStyle='#d8ccff';q.fillText(C.ru+(P?' · '+P.ru:''),92,27);q.fillText('уровень '+S.level,92,38);
   q.font="700 16px 'Ember Pixel',monospace";q.fillStyle='#ffffff';q.fillText('Комната '+S.maxCleared,92,51);
   q.font="400 9px 'Ember Pixel',monospace";q.fillStyle='#ff9aa4';q.fillText('Сможешь подняться выше?',92,74);
@@ -9233,8 +9311,9 @@ async function grRefresh(){if(!(window.EmberNet&&EmberNet.tg&&EmberNet.grMine))r
 function grBarUpd(){const el=$('grBar');if(!el)return;const o=((GRM&&GRM.open)||[])[0];
   if(!o||GRS){el.hidden=true;return;}
   const n=o.n||1,ready=o.host&&n>=2,fight=!!o.fighting;
-  el.innerHTML=`<img src="${raidPortrait(L.grType(o.b))}" alt=""><span>${o.host?'Твоя группа':'Ты в группе'} · ${esc(grBossRu(o.b))} ${o.b} ур.<small>${fight?'бой идёт…':n<2?'пока ты один — позови героев':ready?'можно начинать бой':'ждём, когда хост начнёт'}</small></span><b class="n">${n}/4</b><i>›</i>`;
-  el.dataset.id=o.id;el.onclick=()=>grOpen(el.dataset.id,true);el.hidden=false;}
+  const more=((GRM&&GRM.open)||[]).length-1;   /* v241: in several groups at once — the bar says so and leads to all of them */
+  el.innerHTML=`<img src="${raidPortrait(L.grType(o.b))}" alt=""><span>${o.host?'Твоя группа':'Ты в группе'} · ${esc(grBossRu(o.b))} ${o.b} ур.<small>${more>0?`и ещё ${more} ${more===1?'группа':'группы'} — нажми, чтобы увидеть все`:fight?'бой идёт…':n<2?'пока ты один — позови героев':ready?'можно начинать бой':'ждём, когда хост начнёт'}</small></span><b class="n">${n}/4</b><i>›</i>`;
+  el.dataset.id=o.id;el.onclick=()=>{if(more>0){pathView='raid';setTab('path');setTimeout(()=>{const h=document.getElementById('grMine');if(h)h.scrollIntoView({block:'start'});},150);}else grOpen(el.dataset.id,true);};el.hidden=false;}
 function grSection(){
   const on=window.EmberNet&&EmberNet.tg,M=GRM||{},done=M.done||[],bs=L.grFor(S.level);
   const rows=bs.map(b=>{const won=done.includes(b),t=L.grType(b),mine=(M.open||[]).find(o=>o.b===b),wr=won&&(M.recent||[]).find(r=>r.b===b&&r.win&&!r.test),wonId=wr?esc(wr.id):'';
@@ -9247,7 +9326,11 @@ function grSection(){
       <small>Создатель: <b>${esc(g.host)}</b></small><small>${esc(clsRu(g.hcls))} · ${g.hlv} ур. · в группе ${g.n}/4</small></span>
       <span class="dbtns"><button class="btn sm ember" data-act="gr-pjoin" data-id="${esc(g.id)}">Вступить</button></span></li>`).join('');
   const pager=pages>1?`<div class="grpager"><button class="btn sm" data-act="gr-page" data-d="-1" ${grPage?'':'disabled'} aria-label="Назад">◀</button><span>${grPage+1} / ${pages} · групп: ${all.length}</span><button class="btn sm" data-act="gr-page" data-d="1" ${grPage<pages-1?'':'disabled'} aria-label="Вперёд">▶</button></div>`:'';
-  return `<h2>Босс группы <small>2–4 героя</small></h2><div class="raid px px-in">
+  /* v241: every group I'm in, even one whose boss no longer fits my level (before, it vanished from the list and kept collecting players) */
+  const fitB=new Set(bs),myg=(M.open||[]).map(o=>`<li class="grrow"><img class="mini" src="${raidPortrait(L.grType(o.b))}" alt=""><span class="ln"><b>${esc(grBossRu(o.b))} · ${o.b} ур.</b>
+      <small>${o.host?'ты собрал':'ты участник'} · в группе ${o.n}/4${o.fighting?' · бой идёт':''}${fitB.has(o.b)?'':' · <b style="color:#ff8a8a">тебе уже не по уровню</b>'}</small></span>
+      <span class="dbtns">${o.fighting?'':`<button class="btn sm" data-act="gr-leave" data-id="${esc(o.id)}">${o.host?'Распустить':'Выйти'}</button>`}<button class="btn sm ember" data-act="gr-open" data-id="${esc(o.id)}">Открыть</button></span></li>`).join('');
+  return `<h2>Босс группы <small>2–4 героя</small></h2><div class="raid px px-in">${on&&myg?`<b class="dhead" id="grMine">Твои группы <small>${(M.open||[]).length}</small></b><ol class="lb dlist">${myg}</ol>`:''}
     <p class="note" style="margin:0;text-align:left">Сильный босс на одного не рассчитан: собери от 2 до 4 героев по ссылке. Каждого босса можно победить за награду раз в день. Через 2 минуты он звереет (×1.5), через 3 — ещё сильнее (×2), на 4-й минуте уходит. Награду получает каждый, кто бился: кто нанёс больше урона — тому чуть больше.</p>
     ${on?(rows?`<ol class="lb dlist">${rows}</ol>`:`<p class="note">Первый босс — с 3 уровня героя.</p>`)+`<b class="dhead">Открытые группы <small>подходят тебе по уровню</small></b>${pub?`<ol class="lb dlist">${pub}</ol>${pager}`:'<p class="note" style="margin:2px 0 6px">Сейчас никто не собирает. Собери сам и нажми в группе «Открыть для всех» — её увидят все, кому подходит босс.</p>'}`+(rec?`<b class="dhead">Последние бои</b><ol class="lb dlist">${rec}</ol>`:'')
       :`<p class="note">Босс группы работает, когда игра открыта в Telegram.${tgWhy()}</p>`}
@@ -9529,7 +9612,7 @@ function renderPath(){
     ${row(UI.chest,'Найдено предметов',st.items)}${row(UI.crit,'Легендарных',st.legend)}
     ${row(UI.coin,'Золота добыто',st.goldTotal)}${row(UI.xp,'Уровень героя',S.level)}
   </div>
-  `+friendsSection();
+  `+friendsSection()+partnerSection();
 }
 let pathView='top';
 function setPathView(v){if(v==='top'&&pathView!=='top'&&window.EmberNet&&EmberNet.lbReset)EmberNet.lbReset();pathView=v;if(tab==='path')renderPath();else setTab('path');const pv=$('v-path');if(pv)pv.scrollTop=0;}
@@ -10570,11 +10653,12 @@ function drawKatana(gg,x,y,ang,look,glint,t,o){const cx=Math.cos(ang),cy=Math.si
 /* ---------------- v2: the side — Hunter or Demon — is picked right at the start ----------------
    After the class is chosen, after a change to the Samurai, after a reset of the path, the skills or the whole hero
    the samurai has no side, and this asks until he has one (on autofarm the gold mark on «Герой» asks instead). */
-{const _pp=pathPrompt;pathPrompt=function(){if(S.cls!=='samurai')return _pp();if(S.path||!S.cls)return;
+{const _pp=pathPrompt;pathPrompt=function(){if(S.cls!=='samurai')return _pp();if(S.path||!S.cls)return;if(!S.tourDone||(typeof tourI!=='undefined'&&tourI>=0))return;
   openModal(`<div class="sheet px px-gold picker"><h3>Охотник или демон?</h3><p class="note">Самурай решает, кем он станет. От этого меняются все его умения: <b style="color:#7ad8ff">охотник</b> — светлая сталь, талисманы и небесные молнии, <b style="color:#ff4a5a">демон</b> — кровь, багровые серпы и удары издалека. Выбрать заново можно сбросом пути, умений или героя.</p>
     <div class="paths">${L.PATHS.samurai.map(P=>pathCard(P,true).replace('Выбрать путь',P.id==='moon'?'Стать демоном':'Стать охотником')).join('')}</div></div>`);};}
 let kSideAt=0;
-setInterval(()=>{try{if(!S||S.cls!=='samurai'||S.path)return;if(typeof titleOn!=='undefined'&&titleOn)return;if(fight||busy||duel||(typeof AUTO!=='undefined'&&AUTO.on))return;
+setInterval(()=>{try{if(!S||S.cls!=='samurai'||S.path)return;if(typeof titleOn!=='undefined'&&titleOn)return;
+  if(!S.tourDone||(typeof tourI!=='undefined'&&tourI>=0))return;   /* v239: a newcomer sees the tour first, the side after it */if(fight||busy||duel||(typeof AUTO!=='undefined'&&AUTO.on))return;
   const m=$('modal');if(!m.hidden)return;if(Date.now()-kSideAt<15000)return;kSideAt=Date.now();pathPrompt();}catch(e){}},1200);
 
 /* ================= /v220 ================= */
@@ -10659,7 +10743,7 @@ function admDebug(){return `<h2>Debug</h2>
     <button class="btn ember" data-act="dtest">Тестовый бой</button>
     `;}
 const ADM={open:false,tab:'player',p:null,msg:'',q:'',tell:true};try{ADM.tab=localStorage.getItem('adm.tab')||'player';}catch(e){}
-const ADM_TABS=[['player','👤 Игрок'],['notice','📢 Объявление'],['season','🏆 Сезон'],['money','⭐ Звёзды'],['rest','⏳ Отдых'],['ac','🛡 Античит'],['debug','🧪 Отладка'],['danger','⚠️ Опасное']];
+const ADM_TABS=[['player','👤 Игрок'],['notice','📢 Объявление'],['season','🏆 Сезон'],['money','⭐ Звёзды'],['rest','⏳ Отдых'],['partners','🤝 Партнёры'],['ac','🛡 Античит'],['debug','🧪 Отладка'],['danger','⚠️ Опасное']];
 function admCard(){const P=ADM.p;if(!P)return ADM.msg?`<p class="note">${esc(ADM.msg)}</p>`:'<p class="note" style="margin:0">Найди игрока по @нику или id — здесь появится его карточка: этаж, звёзды, пропуски, выдача пропусков и сброс.</p>';
   const ago=t=>{if(!t)return '—';const m=Math.round((Date.now()/1e3-t)/60);return m<2?'сейчас':m<60?m+' мин назад':m<1440?Math.round(m/60)+' ч назад':Math.round(m/1440)+' дн назад';};
   return `<div class="admc"><div class="admh"><b>${esc(P.name||'Без имени')}</b>${P.username?` <span class="dl">@${esc(P.username)}</span>`:''}<small> · id ${P.id}</small>${P.flagged?' <span class="dw">под античитом</span>':''}</div>
@@ -10677,6 +10761,7 @@ function adminModal(){ADM.open=true;const T=ADM.tab;
       <div id="admCard">${admCard()}</div><p class="note nstat" id="wipeStat" style="margin:0"></p>`
     :T==='notice'?admNotice():T==='season'?admSeason():T==='money'?admStars()
     :T==='rest'?admRest()
+    :T==='partners'?admPartners()
     :T==='ac'?`<h2>Анти-чит</h2><p class="note" style="margin:0">Игроки, которых сервер подозревает, с причинами. Решаешь ты.</p><button class="btn" data-act="ac-open">Открыть список подозрительных</button>`
     :T==='debug'?admDebug()
     :`<h2>Сбросить ВСЕХ игроков</h2><p class="note" style="margin:0">У всех обнулятся герои, вещи, этажи, рейды и задания. Звёзды и пропуски останутся. Отменить нельзя.</p><button class="btn danger" data-act="w-all">Сбросить ВСЕХ игроков</button><p class="note nstat" id="wipeStat" style="margin:0"></p>`;
@@ -10817,6 +10902,7 @@ document.addEventListener('click',ev=>{
     case'st-wallet':ev.preventDefault();skipFor=null;starsModal();break;
     case'shopset':shopSet=el.dataset.s;shopSel=0;shopTalk=shopSet?(L.SETS[shopSet].legend?'Пепельный комплект. Только легендарное. Цена — соответствующая.':'Комплект «'+L.SETS[shopSet].ru+'» — собери три, и сталь заговорит.'):null;SFX.play('click');renderShop();break;
     case'q-claim':questClaim(el.dataset.q);break;
+    case'q-go':questGo(el.dataset.q);break;
     case'nft-open':nftOpen();break;
     case'nft-out':nftWithdraw(+el.dataset.id);break;
     case'q-chan':questChannelGo();break;
@@ -10841,6 +10927,8 @@ document.addEventListener('click',ev=>{
     case'duel-pick':ev.stopPropagation&&ev.stopPropagation();duelPick(el);break;
     case'duel-go':duelGo(el.dataset.tag);break;
     case'duel-decline':duelDecline(el.dataset.id);break;
+    case'duel-cancel':{el.disabled=true;EmberNet.duelCancel(el.dataset.id).then(r=>{if(r&&r.ok){toast('Вызов отменён',UI.check);SFX.play('click');}
+      else toast(r&&r.reason==='early'?'Отменить можно через '+Math.ceil((r.left||60)/60)+' мин':'Не получилось отменить',null);duelRefresh();}).catch(()=>{toast('Сервер не ответил',null);el.disabled=false;});break;}
     case'ghost-go':ghostGo();break;
     case'ghost-no':ghostNo();break;
     case'duel-open':duelInviteModal(el.dataset.id);break;
@@ -10864,6 +10952,14 @@ document.addEventListener('click',ev=>{
     case'challenge':challengeModal();break;
     case'challenge-send':challengeSend();break;
     case'ref-claim':refClaim();break;
+    case'p-gen':partnerGen();break;
+    case'p-enter':partnerEnter();break;
+    case'p-copy':partnerCopy(el.dataset.v);break;
+    case'p-send':partnerSend();break;
+    case'pa-set':admPartnerDo('set',el);break;
+    case'pa-pct':admPartnerDo('pct',el);break;
+    case'pa-on':admPartnerDo('on',el);break;
+    case'pa-pay':admPartnerDo('pay',el);break;
     case'notify':toggleNotify(el);break;
     case'n-post':{const t=($('noticeIn')||{}).value||'';if(!t.trim()){toast('Напиши текст',null);break;}noticePost(t.trim(),+el.dataset.h);break;}
     case'n-clear':noticePost('',1);break;
@@ -10886,7 +10982,7 @@ document.addEventListener('click',ev=>{
       const fsv=!fsOn();try{localStorage.setItem('ember.fs',fsv?'1':'0');}catch(e){}window.__fsAsked=1;EmberFS.set(fsv);el.textContent=fsv?'Включён':'Выключен';break;}
     case'sound':S.sound=!S.sound;SFX.on=S.sound;el.textContent=S.sound?'Включён':'Выключен';persist();break;
     case'terms':{ev.preventDefault();const u=(window.EMBER_TERMS||(location.origin+'/terms'));try{const W=window.Telegram&&Telegram.WebApp;if(W&&W.openLink&&W.initData)W.openLink(u);else window.open(u,'_blank');}catch(e){window.open(u,'_blank');}break;}
-    case'music':S.musicOn=!(S.musicOn!==false);Music.on=S.musicOn;el.textContent=Music.on?'Включена':'Выключена';persist();if(Music.on){Music.start();Music.want=null;Music.set(musicKind());}else Music.apply();break;
+    case'music':S.musicOn=!(S.musicOn!==false);Music.on=S.musicOn;el.textContent=Music.on?'Включена':'Выключена';persist();musPrefSave();if(Music.on){Music.start();Music.want=null;Music.set(musicKind());}else Music.apply();break;
     case'd-gold':S.gold+=1000;persist();SFX.play('coin');toast('+1000 золота',UI.coin);renderActive();break;
     case'd-item':{const it=L.makeItem(Math.random,Math.max(1,S.room),L.rollRarity(Math.random),null,S.uid++);addItem(it);persist();toast(`Выдано: <span class="rc${it.rarity}">${esc(it.name)}</span>`,itemIcon(it.tid));renderActive();break;}
     case'd-leg':{const it=L.makeItem(Math.random,Math.max(1,S.room),4,null,S.uid++);addItem(it);persist();SFX.play('legend');toast(`Легендарный: <span class="rc4">${esc(it.name)}</span>`,itemIcon(it.tid));renderActive();break;}
@@ -10941,7 +11037,7 @@ function notifyOnboard(){
   if(S.notify==null&&!S.notifyAsked&&S.cls&&S.maxCleared>=3){if(!$('modal').hidden||fight||duel||titleOn||raidInvite||duelInvite){setTimeout(notifyOnboard,4000);return;}S.notifyAsked=1;persist();
     openModal(`<div class="sheet px"><div class="rw-title">Напоминания</div><p class="note">Бот напишет в Telegram, когда герой отдохнёт, а тебя давно не было. Не чаще пары раз в день.</p>
       <div class="row"><button class="btn" data-act="close">Не надо</button><button class="btn ember" data-act="notify-yes" data-focus>Включить</button></div></div>`);}}
-function welcome(){if(!window.EmberNet||!EmberNet.tg)return;setTimeout(notifyOnboard,2500);EmberNet.hello().then(r=>{if(r&&r.welcome){mats().core+=r.welcome.cores||0;
+function welcome(){if(!window.EmberNet||!EmberNet.tg)return;setTimeout(notifyOnboard,2500);EmberNet.hello().then(r=>{if(r&&r.partner_joined){toast('Ты в игре от партнёра: '+r.partner_joined,UI.check);partnerRefresh();}if(r&&r.welcome){mats().core+=r.welcome.cores||0;
     // and a starter kit a small step above the rusty one: a plain iron sword and plain leather armour, put on at once
     const gift=[];for(const [tid,slot] of [['iron_sword','weapon'],['leather_armor','armor']]){const it=L.makeItem(Math.random,Math.max(1,S.maxCleared||1),0,tid,S.uid++);fixName(it);S.inv.push(it);
       const cur=S.inv.find(x=>x.uid===S.eq[slot]);if(!cur||L.itemPower(it)>L.itemPower(cur))S.eq[slot]=it.uid;gift.push(it);}
@@ -11002,11 +11098,11 @@ function start(data){
   try{resize();enterRoom(S.room,'progress');}catch(e){showErr('room: '+e.message+' @ '+stackOf(e));}
   new ResizeObserver(()=>{if(tab==='tower')resize();}).observe(stageEl);
   try{renderActive();}catch(e){showErr('tab: '+e.message+' @ '+stackOf(e));}
-  Music.on=S.musicOn!==false;S.musicVol=0.1;Music.vol=0.1; // every launch starts the music at 10% (v234); the slider changes it until the next launch
+  musicPrefs(); // every launch starts the music at 10% (v234), unless the player switched it off (v239)
   SFX.setVol(S.sfxVol!=null?S.sfxVol:1);
   try{$('icoStar').src=STAR_ICON;$('icoSkip').src=TICKET_ICON;$('icoAuto').src=UI.atk;}catch(e){}updAuto();starsRefresh();setTimeout(questsRefresh,1500);setInterval(()=>{if(document.visibilityState==='visible')starsRefresh();},120000);
   if(window.EMBER_STUDIO){setTimeout(studioOpen,50);}else try{showTitle();}catch(e){showErr('title: '+e.message+' @ '+stackOf(e));}
-  document.addEventListener('input',e=>{if(e.target&&e.target.id==='sfxVol'){S.sfxVol=+e.target.value/100;SFX.setVol(S.sfxVol);persist();clearTimeout(SFX.pv);SFX.pv=setTimeout(()=>SFX.play('coin'),120);return;}if(e.target&&e.target.id==='musVol'){S.musicVol=+e.target.value/100;Music.vol=S.musicVol;Music.apply();persist();}});
+  document.addEventListener('input',e=>{if(e.target&&e.target.id==='sfxVol'){S.sfxVol=+e.target.value/100;SFX.setVol(S.sfxVol);persist();clearTimeout(SFX.pv);SFX.pv=setTimeout(()=>SFX.play('coin'),120);return;}if(e.target&&e.target.id==='musVol'){S.musicVol=+e.target.value/100;Music.vol=S.musicVol;Music.apply();persist();musPrefSave();}});
   setTimeout(welcome,800);cloudSync();desktopFit();noticePoll();setInterval(noticePoll,60000);
   try{if(sessionStorage.getItem('ember.wiped')){sessionStorage.removeItem('ember.wiped');setTimeout(()=>openModal(`<div class="sheet px"><h3>Прогресс обнулён</h3><p class="note" style="font-size:14px;color:var(--text)">Администрация башни сбросила прогресс. Начинаем с первого этажа. Звёзды и пропуски остались на счету.</p><button class="btn ember" data-act="close" data-focus>Понятно</button></div>`),1200);}}catch(e){}
   try{if(sessionStorage.getItem('ember.cloudLoaded')){sessionStorage.removeItem('ember.cloudLoaded');setTimeout(()=>toast('Прогресс загружен из облака',UI.check),900);}}catch(e){}

@@ -66,7 +66,7 @@ source/                   нужно только для новых версий
    systemctl enable --now emberspire
    journalctl -u emberspire -f      # должно быть «Emberspire on 127.0.0.1:8080»
    ```
-5. **https.** В `config/Caddyfile` заменить `game.example.com` на свой домен, положить в `/etc/caddy/Caddyfile`, затем `systemctl reload caddy`.
+5. **https.** В `config/Caddyfile` заменить `ebashnya.win` на свой домен, положить в `/etc/caddy/Caddyfile`, затем `systemctl reload caddy`.
 6. **По желанию — BBR:** `cp config/90-bbr.conf /etc/sysctl.d/ && sysctl --system`.
 
 При старте бот сам ставит кнопку «Играть» в меню и команды `/terms`, `/paysupport`, `/статистика` для админов.

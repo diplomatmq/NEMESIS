@@ -74,7 +74,8 @@ class PostgreSQLAdapter:
             'saves', 'raid_events', 'raid_tries_c', 'raid_tries_chat', 'raid_stats', 'raid_chats',
             'kv', 'raid_tries', 'duels', 'quests', 'star_ledger', 'gr_lobby', 
             'nft_drops', 'activity', 'gr_claims', 'sessions', 'ghost_offers', 'quest_claims',
-            'duel_paid', 'ac_flags', 'ac_state', 'star_pay'
+            'duel_paid', 'ac_flags', 'ac_state', 'star_pay',
+            'partners', 'partner_refs', 'partner_pays'   # v238 partner program
         ]
         
         result = query
@@ -95,6 +96,11 @@ class PostgreSQLAdapter:
             for old, new in replacements:
                 result = result.replace(old, new)
         
+        # v238: the partner tables are created by server.py itself (no TS migration): prefix their CREATE TABLE IF NOT EXISTS too.
+        # Only these — the other tables come from the bot's migrations and must not be touched.
+        for table in ('partners', 'partner_refs', 'partner_pays'):
+            result = result.replace(f'EXISTS {table}(', f'EXISTS app_{table}(')
+
         # Convert SQLite syntax to PostgreSQL
         # REAL -> DOUBLE PRECISION or TIMESTAMP
         result = result.replace('REAL DEFAULT 0', 'DOUBLE PRECISION DEFAULT 0')

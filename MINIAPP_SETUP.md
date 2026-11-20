@@ -14,7 +14,7 @@
 
 ```bash
 # 1. Настройте переменные окружения в .env.local
-WEBAPP_URL=https://your-domain.com
+WEBAPP_URL=https://ebashnya.win
 APP_NAME=game
 MINIAPP_PORT=8080
 ADMIN_IDS=678418106,793216884
@@ -35,7 +35,7 @@ docker-compose logs -f miniapp
 5. Укажите описание приложения
 6. Загрузите иконку 640x360 (опционально)
 7. Загрузите GIF-превью (опционально)
-8. **Укажите URL мини-приложения**: `https://your-domain.com`
+8. **Укажите URL мини-приложения**: `https://ebashnya.win`
 
 Готово! Короткое имя приложения укажите в `APP_NAME` в `.env.local`
 
@@ -158,7 +158,7 @@ bot.command('admin', async (ctx) => {
 ### Caddy (пример конфигурации уже есть в `config/Caddyfile`):
 
 ```
-your-domain.com {
+ebashnya.win {
     reverse_proxy localhost:8080
     encode gzip
     
@@ -174,7 +174,7 @@ your-domain.com {
 ```nginx
 server {
     listen 443 ssl http2;
-    server_name your-domain.com;
+    server_name ebashnya.win;
     
     ssl_certificate /path/to/cert.pem;
     ssl_certificate_key /path/to/key.pem;
