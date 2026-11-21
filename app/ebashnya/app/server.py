@@ -1277,6 +1277,7 @@ def partner_info(user):
             out["partner"] = {"code": p[0] or "", "link": app_link("p_" + p[0]) if p[0] else "", "pct": p[1] or 0,
                               "refs": n, "payers": payers, "spent": spent, "earned": (p[3] or 0) / 100, "paid": (p[4] or 0) / 100,
                               "due": ((p[3] or 0) - (p[4] or 0)) / 100,
+                              "wd": _pwd_get(uid), "wd_min": PARTNER_WD_MIN,
                               "top": [{"name": a or "Игрок", "spent": b or 0, "earned": (c or 0) / 100, "at": (d or 0) * 1000} for a, b, c, d in top]}
     return 200, out
 
@@ -1297,6 +1298,60 @@ def partner_code(user):
             db.commit()
     return 200, {"ok": True, "code": code, "link": app_link("p_" + code)}
 
+# v248: the partner presses «Вывести»: a request is noted and the owners get a message; they pay by hand and mark it (admin_partner_pay)
+PARTNER_WD_MIN = 1          # stars: less than this can't be asked for
+PARTNER_WD_AGAIN = 86400    # the same request reminds the owners again only after a day
+
+def _star(c):
+    v = round((c or 0) / 100, 2)
+    return str(int(v)) if v == int(v) else f"{v:.2f}"
+
+def _pwd_get(uid):
+    """Caller holds db_lock. The pending withdrawal request: {"amount": stars, "at": ms} or None."""
+    try:
+        w = json.loads(_kv_get(f"pwd:{uid}", "") or "null")
+        return {"amount": w["c"] / 100, "at": int(w["t"] * 1000)} if w else None
+    except (ValueError, KeyError, TypeError):
+        return None
+
+def partner_withdraw(user):
+    uid = user["id"]
+    if not rate_ok(uid, "pwd"):
+        return SLOW(uid, "pwd")
+    now = time.time()
+    with db_lock:
+        p = db.execute("SELECT earned_c, paid_c, active, pct FROM partners WHERE uid=?", (uid,)).fetchone()
+        if not p or not p[2]:
+            return 403, {"ok": False, "reason": "Партнёрка не открыта"}
+        due = (p[0] or 0) - (p[1] or 0)
+        if due < PARTNER_WD_MIN * 100:
+            return 200, {"ok": False, "reason": f"Вывести можно от {PARTNER_WD_MIN} ⭐"}
+        try:
+            old = json.loads(_kv_get(f"pwd:{uid}", "") or "null")
+        except ValueError:
+            old = None
+        if old and old.get("c") == due and now - old.get("t", 0) < PARTNER_WD_AGAIN:
+            return 200, {"ok": True, "wd": _pwd_get(uid), "already": 1}
+        _kv_set(f"pwd:{uid}", json.dumps({"c": due, "t": now}))
+        pl = db.execute("SELECT name, username FROM players WHERE id=?", (uid,)).fetchone()
+        n, spent = db.execute("SELECT COUNT(*), COALESCE(SUM(spent),0) FROM partner_refs WHERE partner=?", (uid,)).fetchone()
+        db.commit()
+        wd = _pwd_get(uid)
+    name, un = (pl[0] if pl else "") or "Партнёр", (pl[1] if pl else "") or ""
+    txt = (f"💸 Партнёр {name}{' @' + un if un else ''} (id {uid}) хочет вывести {_star(due)} ⭐\n\n"
+           f"Процент: {p[3] or 0}% · рефералов: {n} · они потратили: {spent} ⭐\n"
+           f"Заработано: {_star(p[0])} ⭐ · выплачено: {_star(p[1])} ⭐\n\n"
+           "После выплаты отметь её: игра → ⚙ Меню → Партнёры → «Отметить выплату».")
+    def send():
+        for a in ADMIN_IDS:
+            try:
+                tg("sendMessage", chat_id=a, text=txt)
+            except Exception as e:
+                log.info("partner withdraw notice: %s", e)
+    threading.Thread(target=send, daemon=True).start()
+    log.info("partner %s asks to withdraw %s", uid, _star(due))
+    return 200, {"ok": True, "wd": wd}
+
 def admin_partners(user):
     if user["id"] not in ADMIN_IDS:
         return 403, {"ok": False}
@@ -1308,7 +1363,7 @@ def admin_partners(user):
             n, spent = db.execute("SELECT COUNT(*), COALESCE(SUM(spent),0) FROM partner_refs WHERE partner=?", (uid,)).fetchone()
             res.append({"id": uid, "name": name or "", "username": un or "", "code": code or "", "pct": pct or 0, "active": bool(act),
                         "refs": n, "spent": spent, "earned": (ec or 0) / 100, "paid": (pc or 0) / 100, "due": ((ec or 0) - (pc or 0)) / 100,
-                        "gave": (gave or 0) * 1000})
+                        "gave": (gave or 0) * 1000, "wd": _pwd_get(uid)})
     return 200, {"ok": True, "list": res}
 
 def admin_partner_set(user, body):
@@ -1357,6 +1412,10 @@ def admin_partner_pay(user, body):
             return 404, {"ok": False, "reason": "Это не партнёр"}
         db.execute("UPDATE partners SET paid_c=paid_c+? WHERE uid=?", (amt, r[0]))
         db.execute("INSERT INTO partner_pays(uid, amount_c, at_t, by_uid) VALUES(?,?,?,?)", (r[0], amt, int(time.time()), user["id"]))
+        db.execute("DELETE FROM kv WHERE k=?", (f"pwd:{r[0]}",))          # v248: a payment answers his withdrawal request
+        e = db.execute("SELECT earned_c, paid_c FROM partners WHERE uid=?", (r[0],)).fetchone()
+        if amt > 0:
+            _tell(r[0], f"💸 Админы отметили выплату партнёрки: {_star(amt)} ⭐. К выплате осталось: {_star((e[0] or 0) - (e[1] or 0))} ⭐.")
         db.commit()
     log.info("admin %s: partner %s paid %+.2f", user["id"], r[0], amt / 100)
     return 200, {"ok": True}
@@ -1731,7 +1790,7 @@ RL = {                       # action: (times, seconds)
     "post": (150, 60),       # any request that changes something: far above what playing needs
     "duel_new": (10, 3600), "duel_direct": (1, 15), "duel_answer": (30, 60),
     "gr_new": (6, 600), "gr_join": (20, 60), "gr_public": (8, 600), "gr_start": (10, 60), "gr_kick": (20, 60),
-    "share": (12, 60), "duel_card": (12, 60), "ghost": (20, 60), "pcode": (8, 60),
+    "share": (12, 60), "duel_card": (12, 60), "ghost": (20, 60), "pcode": (8, 60), "pwd": (4, 60),
     "gr_notify": (3, 3600),
     "skip": (150, 60),       # v216: rest skips on their own (autofarm catching up spends about one a second)  # a host may call players by bot message to three groups an hour (admins too)
 }
@@ -4090,6 +4149,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/ref/claim": lambda: ref_claim(u),
             "/api/partner/code": lambda: partner_code(u),
             "/api/partner/enter": lambda: partner_attach_api(u, body),
+            "/api/partner/withdraw": lambda: partner_withdraw(u),
             "/api/admin/partner": lambda: admin_partner_set(u, body),
             "/api/admin/partner/pay": lambda: admin_partner_pay(u, body),
             "/api/raid/hit": lambda: raid_hit(u, f, body),

@@ -2694,7 +2694,7 @@ window.EmberFS=(()=>{const W=window.Telegram&&window.Telegram.WebApp,tg=W&&W.ini
   N.refLink=pid=>`https://t.me/${BOT||'your_bot'}/${APP}?startapp=ref_${tg&&U.user?U.user.id:pid}`;
   N.hello=()=>tg?call('/hello',{start:N.startParam()}):Promise.resolve(null);
   N.refInfo=()=>call('/ref');
-  N.partner=()=>call('/partner');N.partnerCode=()=>call('/partner/code',{});N.partnerEnter=c=>call('/partner/enter',{code:c});
+  N.partner=()=>call('/partner');N.partnerCode=()=>call('/partner/code',{});N.partnerEnter=c=>call('/partner/enter',{code:c});N.partnerWithdraw=()=>call('/partner/withdraw',{});
   N.refClaim=()=>call('/ref/claim',{});
   N.luck=n=>call('/luck',{n});N.luckInfo=()=>call('/luck/info',{});
   N.raidGet=()=>call('/raid?ci='+encodeURIComponent(N.chat()));
@@ -6868,7 +6868,7 @@ function musicAtLaunch(){musicPrefs();if(!S||S.musicOn===false)return;Music.on=t
   try{Object.assign(Music.last,JSON.parse(localStorage.getItem('ember.musicLast')||'{}'));}catch(e){}
   try{if(!Music.started)Music.start();Music.set('title');}catch(e){}}
 let musicTick=0;
-const APP_VER='247';
+const APP_VER='248';
 /* one bad frame must never freeze the game: the error is shown once and the loop goes on */
 let errShown='';
 function showErr(m){m=String(m||'').slice(0,140);if(m===errShown)return;errShown=m;try{toast('Ошибка (v'+APP_VER+'): '+esc(m),null);}catch(e){}}
@@ -9207,7 +9207,9 @@ function partnerSection(){const P=PARTNER;if(!P||!P.ok)return '';let h='';
     h+=`<div class="statgrid pst"><div><small>Рефералов</small><b>${p.refs}</b></div><div><small>Из них платят</small><b>${p.payers}</b></div>
       <div><small>Твой процент</small><b>${p.pct}%</b></div><div><small>Они потратили</small><b>${fmtStar(p.spent)}</b></div>
       <div><small>Заработано</small><b>${fmtStar(p.earned)}</b></div><div><small>Выплачено</small><b>${fmtStar(p.paid)}</b></div></div>
-      <div class="pdue">К выплате: <b>${fmtStar(p.due)}</b></div><p class="note" style="margin:0">Выплату делают админы вручную — напиши им, когда захочешь вывести.</p>`;
+      <div class="pdue">К выплате: <b>${fmtStar(p.due)}</b></div>`+(p.wd?`<p class="note pwd" style="margin:0">Заявка на вывод <b>${fmtStar(p.wd.amount)}</b> отправлена ${new Date(p.wd.at).toLocaleString('ru-RU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}. Админы переведут вручную и отметят выплату — здесь появится сумма во «Выплачено».</p>${p.due>p.wd.amount+1e-9?`<button class="btn sm gold" data-act="p-wd">Обновить заявку: ${fmtStar(p.due)}</button>`:''}`
+      :p.due>=(p.wd_min||1)?`<button class="btn gold" data-act="p-wd">Вывести ${fmtStar(p.due)}</button><p class="note" style="margin:0">Админам придёт заявка, они переведут вручную.</p>`
+      :`<p class="note" style="margin:0">Вывести можно от ${fmtStar(p.wd_min||1)}.</p>`);
     if(p.top&&p.top.length)h+=`<ol class="lb">${p.top.slice(0,15).map((f,i)=>`<li><span class="lr">${i+1}</span><span class="ln">${esc(f.name)}</span><span class="lc">+${fmtStar(f.earned)}</span><b class="lv">${f.spent}★</b></li>`).join('')}</ol>`;
     else if(p.code)h+=`<p class="note" style="margin:0">Пока никто не пришёл. Рефералом становится только новый игрок — по ссылке или введя код в первые ${P.days} дня.</p>`;
     h+=`</div>`;}
@@ -9215,6 +9217,7 @@ function partnerSection(){const P=PARTNER;if(!P||!P.ok)return '';let h='';
     <div class="dbgrow"><input class="ninput" id="pIn" maxlength="16" placeholder="Код" autocapitalize="characters" style="flex:1;min-width:0;margin:0"><button class="btn sm gold" data-act="p-enter">Ввести</button></div><p class="note nstat" id="pStat" style="margin:0"></p></div>`;
   else if(P.joined&&!P.partner)h+=`<p class="note">Ты пришёл от партнёра: ${esc(P.joined)}</p>`;
   return h;}
+async function partnerWithdraw(){try{const r=await EmberNet.partnerWithdraw();if(r&&r.ok){toast(r.already?'Заявка уже у админов':'Заявка на вывод отправлена админам',UI.check);SFX.play('coin');}else toast((r&&r.reason)||'Не получилось',null);}catch(e){toast('Сервер не ответил',null);}partnerRefresh();}
 async function partnerGen(){try{const r=await EmberNet.partnerCode();if(r&&r.ok){toast('Код готов: '+r.code,UI.check);SFX.play('coin');}}catch(e){toast('Сервер не ответил',null);}partnerRefresh();}
 async function partnerEnter(){const v=(($('pIn')||{}).value||'').trim(),st=$('pStat');if(!v){if(st)st.textContent='Введи код';return;}
   try{const r=await EmberNet.partnerEnter(v);if(r&&r.ok){SFX.play('buff');if(r.gift)partnerGift(r.name,r.gift);else toast('Готово! Ты от партнёра: '+r.name,UI.check);partnerRefresh();}else if(st){st.textContent='✗ '+((r&&r.reason)||'Не получилось');st.style.color='#ff8a8a';}}
@@ -9237,7 +9240,7 @@ function admPartners(){if(PADM.list==null){admPartnersLoad();}
   <p class="note nstat" id="paStat" style="margin:0">${esc(PADM.msg)}</p>
   ${PADM.list==null?'<p class="note">Загружаю…</p>':!L2.length?'<p class="note">Партнёров пока нет.</p>':L2.map(p=>`<div class="padm ${p.active?'':'off'}">
     <div><b>${esc(p.name||('id '+p.id))}</b>${p.username?' @'+esc(p.username):''} <small>id ${p.id}</small>${p.active?'':' <small style="color:#ff8a8a">отключён</small>'}</div>
-    <div class="note" style="margin:0;text-align:left">Код <b>${esc(p.code||'—')}</b> · ${p.pct}% · рефералов ${p.refs} · потратили ${p.spent}★<br>заработал ${fmtStar(p.earned)} · выплачено ${fmtStar(p.paid)} · <b>к выплате ${fmtStar(p.due)}</b></div>
+    <div class="note" style="margin:0;text-align:left">Код <b>${esc(p.code||'—')}</b> · ${p.pct}% · рефералов ${p.refs} · потратили ${p.spent}★<br>заработал ${fmtStar(p.earned)} · выплачено ${fmtStar(p.paid)} · <b>к выплате ${fmtStar(p.due)}</b></div>${p.wd?`<div class="note" style="margin:0;text-align:left;color:var(--gold,#ffc04a)">💸 Просит вывести <b>${fmtStar(p.wd.amount)}</b> · ${new Date(p.wd.at).toLocaleString('ru-RU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</div>`:''}
     <div class="dbgrow"><input class="ninput" id="pp_${p.id}" type="number" min="0" max="100" value="${p.pct}" style="width:64px;margin:0"><button class="btn sm" data-act="pa-pct" data-id="${p.id}">% сохранить</button><button class="btn sm" data-act="pa-on" data-id="${p.id}" data-on="${p.active?0:1}">${p.active?'Отключить':'Включить'}</button></div>
     <div class="dbgrow"><input class="ninput" id="pv_${p.id}" type="number" min="0" step="0.01" placeholder="★ выплачено" style="flex:1;min-width:0;margin:0"><button class="btn sm gold" data-act="pa-pay" data-id="${p.id}">Отметить выплату</button></div></div>`).join('')}`;}
 async function admPartnerDo(act,el){const st=(m,ok)=>{PADM.msg=m;const e=$('paStat');if(e){e.textContent=m;e.style.color=ok?'#7be38a':'#ff8a8a';}};let j;
@@ -10974,7 +10977,7 @@ document.addEventListener('click',ev=>{
     case'challenge-send':challengeSend();break;
     case'ref-claim':refClaim();break;
     case'p-gen':partnerGen();break;
-    case'p-enter':partnerEnter();break;
+    case'p-enter':partnerEnter();break;case'p-wd':partnerWithdraw();break;
     case'p-copy':partnerCopy(el.dataset.v);break;
     case'p-send':partnerSend();break;
     case'pa-set':admPartnerDo('set',el);break;
