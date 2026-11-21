@@ -186,7 +186,12 @@ html.tg-fs #app{padding-top:calc(6px + var(--fs-top,0px))}html.tg-fs .tinner{pad
 .rinfo .ft{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}.rinfo b{color:var(--text);font-weight:600}
 .dlv{font-family:var(--f-disp);font-size:11px;letter-spacing:.06em;padding:1px 6px;box-shadow:inset 0 0 0 1px currentColor}
 .dlv.d0{color:#7be38a}.dlv.d1{color:#e8e0d0}.dlv.d2{color:#ffb04a}.dlv.d3{color:#ff6070}
-.rinfo.notice{color:#ffd24a;box-shadow:inset 0 0 0 2px #8a6a20;background:#1e160c}.rinfo.notice[hidden]{display:none}
+.rinfo.notice{color:#ffd24a;box-shadow:inset 0 0 0 2px #8a6a20;background:#1e160c}
+.rrule{font-size:12px;color:#f4c95d;background:#1e160c;box-shadow:inset 0 0 0 2px #8a6a20;padding:6px 8px;margin:6px 0;text-align:left}
+.rinfo.notice .ft{text-overflow:clip;white-space:nowrap;display:flex}
+.rinfo.notice .tk{flex:none;padding-right:48px}
+.rinfo.notice .tk.run{animation:ntick linear 1.5s infinite}
+@keyframes ntick{0%,8%{transform:translateX(0)}100%{transform:translateX(-100%)}}.rinfo.notice[hidden]{display:none}
 .rinfo.rdbg{box-shadow:inset 0 0 0 2px #7a3ab0}
 .ninput{width:100%;font:inherit;font-size:14px;padding:8px;background:#120e18;color:var(--text);border:2px solid var(--line);margin-bottom:6px}
 .dbgrow{display:flex;flex-wrap:wrap;gap:4px}.dbgrow .btn{flex:1 0 auto;min-width:56px}
@@ -736,7 +741,8 @@ h2 small{font-size:11px;letter-spacing:.06em;color:var(--dim);text-transform:non
 .fz img{width:70%;height:auto;image-rendering:pixelated}.fz small{position:absolute;right:3px;bottom:1px;font-size:9px;color:#d8d0e4}.fz.empty{cursor:default;opacity:.55;font-size:20px}
 .fz.pick{opacity:.35}.fz:disabled{opacity:.3}.fz .eqm{position:absolute;left:2px;top:2px;width:10px;height:10px;background:var(--gold)}.fz .eqm img{width:10px}
 .fprev{margin:0}.pwr{font-size:16px;margin:4px 0;padding:3px 8px;display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;background:#2a1e10;box-shadow:inset 0 0 0 2px #8a6a20;font-family:var(--f-disp)}.pwr img{width:14px;height:14px}.pwr b{color:var(--gold);font-size:19px}.pwr i{font-style:normal;font-size:13px;color:var(--muted)}.pwr i.up{color:#7be38a}.pwr i.dn{color:#ff7a86}.ftgt{display:flex;flex-wrap:wrap;gap:4px}.ftgt .btn{flex:1 0 auto;min-height:34px;font-size:11px;padding:3px 6px}.dmn{color:#ff4a5a;text-shadow:0 0 4px #a01020}.fodds{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:12px}.fodds b{color:var(--gold)}.fodds .bad{color:#ff7a86}
-.fbtns{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:4px}.fbtns .btn{flex:1 0 auto;font-size:11px}.shoptabs .btn{min-height:36px}.luck{margin-left:6px;display:inline-flex;align-items:center;gap:3px;font:inherit;font-size:11px;padding:2px 6px;background:#2a2030;color:var(--muted);border:1px solid #4a3a52;cursor:pointer}.luck img{width:11px;height:11px}.luck.on{background:#3a2a10;color:#ffd24a;border-color:#b8802c}.luck:disabled{opacity:.4}.setpick{display:flex;flex-wrap:wrap;gap:4px;margin:-2px 0 6px}.setpick .btn{flex:1 0 auto;min-height:30px;font-size:11px;padding:4px 6px}.setpick .btn.lg:not(.gold){color:#ff9a2e}
+.fbtns{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:4px}.fbtns .btn{flex:1 1 100%;font-size:11px;min-width:0;max-width:none;white-space:normal;flex-wrap:wrap;row-gap:2px;text-align:center;height:auto;min-height:34px;padding-top:4px;padding-bottom:4px}
+.fbtns .fcost{flex-wrap:wrap;justify-content:center}.shoptabs .btn{min-height:36px}.luck{margin-left:6px;display:inline-flex;align-items:center;gap:3px;font:inherit;font-size:11px;padding:2px 6px;background:#2a2030;color:var(--muted);border:1px solid #4a3a52;cursor:pointer}.luck img{width:11px;height:11px}.luck.on{background:#3a2a10;color:#ffd24a;border-color:#b8802c}.luck:disabled{opacity:.4}.setpick{display:flex;flex-wrap:wrap;gap:4px;margin:-2px 0 6px}.setpick .btn{flex:1 0 auto;min-height:30px;font-size:11px;padding:4px 6px}.setpick .btn.lg:not(.gold){color:#ff9a2e}
 .stall.rare canvas{filter:hue-rotate(-40deg) saturate(1.2) brightness(.85)}
 .pos{color:#7be38a}.neg{color:#ff7a86}.zero{color:var(--dim)}
 .iteminfo{display:flex;gap:12px;align-items:center}
@@ -2772,10 +2778,13 @@ const L = Logic;
 /* v233: the rest after a fight is set by the owner in the admin panel (server: /api/notice → rest, seconds); 5 min until the server answers */
 let COOLDOWN_MS = (()=>{try{const v=localStorage.getItem('ember.rest');if(v!==null&&isFinite(+v)&&+v>=0&&+v<=86400000)return +v;}catch(e){}return 300000;})();
 function setRestMs(ms){ms=Math.round(+ms);if(!isFinite(ms)||ms<0||ms>86400000||ms===COOLDOWN_MS)return;COOLDOWN_MS=ms;try{localStorage.setItem('ember.rest',String(ms));}catch(e){}
-  try{if(S&&S.cdEnd>Date.now()&&S.cdStart&&S.cdEnd-S.cdStart>ms){S.cdEnd=S.cdStart+ms;persist();}}catch(e){}   /* a shorter rest applies to the one running now; a longer one only from the next fight */
+  try{if(S&&S.cdEnd>Date.now()&&S.cdStart&&S.cdEnd-S.cdStart>restMs(S.level)){S.cdEnd=S.cdStart+restMs(S.level);persist();}}catch(e){}   /* a shorter rest applies to the one running now; a longer one only from the next fight */
   try{updateFightBtn();}catch(e){}}
-function restTxt(){const s=Math.round(COOLDOWN_MS/1000);if(s<=0)return 'нисколько';if(s<60)return s+' с';const m=Math.floor(s/60),r=s%60;return m+' мин'+(r?' '+r+' с':'');}
-const cdDur=()=>(S&&S.cdEnd&&S.cdStart&&S.cdEnd>S.cdStart)?S.cdEnd-S.cdStart:Math.max(1,COOLDOWN_MS);
+/* v247: rest grows with the level: 1 min at the start, +30 s steps, the full value (the admin panel's) from level 20 */
+const REST_MIN_MS=60000,REST_FULL_LV=20;
+function restMs(lv){const mx=COOLDOWN_MS,mn=Math.min(REST_MIN_MS,mx),st=Math.max(0,Math.min(8,Math.floor(((lv||1)-1)*8/(REST_FULL_LV-1))));return Math.round((mn+(mx-mn)*st/8)/1000)*1000;}
+function restTxt(ms){if(ms==null)ms=restMs(S?S.level:1);const s=Math.round(ms/1000);if(s<=0)return 'нисколько';if(s<60)return s+' с';const m=Math.floor(s/60),r=s%60;return m+' мин'+(r?' '+r+' с':'');}
+const cdDur=()=>(S&&S.cdEnd&&S.cdStart&&S.cdEnd>S.cdStart)?S.cdEnd-S.cdStart:Math.max(1,restMs(S?S.level:1));
 /* one save per Telegram account: a second account (a «twink») on the same phone starts its own hero.
    Before this the save was one per device, so a twink opened with the main account's hero. */
 const TG_UID=(()=>{try{const W=window.Telegram&&window.Telegram.WebApp;
@@ -4884,11 +4893,20 @@ const CLOUD={st:'wait',at:0,taken:false};
 const playScore=s=>s?((s.st&&(s.st.wins+s.st.losses))||0)*1e6+(s.maxCleared||0)*1e3+(s.level||0):-1;
 function cloudOn(){return !!(window.EmberNet&&EmberNet.tg&&EmberNet.saveGet);}
 let syncWarned=false;function syncLost(){if(syncWarned)return;syncWarned=true;toast('Нет связи с сервером: прогресс не сохраняется в облаке. Перезапусти игру',null);}
-function cloudPush(keep){if(!cloudOn()||!cloudReady||!S||CLOUD.taken)return;cloudDirty=false;const p=EmberNet.savePut({save:S,score:playScore(S),ts:S.savedAt||Date.now()},keep);if(p&&p.then)p.then(r=>{if(r&&r.wipe){wipeLocal(r.wipe);return;}if(r&&r.taken){lockOut();return;}if(r&&r.ok)CLOUD.at=Date.now();if(!r&&!keep){cloudDirty=true;syncLost();}});}
+function cloudPush(keep){if(!cloudOn()||!cloudReady||!S||CLOUD.taken||CLOUD.bad)return;cloudDirty=false;const p=EmberNet.savePut({save:S,score:playScore(S),ts:S.savedAt||Date.now()},keep);if(p&&p.then)p.then(r=>{if(r&&r.wipe){wipeLocal(r.wipe);return;}if(r&&r.taken){lockOut();return;}if(r&&r.bad){badSave(r.bad,r.stuck);return;}if(r&&r.ok)CLOUD.at=Date.now();if(!r&&!keep){cloudDirty=true;syncLost();}});}
 /* before a duel or a ghost fight the server must have this very hero, not the one from the last autosave */
-async function cloudFlush(){if(!cloudOn()||!S)return true;if(CLOUD.taken){lockOut();return false;}let r=null;try{r=await EmberNet.savePut({save:S,score:playScore(S),ts:Date.now()});}catch(e){}if(r&&r.wipe){wipeLocal(r.wipe);return false;}if(r&&r.taken){lockOut();return false;}if(!r){syncLost();return false;}cloudDirty=false;return true;}
+async function cloudFlush(){if(!cloudOn()||!S)return true;if(CLOUD.bad)return false;if(CLOUD.taken){lockOut();return false;}let r=null;try{r=await EmberNet.savePut({save:S,score:playScore(S),ts:Date.now()});}catch(e){}if(r&&r.wipe){wipeLocal(r.wipe);return false;}if(r&&r.taken){lockOut();return false;}if(r&&r.bad){badSave(r.bad,r.stuck);return false;}if(!r){syncLost();return false;}cloudDirty=false;return true;}
 setInterval(()=>{if(cloudDirty)cloudPush(false);},6000);
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'&&cloudDirty)cloudPush(true);});
+/* v246: the server refused a save no honest game can make (edited by hand): the hero goes back to the last one the server kept */
+async function badSave(why,stuck){if(badSave.busy)return;badSave.busy=1;cloudDirty=false;
+  /* the server's own copy is just as impossible (or we already went back once this session): stop sending, no reload loop —
+     the owners decide in the anti-cheat list */
+  let again=false;try{again=sessionStorage.getItem('ember.badback')==='1';sessionStorage.setItem('ember.badback','1');}catch(e){}
+  if(stuck||again){CLOUD.bad=1;openModal(`<div class="sheet px"><h3>Сохранение не принято</h3><p class="note" style="font-size:14px;text-align:left">Сервер отклоняет прогресс этого героя — его невозможно получить в игре${why?` (${esc(why)})`:''}. Прогресс больше не сохраняется. Если считаешь, что это ошибка, напиши админам.</p><div class="row"><button class="btn ember" data-act="close">Понятно</button></div></div>`);return;}let R=null;try{R=await EmberNet.saveGet();}catch(e){}
+  try{sessionStorage.setItem('ember.bad',String(why||''));if(R&&R.save){const sv=R.save;sv.savedAt=Date.now();localStorage.setItem(SAVE_KEY,JSON.stringify(sv));}
+    else{const n=newSave();n.savedAt=Date.now();localStorage.setItem(SAVE_KEY,JSON.stringify(n));}}catch(e){}
+  location.reload();}
 /* the owner wiped this hero on the server: start over here too (settings stay), then show why */
 function wipeLocal(gen){if(wipeLocal.busy)return;wipeLocal.busy=1;const k={musicOn:S&&S.musicOn,musicVol:S&&S.musicVol,sound:S&&S.sound,sfxVol:S&&S.sfxVol,notify:S&&S.notify};
   const n=newSave();n.gen=gen;for(const x in k)if(k[x]!==undefined)n[x]=k[x];n.savedAt=Date.now();
@@ -6850,7 +6868,7 @@ function musicAtLaunch(){musicPrefs();if(!S||S.musicOn===false)return;Music.on=t
   try{Object.assign(Music.last,JSON.parse(localStorage.getItem('ember.musicLast')||'{}'));}catch(e){}
   try{if(!Music.started)Music.start();Music.set('title');}catch(e){}}
 let musicTick=0;
-const APP_VER='243';
+const APP_VER='247';
 /* one bad frame must never freeze the game: the error is shown once and the loop goes on */
 let errShown='';
 function showErr(m){m=String(m||'').slice(0,140);if(m===errShown)return;errShown=m;try{toast('Ошибка (v'+APP_VER+'): '+esc(m),null);}catch(e){}}
@@ -7398,7 +7416,7 @@ function finishFight(){$('clog').classList.remove('fighting');
   } else {S.st.losses++;if(mode==='progress'&&!f.raid)GHOST=null;if(mode==='progress'&&!f.raid){S.fails=S.fails&&S.fails.r===room?{r:room,n:S.fails.n+1}:{r:room,n:1};res.pity=Math.round((1-pityDiff(room))*100);}}
   if(win)WH.pending=true; // one automatic spin per cleared room — nothing piles up
   if(window.EmberNet)EmberNet.haptic(!win?'lose':res.item&&res.item.rarity===4?'legend':f.boss?'boss':res.ups.length?'level':'hit');
-  S.cdStart=Date.now();S.cdEnd=S.cdStart+COOLDOWN_MS;S.hpAfter=win?f.hero.hp:0;
+  S.cdStart=Date.now();S.cdEnd=S.cdStart+restMs(S.level);S.hpAfter=win?f.hero.hp:0;
   if(res.ups.length){SC.fx.push({k:'lvl',t:0,life:1.2});SC.lvlFx=1.2;}
   persist();renderActive();
   if(!win){showResult(res);return;}
@@ -8733,7 +8751,7 @@ function howToModal(){openModal(`<div class="sheet px"><h3>Как играть</
   <div class="howto">
   <p><b>Одна кнопка.</b> Жми «Сражаться» — герой сам выберет цель, будет бить и колдовать.</p>
   <p><b>Башня без вершины.</b> Каждая победа открывает следующую комнату. Каждая десятая — элитная комната, каждая пятидесятая — логово босса.</p>
-  <p><b>Отдых.</b> После боя герой отдыхает ${restTxt()}. В это время надевай добычу, покупай вещи в лавке и учи навыки.</p>
+  <p><b>Отдых.</b> После боя герой отдыхает ${restTxt()}${S&&S.level<REST_FULL_LV?` — с уровнем отдых растёт, до ${restTxt(COOLDOWN_MS)} к ${REST_FULL_LV} уровню`:''}. В это время надевай добычу, покупай вещи в лавке и учи навыки.</p>
   <p><b>Сундуки.</b> Падают, когда комната зачищена. Чем ярче сундук, тем лучше вещь внутри.</p>
   <p><b>Застрял?</b> Кнопка «Фарм» повторяет пройденную комнату за меньшую награду.</p>
   <p><b>Красный круг на полу</b> — враг готовит удар по площади. Герой его выдержит, если хватит брони.</p></div>
@@ -8882,7 +8900,7 @@ setInterval(()=>{if(tab!=='path')return;for(const el of document.querySelectorAl
 /* which group this boss lives in: the server names it; older servers — the chat marked «здесь» in my raid stats */
 function raidChatName(R){if(R&&R.chat)return R.chat;const c=RSTATS&&RSTATS.chats&&RSTATS.chats.find(x=>x.here);return c?c.name:'';}
 function raidSection(){
-  const noBoss=`<p class="note" style="margin:0">Общий босс на весь чат: нажми <b>«Призвать босса в свой чат»</b> и выбери группу — бот войдёт и сразу покажет боссов. Админ чата выберет босса и время, бот закрепит объявление, и весь чат бьёт наперегонки. Не админ? Нажми на босса — бот позовёт админов. Можно бить боссов в нескольких чатах сразу.</p><div class="row" style="margin-top:8px"><button class="btn ember" data-act="raid-boss-chat">👹 Призвать босса в свой чат</button><button class="btn" data-act="raid-group">Позвать чат в игру</button></div>`;
+  const noBoss=`<p class="note" style="margin:0">Общий босс на весь чат: нажми <b>«Призвать босса в свой чат»</b> и выбери группу — бот войдёт и сразу покажет боссов. Админ чата выберет босса и время, бот закрепит объявление, и весь чат бьёт наперегонки. Не админ? Нажми на босса — бот позовёт админов. Можно бить боссов в нескольких чатах сразу.</p><p class="note rrule">⏳ <b>${RAID_TRIES} попытки в день на одного игрока в каждом чате</b> — сбрасываются в полночь по Москве. В другом чате с боссом у тебя свои ${RAID_TRIES} попытки.</p><div class="row" style="margin-top:8px"><button class="btn ember" data-act="raid-boss-chat">👹 Призвать босса в свой чат</button><button class="btn" data-act="raid-group">Позвать чат в игру</button></div>`;
   if(window.EmberNet&&EmberNet.tg&&!raidOnline())return `<h2>Босс чата</h2><div class="raid px px-in">${noBoss}${raidStatsHtml()}</div>`;
   const R=RAID||soloRaid();
   if(R.noboss)return `<h2>Босс чата</h2><div class="raid px px-in"><p class="note" style="margin:0 0 6px"><b>В этом чате сейчас нет босса.</b></p>${noBoss}${raidStatsHtml()}</div>`;if(R.error)return `<h2>Рейд чата</h2><div class="raid px px-in"><p class="note" style="margin:0">Рейд сейчас недоступен. Попробуй позже.</p></div>`;
@@ -8897,7 +8915,7 @@ function raidSection(){
     ${R.top&&R.top.length?`<ol class="lb">${R.top.slice(0,5).map((t,i)=>`<li class="${t.me?'me':''}"><span class="lr">${i+1}</span><span class="ln">${esc(t.name)}</span><span class="lc"></span><b class="lv">${fmtN(t.dmg)}</b></li>`).join('')}</ol>`:''}
     ${over?'<p class="note">Ивент окончен. Следи за чатом — админ может призвать босса снова.</p>':
       `<button class="btn ember" data-act="raid-go" ${left<=0||cd||fight||busy?'disabled':''}>${left<=0?'Попытки здесь кончились до завтра':cd?'Герой отдыхает':'В бой: '+raidName(R)}</button>`}
-    <p class="note">Рейдового босса нельзя убить: за ${RAID_SEC} секунд набиваешь сколько сможешь. Награда приходит сразу после боя и растёт с уроном. В каждом чате — свои ${RAID_TRIES} попытки в день.</p>
+    <p class="note">Рейдового босса нельзя убить: за ${RAID_SEC} секунд набиваешь сколько сможешь. Награда приходит сразу после боя и растёт с уроном.</p><p class="note rrule">⏳ <b>${RAID_TRIES} попытки в день на одного игрока в этом чате</b> — сбрасываются в полночь по Москве. В другом чате с боссом у тебя свои ${RAID_TRIES} попытки.</p>
     ${raidStatsHtml()}</div>`;
 }
 let raidPortraitURL='';
@@ -8930,7 +8948,7 @@ function raidInviteModal(){
     openModal(`<div class="sheet px px-gold"><div class="rw-title">${R.event?'Ивент чата':'Рейд чата'}</div>
       <div class="rhead" style="margin:6px 0"><img src="${raidPortrait()}" alt="" style="width:56px;height:56px"><div style="flex:1"><b>${esc(raidName(R))}</b>
       <div class="rtot">Урон чата: <b>${fmtN(R.total)}</b></div></div></div>
-      <p class="note">${R.over?'Ивент уже окончен.':`Босс бессмертен — набивай урон, награда сразу после боя. Попыток здесь сегодня: ${left} из ${RAID_TRIES}.`}</p>
+      <p class="note">${R.over?'Ивент уже окончен.':`Босс бессмертен — набивай урон, награда сразу после боя. ${left>0?`Попыток здесь сегодня: <b>${left}</b> из ${RAID_TRIES}.`:`Свои ${RAID_TRIES} попытки в этом чате на сегодня ты уже потратил — в том числе на прошлого босса. Новые — после полуночи по Москве.`}`}</p>${R.over?'':`<p class="note rrule">⏳ <b>${RAID_TRIES} попытки в день на одного игрока в этом чате</b> — сбрасываются в полночь по Москве. В другом чате с боссом у тебя свои ${RAID_TRIES} попытки.</p>`}
       <div class="row"><button class="btn" data-act="close">Позже</button>${R.over?'':`<button class="btn ember" data-act="raid-go" ${left<=0?'disabled':''}>В бой</button>`}</div></div>`);});
 }
 let raidInvite=false;
@@ -9199,7 +9217,7 @@ function partnerSection(){const P=PARTNER;if(!P||!P.ok)return '';let h='';
   return h;}
 async function partnerGen(){try{const r=await EmberNet.partnerCode();if(r&&r.ok){toast('Код готов: '+r.code,UI.check);SFX.play('coin');}}catch(e){toast('Сервер не ответил',null);}partnerRefresh();}
 async function partnerEnter(){const v=(($('pIn')||{}).value||'').trim(),st=$('pStat');if(!v){if(st)st.textContent='Введи код';return;}
-  try{const r=await EmberNet.partnerEnter(v);if(r&&r.ok){toast('Готово! Ты от партнёра: '+r.name,UI.check);SFX.play('buff');partnerRefresh();}else if(st){st.textContent='✗ '+((r&&r.reason)||'Не получилось');st.style.color='#ff8a8a';}}
+  try{const r=await EmberNet.partnerEnter(v);if(r&&r.ok){SFX.play('buff');if(r.gift)partnerGift(r.name,r.gift);else toast('Готово! Ты от партнёра: '+r.name,UI.check);partnerRefresh();}else if(st){st.textContent='✗ '+((r&&r.reason)||'Не получилось');st.style.color='#ff8a8a';}}
   catch(e){if(st)st.textContent='✗ Сервер не ответил';}}
 function partnerCopy(what){const p=PARTNER&&PARTNER.partner;if(!p)return;const v=what==='code'?p.code:p.link;
   const ok=()=>toast((what==='code'?'Код':'Ссылка')+' скопирован'+(what==='code'?'':'а'),UI.check);
@@ -9285,7 +9303,7 @@ async function toggleNotify(el){
    the boss in the middle, one hero below, one above, one on the right, one on the left. */
 var GRS=null;               // the replay playing on the stage
 let grSig='',GRM=null,grBusy=false,grInvite=null,grPollT=null,grOpenId=null;
-const GR_ERR={slow:'Слишком часто — подожди немного и попробуй снова.',level:'Этот босс не для твоего уровня.',today:'Этого босса ты уже победил сегодня — завтра снова.',full:'Группа уже собрана (4 героя).',
+const GR_ERR={hostout:'Ты сам уже не можешь биться с этим боссом сегодня (победил его или перерос) — группа закрыта.',slow:'Слишком часто — подожди немного и попробуй снова.',level:'Этот босс не для твоего уровня.',today:'Этого босса ты уже победил сегодня — снова после полуночи по Москве.',full:'Группа уже собрана (4 героя).',
   started:'Группа уже ушла в бой.',closed:'Группа распущена.',expired:'Группа устарела — собери новую.',none:'Группа не найдена.',few:'Нужно хотя бы 2 героя.',
   nothost:'Начать бой может только тот, кто собрал группу.',engine:'Сервер не смог провести бой. Попробуй ещё раз.',review:'Герой сейчас на проверке.',
   nosave_me:'Твой герой ещё не сохранился на сервере — подожди пару секунд.',dropped:'Кто-то из группы больше не может биться с этим боссом — его убрали. Нажми «В бой!» ещё раз.'};
@@ -9314,12 +9332,15 @@ function grBarUpd(){const el=$('grBar');if(!el)return;const o=((GRM&&GRM.open)||
   const more=((GRM&&GRM.open)||[]).length-1;   /* v241: in several groups at once — the bar says so and leads to all of them */
   el.innerHTML=`<img src="${raidPortrait(L.grType(o.b))}" alt=""><span>${o.host?'Твоя группа':'Ты в группе'} · ${esc(grBossRu(o.b))} ${o.b} ур.<small>${more>0?`и ещё ${more} ${more===1?'группа':'группы'} — нажми, чтобы увидеть все`:fight?'бой идёт…':n<2?'пока ты один — позови героев':ready?'можно начинать бой':'ждём, когда хост начнёт'}</small></span><b class="n">${n}/4</b><i>›</i>`;
   el.dataset.id=o.id;el.onclick=()=>{if(more>0){pathView='raid';setTab('path');setTimeout(()=>{const h=document.getElementById('grMine');if(h)h.scrollIntoView({block:'start'});},150);}else grOpen(el.dataset.id,true);};el.hidden=false;}
+/* v244: when a group fight was — «сегодня/вчера, 21:40» by Moscow time (the daily limit counts Moscow days) */
+function grWhen(sec){const m=new Date(sec*1000+3*3600e3),d=Math.floor((sec+3*3600)/86400),t=Math.floor((Date.now()/1000+3*3600)/86400),hh=String(m.getUTCHours()).padStart(2,'0')+':'+String(m.getUTCMinutes()).padStart(2,'0');
+  return (d===t?'сегодня':d===t-1?'вчера':String(m.getUTCDate()).padStart(2,'0')+'.'+String(m.getUTCMonth()+1).padStart(2,'0'))+' '+hh;}
 function grSection(){
   const on=window.EmberNet&&EmberNet.tg,M=GRM||{},done=M.done||[],bs=L.grFor(S.level);
   const rows=bs.map(b=>{const won=done.includes(b),t=L.grType(b),mine=(M.open||[]).find(o=>o.b===b),wr=won&&(M.recent||[]).find(r=>r.b===b&&r.win&&!r.test),wonId=wr?esc(wr.id):'';
     return `<li class="grrow${won?' grdone':''}"><img class="mini" src="${raidPortrait(t)}" alt=""><span class="ln"><b>${esc(grBossRu(b))}</b> <small>босс ${b} уровня · для ${b-L.grLo(b)}–${b+L.grHi(b)} ур.</small></span>
       <span class="dbtns">${won?'<i class="grok">✓ сегодня</i>'+(wonId?`<button class="btn sm grrep" data-act="gr-replay" data-id="${wonId}" aria-label="Повтор боя">▶ Повтор</button>`:''):mine?`<button class="btn sm ember" data-act="gr-open" data-id="${mine.id}">Группа ${mine.n}/4</button>`:`<button class="btn sm ember" data-act="gr-new" data-b="${b}" ${grBusy?'disabled':''}>Собрать</button>`}</span></li>`;}).join('');
-  const rec=(M.recent||[]).slice(0,5).map(r=>`<li class="${r.win?'dwin':'dlose'}" data-act="gr-open" data-id="${r.id}"><span class="lr">${r.win?'✓':'✗'}</span><span class="ln">${esc(grBossRu(r.b))} · ${r.b} ур. <small>${r.test?'тест с ботами · ':''}${r.win?(r.unclaimed?'<b style="color:#f4c95d">награда ждёт</b>':'победа'):'поражение'}</small></span><span class="lc"></span><span class="dbtns"><button class="btn sm grrep" data-act="gr-replay" data-id="${r.id}" aria-label="Повтор боя">▶ Повтор</button></span></li>`).join('');
+  const rec=(M.recent||[]).slice(0,5).map(r=>`<li class="${r.win?'dwin':'dlose'}" data-act="gr-open" data-id="${r.id}"><span class="lr">${r.win?'✓':'✗'}</span><span class="ln">${esc(grBossRu(r.b))} · ${r.b} ур. <small>${r.at?grWhen(r.at)+' · ':''}${r.test?'тест с ботами · ':''}${r.win?(r.unclaimed?'<b style="color:#f4c95d">награда ждёт</b>':'победа'):'поражение'}</small></span><span class="lc"></span><span class="dbtns"><button class="btn sm grrep" data-act="gr-replay" data-id="${r.id}" aria-label="Повтор боя">▶ Повтор</button></span></li>`).join('');
   const all=(GRL||[]).filter(g=>!(M.open||[]).some(o=>o.id===g.id)),PER=5,pages=Math.max(1,Math.ceil(all.length/PER));grPage=Math.min(grPage,pages-1);
   const seenP=grSeenPub();
   const pub=all.slice(grPage*PER,grPage*PER+PER).map(g=>`<li class="grrow grpubrow"><img class="mini" src="${raidPortrait(L.grType(g.b))}" alt=""><span class="ln"><b>${esc(grBossRu(g.b))} · ${g.b} ур.${seenP.includes(g.id)?'':' <i class="grnew">новая</i>'}</b>
@@ -9331,7 +9352,7 @@ function grSection(){
       <small>${o.host?'ты собрал':'ты участник'} · в группе ${o.n}/4${o.fighting?' · бой идёт':''}${fitB.has(o.b)?'':' · <b style="color:#ff8a8a">тебе уже не по уровню</b>'}</small></span>
       <span class="dbtns">${o.fighting?'':`<button class="btn sm" data-act="gr-leave" data-id="${esc(o.id)}">${o.host?'Распустить':'Выйти'}</button>`}<button class="btn sm ember" data-act="gr-open" data-id="${esc(o.id)}">Открыть</button></span></li>`).join('');
   return `<h2>Босс группы <small>2–4 героя</small></h2><div class="raid px px-in">${on&&myg?`<b class="dhead" id="grMine">Твои группы <small>${(M.open||[]).length}</small></b><ol class="lb dlist">${myg}</ol>`:''}
-    <p class="note" style="margin:0;text-align:left">Сильный босс на одного не рассчитан: собери от 2 до 4 героев по ссылке. Каждого босса можно победить за награду раз в день. Через 2 минуты он звереет (×1.5), через 3 — ещё сильнее (×2), на 4-й минуте уходит. Награду получает каждый, кто бился: кто нанёс больше урона — тому чуть больше.</p>
+    <p class="note" style="margin:0;text-align:left">Сильный босс на одного не рассчитан: собери от 2 до 4 героев по ссылке. Каждого босса можно победить за награду раз в день (новый день — с полуночи по Москве). Через 2 минуты он звереет (×1.5), через 3 — ещё сильнее (×2), на 4-й минуте уходит. Награду получает каждый, кто бился: кто нанёс больше урона — тому чуть больше.</p>
     ${on?(rows?`<ol class="lb dlist">${rows}</ol>`:`<p class="note">Первый босс — с 3 уровня героя.</p>`)+`<b class="dhead">Открытые группы <small>подходят тебе по уровню</small></b>${pub?`<ol class="lb dlist">${pub}</ol>${pager}`:'<p class="note" style="margin:2px 0 6px">Сейчас никто не собирает. Собери сам и нажми в группе «Открыть для всех» — её увидят все, кому подходит босс.</p>'}`+(rec?`<b class="dhead">Последние бои</b><ol class="lb dlist">${rec}</ol>`:'')
       :`<p class="note">Босс группы работает, когда игра открыта в Telegram.${tgWhy()}</p>`}
     <p class="note">Боссы: 5, 10, 15, 20 уровни, дальше каждые 15 (35, 50, 65…).</p></div>`;
@@ -10697,7 +10718,7 @@ function gearModal(){
     <button class="btn sm" data-act="close">ЗАКРЫТЬ</button></div>`);
 }
 /* ---------------- v219: the owner's panel — everything of the admin in one window, in tabs, instead of the end of «Меню» ---------------- */
-function admRest(){const m=COOLDOWN_MS/60000;return `<h2>Отдых после боя</h2><p class="note" style="margin:0">Сколько герой отдыхает после каждого боя — у всех игроков. Сейчас: <b>${restTxt()}</b>. Меняется у всех в течение минуты; если отдых стал короче, текущий тоже сокращается.</p>
+function admRest(){const m=COOLDOWN_MS/60000;return `<h2>Отдых после боя</h2><p class="note" style="margin:0">Сколько герой отдыхает после каждого боя — у всех игроков, с ${REST_FULL_LV} уровня. Сейчас: <b>${restTxt(COOLDOWN_MS)}</b>. Новички отдыхают меньше: ${restTxt(restMs(1))} на 1 уровне, дальше по 30 с за шаг — до полного к ${REST_FULL_LV} уровню. Меняется у всех в течение минуты; если отдых стал короче, текущий тоже сокращается.</p>
     <div class="dbgrow">${[[0.25,'15 с'],[1,'1 мин'],[3,'3 мин'],[5,'5 мин'],[10,'10 мин'],[30,'30 мин']].map(([v,l])=>`<button class="btn sm ${Math.abs(v-m)<1e-9?'gold':''}" data-act="rest-set" data-m="${v}">${l}</button>`).join('')}</div>
     <div class="dbgrow"><input id="restIn" class="ninput" type="number" inputmode="decimal" min="0" max="1440" step="0.5" placeholder="минуты" style="flex:1;min-width:0"><button class="btn sm gold" data-act="rest-set">Поставить</button></div>
     <p class="note nstat" id="restStat" style="margin:0"></p>`;}
@@ -11037,11 +11058,21 @@ function notifyOnboard(){
   if(S.notify==null&&!S.notifyAsked&&S.cls&&S.maxCleared>=3){if(!$('modal').hidden||fight||duel||titleOn||raidInvite||duelInvite){setTimeout(notifyOnboard,4000);return;}S.notifyAsked=1;persist();
     openModal(`<div class="sheet px"><div class="rw-title">Напоминания</div><p class="note">Бот напишет в Telegram, когда герой отдохнёт, а тебя давно не было. Не чаще пары раз в день.</p>
       <div class="row"><button class="btn" data-act="close">Не надо</button><button class="btn ember" data-act="notify-yes" data-focus>Включить</button></div></div>`);}}
-function welcome(){if(!window.EmberNet||!EmberNet.tg)return;setTimeout(notifyOnboard,2500);EmberNet.hello().then(r=>{if(r&&r.partner_joined){toast('Ты в игре от партнёра: '+r.partner_joined,UI.check);partnerRefresh();}if(r&&r.welcome){mats().core+=r.welcome.cores||0;
+function welcome(){if(!window.EmberNet||!EmberNet.tg)return;setTimeout(notifyOnboard,2500);EmberNet.hello().then(r=>{if(r&&r.partner_joined){if(r.partner_gift)partnerGift(r.partner_joined,r.partner_gift);else toast('Ты в игре от партнёра: '+r.partner_joined,UI.check);partnerRefresh();}if(r&&r.welcome){mats().core+=r.welcome.cores||0;
     // and a starter kit a small step above the rusty one: a plain iron sword and plain leather armour, put on at once
     const gift=[];for(const [tid,slot] of [['iron_sword','weapon'],['leather_armor','armor']]){const it=L.makeItem(Math.random,Math.max(1,S.maxCleared||1),0,tid,S.uid++);fixName(it);S.inv.push(it);
       const cur=S.inv.find(x=>x.uid===S.eq[slot]);if(!cur||L.itemPower(it)>L.itemPower(cur))S.eq[slot]=it.uid;gift.push(it);}
-    try{onGearChanged();}catch(e){}persist();starsRefresh();r.welcome.items=gift;const w=r.welcome,show=()=>openModal(`<div class="sheet px px-gold"><h3>Подарок от друга</h3><p class="note" style="font-size:14px;color:var(--text)">Ты пришёл по приглашению — держи на старт (оружие и броня уже надеты):</p><div class="giftrow"><span><img src="${TICKET_ICON}" alt="">${w.skips||0} ${plural(w.skips||0,'пропуск','пропуска','пропусков')} отдыха</span><span><img src="${CORE_ICON}" alt="">${w.cores||0} ${plural(w.cores||0,'ядро','ядра','ядер')}</span>${(w.items||[]).map(it=>`<span><img src="${itemIcon(it.tid)}" alt=""><i class="rc${it.rarity}" style="font-style:normal">${esc(it.name)}</i></span>`).join('')}</div><p class="note">С пропусками открыт автофарм. А твой друг получит награду, когда ты пройдёшь ${REF_STEPS.map(x=>x.room).join(', ')} этажей — так что поднимайся!</p><button class="btn ember" data-act="close" data-focus>Забрать</button></div>`);setTimeout(()=>{if($('modal').hidden&&!titleOn)show();else{const t=setInterval(()=>{if($('modal').hidden&&!titleOn){clearInterval(t);show();}},1000);}},600);}}).catch(()=>{});}
+    try{onGearChanged();}catch(e){}persist();starsRefresh();r.welcome.items=gift;const w=r.welcome,show=()=>openModal(`<div class="sheet px px-gold"><h3>Подарок от друга</h3><p class="note" style="font-size:14px;color:var(--text)">Ты пришёл по приглашению — держи на старт (оружие и броня уже надеты):</p><div class="giftrow"><span><img src="${TICKET_ICON}" alt="">${w.skips||0} ${plural(w.skips||0,'пропуск','пропуска','пропусков')} отдыха</span><span><img src="${CORE_ICON}" alt="">${w.cores||0} ${plural(w.cores||0,'ядро','ядра','ядер')}</span>${(w.items||[]).map(it=>`<span><img src="${itemIcon(it.tid)}" alt=""><i class="rc${it.rarity}" style="font-style:normal">${esc(it.name)}</i></span>`).join('')}</div><p class="note">С пропусками открыт автофарм. А твой друг получит награду, когда ты пройдёшь ${REF_STEPS.map(x=>x.room).join(', ')} этажей — так что поднимайся!</p><button class="btn ember" data-act="close" data-focus>Забрать</button></div>`);whenFree(show);}}).catch(()=>{});}
+/* v247: a gift window waits until nothing else is on the screen: the title, the tour (a newcomer sees it first, as with the
+   samurai's side), another window, a fight */
+function whenFree(show){const free=()=>!titleOn&&$('modal').hidden&&(typeof tourI==='undefined'||tourI<0)&&S&&(S.tourDone||(S.maxCleared||0)>=5)&&!fight;
+  setTimeout(()=>{if(free()){show();return;}const t=setInterval(()=>{if(free()){clearInterval(t);setTimeout(()=>{if(free())show();else whenFree(show);},700);}},1000);},600);}
+/* v247: a newcomer who came by a partner's link or code: rest skips (already on the server), a core and a blue weapon */
+function partnerGift(name,g){if(!S)return;g=g||{};mats().core+=g.cores||0;let it=null;
+  try{for(let k=0;k<20;k++){it=L.makeItem(Math.random,Math.max(5,S.maxCleared||1),g.weapon!=null?g.weapon:2,null,S.uid,'weapon',{unique:'no'});fixName(it);if(!/ржав|rust/i.test(it.name))break;}S.uid++;S.inv.push(it);
+    const cur=S.inv.find(x=>x.uid===S.eq.weapon);if(!cur||L.itemPower(it)>L.itemPower(cur))S.eq.weapon=it.uid;}catch(e){it=null;}
+  try{onGearChanged();}catch(e){}persist();starsRefresh();
+  whenFree(()=>openModal(`<div class="sheet px px-gold"><h3>Подарок от партнёра «${esc(name)}»</h3><p class="note" style="font-size:14px;color:var(--text)">Ты пришёл по приглашению партнёра — держи на старт${it?' (оружие уже надето)':''}:</p><div class="giftrow"><span><img src="${TICKET_ICON}" alt="">${g.skips||0} ${plural(g.skips||0,'пропуск','пропуска','пропусков')} отдыха</span><span><img src="${CORE_ICON}" alt="">${g.cores||0} ${plural(g.cores||0,'ядро','ядра','ядер')}</span>${it?`<span><img src="${itemIcon(it.tid)}" alt=""><i class="rc${it.rarity}" style="font-style:normal">${esc(it.name)}</i></span>`:''}</div><p class="note">С пропусками открыт автофарм — поднимайся!</p><button class="btn ember" data-act="close" data-focus>Забрать</button></div>`));}
 /* laptops and desktops: the whole game is drawn as on a tall phone and scaled up to fill the window */
 function desktopFit(){const W=innerWidth,H=innerHeight,b=document.body,fine=matchMedia('(pointer:fine)').matches;
   let k=1;if(fine&&W>=760&&H>=560)k=Math.max(1,Math.min(2.6,H/600,W/500));
@@ -11055,7 +11086,14 @@ function isAdmin(){const W=window.Telegram&&window.Telegram.WebApp,u=W&&W.initDa
 const NOTICE_API=(window.EMBER_API||'/api').replace(/\/$/,'');
 let noticeText='';
 async function noticePoll(){try{const r=await fetch(NOTICE_API+'/notice',{cache:'no-store'});if(r.ok){const d=await r.json();noticeText=d.text||'';if(d.rest!=null)setRestMs(d.rest*1000);showNotice();}}catch(e){}}
-function showNotice(){const el=$('notice');if(!el)return;el.hidden=!noticeText;el.innerHTML=noticeText?`<span class="ft">📣 ${esc(noticeText)}</span>`:'';}
+function showNotice(){const el=$('notice');if(!el)return;el.hidden=!noticeText;el.innerHTML=noticeText?`<span class="ft"><span class="tk">📣 ${esc(noticeText)}</span></span>`:'';noticeTick();}
+/* v244: a notice longer than the bar crawls slowly (≈28 px/s) so it can be read to the end, then loops */
+function noticeTick(){const el=$('notice');if(!el||el.hidden)return;const ft=el.querySelector('.ft'),tk=el.querySelector('.tk');if(!ft||!tk)return;
+  tk.classList.remove('run');tk.style.animationDuration='';if(tk.nextSibling)tk.nextSibling.remove();
+  requestAnimationFrame(()=>{const w=tk.scrollWidth,box=ft.clientWidth;if(w<=box+2)return;
+    const gap=document.createElement('span');gap.className='tk';gap.setAttribute('aria-hidden','true');gap.textContent=tk.textContent;ft.appendChild(gap);
+    for(const x of ft.querySelectorAll('.tk')){x.classList.add('run');x.style.animationDuration=((w+48)/28).toFixed(1)+'s';}});}
+addEventListener('resize',()=>{clearTimeout(noticeTick.t);noticeTick.t=setTimeout(noticeTick,300);});
 async function wipeReq(b){const W=window.Telegram&&window.Telegram.WebApp;if(!W||!W.initData){toast('Сброс работает только из Telegram с аккаунта владельца',null);return;}
   let r=null,code=0;try{const x=await fetch(NOTICE_API+'/admin/wipe',{method:'POST',headers:{'Content-Type':'application/json','X-Init-Data':W.initData},body:JSON.stringify(b)});code=x.status;r=await x.json().catch(()=>null);}catch(e){}
   reGear();
@@ -11104,7 +11142,8 @@ function start(data){
   if(window.EMBER_STUDIO){setTimeout(studioOpen,50);}else try{showTitle();}catch(e){showErr('title: '+e.message+' @ '+stackOf(e));}
   document.addEventListener('input',e=>{if(e.target&&e.target.id==='sfxVol'){S.sfxVol=+e.target.value/100;SFX.setVol(S.sfxVol);persist();clearTimeout(SFX.pv);SFX.pv=setTimeout(()=>SFX.play('coin'),120);return;}if(e.target&&e.target.id==='musVol'){S.musicVol=+e.target.value/100;Music.vol=S.musicVol;Music.apply();persist();musPrefSave();}});
   setTimeout(welcome,800);cloudSync();desktopFit();noticePoll();setInterval(noticePoll,60000);
-  try{if(sessionStorage.getItem('ember.wiped')){sessionStorage.removeItem('ember.wiped');setTimeout(()=>openModal(`<div class="sheet px"><h3>Прогресс обнулён</h3><p class="note" style="font-size:14px;color:var(--text)">Администрация башни сбросила прогресс. Начинаем с первого этажа. Звёзды и пропуски остались на счету.</p><button class="btn ember" data-act="close" data-focus>Понятно</button></div>`),1200);}}catch(e){}
+  try{if(sessionStorage.getItem('ember.bad')!=null){const why=sessionStorage.getItem('ember.bad');sessionStorage.removeItem('ember.bad');setTimeout(()=>openModal(`<div class="sheet px"><h3>Сохранение не принято</h3><p class="note" style="font-size:14px;text-align:left">Сервер отклонил прогресс, который невозможно получить в игре${why?` (${esc(why)})`:''}. Герой возвращён к последнему сохранению, которое принял сервер.</p><div class="row"><button class="btn ember" data-act="close">Понятно</button></div></div>`),1200);}
+  if(sessionStorage.getItem('ember.wiped')){sessionStorage.removeItem('ember.wiped');setTimeout(()=>openModal(`<div class="sheet px"><h3>Прогресс обнулён</h3><p class="note" style="font-size:14px;color:var(--text)">Администрация башни сбросила прогресс. Начинаем с первого этажа. Звёзды и пропуски остались на счету.</p><button class="btn ember" data-act="close" data-focus>Понятно</button></div>`),1200);}}catch(e){}
   try{if(sessionStorage.getItem('ember.cloudLoaded')){sessionStorage.removeItem('ember.cloudLoaded');setTimeout(()=>toast('Прогресс загружен из облака',UI.check),900);}}catch(e){}
   raidInvite=!!(window.EmberNet&&EmberNet.raidOpen&&EmberNet.raidOpen());
   if(window.EmberNet&&EmberNet.grId)grInvite=EmberNet.grId();

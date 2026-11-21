@@ -78,7 +78,9 @@ class PostgreSQLAdapter:
             'partners', 'partner_refs', 'partner_pays'   # v238 partner program
         ]
         
-        result = query
+        # A table may end the statement ("SELECT COUNT(*) FROM saves"): the trailing separator makes the
+        # "FROM table " / "DELETE FROM table " patterns below match there too, so it is prefixed as well.
+        result = query + " "
         for table in tables:
             # Replace table names with app_ prefix
             # Handle various SQL contexts including CREATE INDEX

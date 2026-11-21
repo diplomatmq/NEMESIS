@@ -57,7 +57,7 @@ def raid_boss_of(ci, week):
     if week < RAID_NEW_W:
         keys = keys[:3]
     return keys[(int(hashlib.md5(str(ci).encode()).hexdigest()[:6], 16) + max(0, week)) % len(keys)]
-RAID_TRIES = 3                # hits per player per day (UTC), as in the game
+RAID_TRIES = 3                # hits per player per chat per day (v244: Moscow day, was UTC — reset at 03:00 MSK confused players)
 RAID_MIN_GAP = 30             # seconds between two hits of one player: a raid fight lasts 40 s
 RAID_SHARE = 8                # each new raider adds this many typical hits to the boss's health
 
@@ -328,7 +328,8 @@ def hello(user, fields, is_new, body):
             if pr and pr[0] != user["id"]:
                 db.execute("INSERT OR IGNORE INTO ref_hits(inviter, visitor, day) VALUES(?,?,?)", (pr[0], user["id"], q_day()))
                 db.commit()
-        return 200, {"ok": True, "admin": admin, "partner_joined": pj.get("name") if pj.get("ok") else None}
+        return 200, {"ok": True, "admin": admin, "partner_joined": pj.get("name") if pj.get("ok") else None,
+                     "partner_gift": pj.get("gift") if pj.get("ok") else None}
     if not (start.startswith("ref_") or start.startswith("rr_") or start.startswith("duel_")):
         return 200, {"ok": True, "admin": admin}
     with db_lock:
@@ -453,7 +454,7 @@ def raid_view(ci, week, uid):
     if my > 0:
         rank = 1 + db.execute("SELECT COUNT(*) FROM raid_hits WHERE ci=? AND week=? AND dmg>?", (ci, week, my)).fetchone()[0]
     tot = db.execute("SELECT COALESCE(SUM(dmg),0) FROM raid_hits WHERE ci=? AND week=?", (ci, week)).fetchone()[0]
-    t = db.execute("SELECT n FROM raid_tries_c WHERE uid=? AND ci=? AND day=?", (uid, ci, day_id())).fetchone()
+    t = db.execute("SELECT n FROM raid_tries_c WHERE uid=? AND ci=? AND day=?", (uid, ci, q_day())).fetchone()
     boss = raid_boss_of(ci, week)
     return {"name": RAID_BOSSES[boss][0], "boss": boss, "event": 1 if ev else 0, "immortal": 1, "total": tot, "chat": chat_label(ci),
             "me": {"dmg": my, "rank": rank, "tries": t[0] if t else 0},
@@ -494,7 +495,7 @@ def raid_reward(dmg, room, event):
     return {"gold": gold, "cores": (1 if q >= 0.6 else 0) + (1 if q >= 1.2 else 0)}
 
 def raid_hit(user, fields, body):
-    now, day = time.time(), day_id()
+    now, day = time.time(), q_day()
     with db_lock:
         ci, week = raid_key(fields, body.get("ci"))
         if not ci:
@@ -1193,6 +1194,7 @@ def wipe_all():
     return n
 
 # ---------------------------------------------------------------- v238 partner program
+PARTNER_GIFT = {"skips": 5, "cores": 1, "weapon": 2}   # v247: a partner's newcomer: rest skips, cores, a weapon of this rarity (2 = blue)
 PARTNER_NEW_DAYS = 3                 # who may become a partner's referral: a player seen for the first time within these days
 PARTNER_CODE_ABC = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
@@ -1241,10 +1243,13 @@ def partner_attach(uid, code, is_new=False):
         if not is_new and (not me or time.time() - _epoch(me[0]) > PARTNER_NEW_DAYS * 86400):
             return {"ok": False, "reason": f"Код можно ввести только в первые {PARTNER_NEW_DAYS} дня игры"}
         db.execute("INSERT OR IGNORE INTO partner_refs(ref, partner, joined, spent, earned_c) VALUES(?,?,?,?,?)", (uid, p[0], int(time.time()), 0, 0))
+        # v247: the newcomer gets a gift once (here: rest skips on the server balance; the core and a blue weapon come in the game)
+        db.execute("UPDATE players SET skips=skips+? WHERE id=?", (PARTNER_GIFT["skips"], uid))
+        db.execute("INSERT INTO star_ledger(uid, delta, what, n, ts) VALUES(?,?,?,?,?)", (uid, 0, "partner-welcome-skips", PARTNER_GIFT["skips"], time.time()))
         db.commit()
         nm = db.execute("SELECT name FROM players WHERE id=?", (p[0],)).fetchone()
     log.info("partner %s: new referral %s (code %s)", p[0], uid, code)
-    return {"ok": True, "name": (nm[0] if nm else "") or "партнёр"}
+    return {"ok": True, "name": (nm[0] if nm else "") or "партнёр", "gift": dict(PARTNER_GIFT)}
 
 def partner_attach_api(user, body):
     if not rate_ok(user["id"], "pcode"):
@@ -1486,6 +1491,24 @@ def _restart_hero(uid, new, old_raw):
     db.execute("DELETE FROM ac_state WHERE uid=?", (uid,))
     log.info("hero restarted by %s: floor %s", uid, room)
 
+def _save_impossible(d):
+    """v246: a save no honest game can make is refused outright, not only reported. Only rules without exceptions:
+    one skill point per level (skills + mastery), and every floor is a won fight (the game itself keeps the record
+    at most at its wins since v224; 5 of slack for very old saves). Returns why, or None."""
+    try:
+        lv = int(d.get("level") or 1)
+        sk = d.get("skills") or {}
+        spent = sum(int(v) for v in sk.values() if isinstance(v, (int, float)) and v > 0) if isinstance(sk, dict) else 0
+        if spent > lv:
+            return f"навыков вложено {spent} при уровне {lv}"
+        st = d.get("st") or {}
+        floor, wins = int(d.get("maxCleared") or 0), int((st.get("wins") if isinstance(st, dict) else 0) or 0)
+        if floor > wins + 5:
+            return f"рекорд {floor} при {wins} победах"
+    except (TypeError, ValueError):
+        return "сохранение не читается"
+    return None
+
 def save_put(user, body):
     data = body.get("save")
     if not isinstance(data, dict):
@@ -1513,6 +1536,13 @@ def save_put(user, body):
             return 200, {"ok": 0, "score": cur[0], "gen": cur_gen}
         if cur and gen == cur_gen and (cur[0] > score or (cur[0] == score and cur[1] > ts)):
             return 200, {"ok": 0, "score": cur[0]}
+        bad = _save_impossible(data)
+        if bad:
+            log.warning("save refused for %s: %s", user["id"], bad)
+            ac_enqueue(user["id"], time.time())          # the anti-cheat list gets him too
+            # the copy the server holds is no better (saved before this rule): there is nothing honest to go back to
+            srv_bad = bool(cur and _save_impossible(json.loads(cur[2]) if isinstance(cur[2], str) else {}))
+            return 200, {"ok": 0, "bad": bad, "stuck": 1 if srv_bad else 0}
         if cur and gen > cur_gen:
             _restart_hero(user["id"], data, cur[2])
         db.execute("INSERT OR REPLACE INTO saves(uid, data, score, ts) VALUES(?,?,?,?)", (user["id"], raw, score, ts))
@@ -3154,8 +3184,10 @@ def _gr_level(uid):
     sv = _save_of(uid)
     return (as_int(sv.get("level"), 1, 100000) if sv else 0), sv
 
+# v244: «once a day» for group bosses and the chat boss's tries counts Moscow days (q_day), like the quests;
+# with UTC days a boss beaten at 01:00 MSK could be beaten again the same evening
 def _gr_won_today(uid, b):
-    return db.execute("SELECT 1 FROM gr_claims WHERE uid=? AND b=? AND day=?", (uid, b, day_id())).fetchone() is not None
+    return db.execute("SELECT 1 FROM gr_claims WHERE uid=? AND b=? AND day=?", (uid, b, q_day())).fetchone() is not None
 
 def _gr_row(gid):
     r = db.execute("SELECT id, b, host, members, created, status, result, done_at, public FROM gr_lobby WHERE id=?", (gid,)).fetchone()
@@ -3268,6 +3300,10 @@ def gr_join(user, body):
         if _gr_won_today(uid, L["b"]):
             return 200, {"ok": False, "reason": "today"}
         hlv, _ = _gr_level(L["host"])
+        if L["host"] not in L["members"]:
+            db.execute("UPDATE gr_lobby SET status='closed' WHERE id=? AND status='open'", (gid,))
+            db.commit()
+            return 200, {"ok": False, "reason": "closed"}
         if hlv and L["b"] not in gr_for(hlv):
             left = _gr_stale_close(L)
             db.commit()
@@ -3377,7 +3413,7 @@ def gr_public(user, body):
 
 def gr_list(user):
     """Open groups anyone may join: only bosses that fit the asker's level, not full, not his own, not one he beat today."""
-    uid, day = user["id"], day_id()
+    uid, day = user["id"], q_day()
     with db_lock:
         lv, _ = _gr_level(uid)
         fit = set(gr_for(lv)) if lv else set()
@@ -3392,6 +3428,9 @@ def gr_list(user):
             hsv = _save_of(L["host"]) or {}
             if hsv and L["b"] not in gr_for(as_int(hsv.get("level"), 1, 100000)):
                 continue                      # v241: its host outgrew the boss — nobody could start it
+            if L["host"] not in L["members"]:  # v244: a group whose host is gone (dropped at the start) can never start
+                db.execute("UPDATE gr_lobby SET status='closed' WHERE id=? AND status='open'", (L["id"],))
+                continue
             out.append({"id": L["id"], "b": L["b"], "n": len(L["members"]), "host": hp[0] if hp else "Игрок",
                         "hlv": as_int(hsv.get("level"), 1, 100000), "hcls": str(hsv.get("cls", "knight"))[:16]})
             if len(out) >= 50:
@@ -3427,6 +3466,14 @@ def gr_start(user, body):
                 drop.append(m)
             else:
                 saves.append(sv)
+        if L["host"] in drop:      # v244: the host himself can't fight it (beaten today / outgrew it): close, not a headless group
+            db.execute("UPDATE gr_lobby SET status='closed' WHERE id=? AND status='open'", (gid,))
+            db.commit()
+            threading.Thread(target=gr_note_done, args=(gid, "Эта группа закрыта."), daemon=True).start()
+            others = [m for m in L["members"] if m > 0 and m != uid]
+            for m in others:
+                _tell(m, f"🛡 Группа на босса {L['b']} уровня закрыта: её создатель не может биться с этим боссом сегодня. Собери свою!", ("Открыть игру", ""))
+            return 200, {"ok": False, "reason": "hostout"}
         if drop:
             L["members"] = [m for m in L["members"] if m not in drop]
             db.execute("UPDATE gr_lobby SET members=? WHERE id=?", (json.dumps(L["members"]), gid))
@@ -3443,7 +3490,7 @@ def gr_start(user, body):
         R["b"], R["seed"], R["uids"] = L["b"], seed, L["members"]
         R["cards"] = [{"name": c["name"], "cls": c["cls"], "level": c["level"], "look": c["look"]} for c in _gr_view(L, uid)["members"]]
         rws = R.pop("rewards", None) or []
-        day = day_id()
+        day = q_day()
         if any(m < 0 for m in L["members"]):
             R["test"] = 1          # a fight with test bots: no reward and the boss is not marked as beaten today
         if R.get("win") and not R.get("test"):
@@ -3485,7 +3532,7 @@ def gr_claim(user, body):
     return 200, {"ok": True, "id": gid, "reward": rw}
 
 def gr_mine(user):
-    uid, day = user["id"], day_id()
+    uid, day = user["id"], q_day()
     with db_lock:
         done = [r[0] for r in db.execute("SELECT b FROM gr_claims WHERE uid=? AND day=?", (uid, day))]
         rows = db.execute("SELECT id FROM gr_lobby WHERE created>? AND status IN ('open','fighting','done') AND members LIKE ? ORDER BY created DESC LIMIT 20",
@@ -3764,7 +3811,8 @@ def nft_command(msg):
 
 def nft_stats_line():
     """One line for /статистика. Caller holds db_lock."""
-    n = db.execute("SELECT COUNT(*), SUM(status='pending') FROM nft_drops").fetchone()
+    # SUM(status='pending') is SQLite-only: under PostgreSQL the comparison is BOOLEAN and sum() has no such overload
+    n = db.execute("SELECT COUNT(*), SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END) FROM nft_drops").fetchone()
     return f"NFT: выпало {n[0] or 0}, ждут вывода {n[1] or 0} (подробно: /nft)"
 
 # ---------------------------------------------------------------- http
@@ -4136,7 +4184,9 @@ def dash_data(user, q):
     t0 = d0 * 86400 - AC_TZ_S
     dayof = lambda ts: int((ts + AC_TZ_S) // 86400)
     with db_lock:
-        pl = db.execute("SELECT id, name, username, cls, room, level, first_seen, COALESCE(NULLIF(seen,0), updated, 0), flagged FROM players").fetchall()
+        # seen/updated are TIMESTAMP under PostgreSQL: NULLIF(seen,0) compares a timestamp with a number and fails there,
+        # so "last seen" is coalesced in Python instead (0 = never seen, as in the SQLite schema)
+        pl = db.execute("SELECT id, name, username, cls, room, level, first_seen, seen, updated, flagged FROM players").fetchall()
         sv = {}
         for uid, data in db.execute("SELECT uid, data FROM saves"):
             try:
@@ -4150,10 +4200,10 @@ def dash_data(user, q):
         pays = db.execute("SELECT uid, n, ts FROM star_pay WHERE refunded=0").fetchall()
         spend = db.execute("SELECT uid, what, -delta, ts FROM star_ledger WHERE delta<0 AND what<>'refund' AND ts>=?", (t0,)).fetchall()
     P = {}
-    for uid, name, un, cls, room, level, first, seen, flagged in pl:
+    for uid, name, un, cls, room, level, first, seen, upd, flagged in pl:
         lv, mc, sc = sv.get(uid, (0, 0, ""))
         P[uid] = {"name": name or "Игрок", "un": un or "", "cls": sc or cls or "", "floor": max(room or 0, mc), "level": max(level or 0, lv) or 1,
-                  "first": first or 0, "seen": seen or 0, "flag": 1 if flagged else 0, "paid": 0}
+                  "first": first or 0, "seen": seen or upd or 0, "flag": 1 if flagged else 0, "paid": 0}
     for uid, n, ts in pays:
         if uid in P:
             P[uid]["paid"] += n or 0
@@ -4569,8 +4619,9 @@ def stats_command(msg):
     full = "все" in (msg.get("text") or "").lower() or "all" in (msg.get("text") or "").lower()
     now = time.time()
     with db_lock:
-        rows = db.execute("""SELECT id, name, username, cls, room, level, seen, updated FROM players
-                             ORDER BY COALESCE(NULLIF(seen, 0), updated, 0) DESC""").fetchall()
+        # seen/updated are TIMESTAMP under PostgreSQL, where COALESCE(NULLIF(seen, 0), updated, 0) mixes a timestamp
+        # with a number and fails; the same order is applied in Python below instead
+        rows = db.execute("SELECT id, name, username, cls, room, level, seen, updated FROM players").fetchall()
         lv = {}
         for uid, data in db.execute("SELECT uid, data FROM saves"):
             try:
@@ -4582,6 +4633,7 @@ def stats_command(msg):
         can_pm = db.execute("SELECT COUNT(*) FROM players WHERE can_pm=1").fetchone()[0]
     def last(r):
         return r[6] or r[7] or 0
+    rows.sort(key=last, reverse=True)      # most recently seen first (SQLite and PostgreSQL alike)
     total = len(rows)
     d1 = sum(1 for r in rows if now - last(r) < 86400)
     d7 = sum(1 for r in rows if now - last(r) < 7 * 86400)
