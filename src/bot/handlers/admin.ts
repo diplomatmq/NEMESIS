@@ -38,7 +38,14 @@ export async function handleDbStats(ctx: Context) {
     // when it is still below the payout minimum); Soun and Egor split the rest.
     const referrals = await referralService.getAllStatuses();
     const referralObligations = referrals.reduce((sum, referral) => sum + referral.owed, 0);
-    const remainder = Math.max(0, stats.totalStars - referralObligations);
+
+    // Partners (mini-app bloggers) earn a percent of their referrals' spending.
+    // Their total earned is taken out of the pool before Soun/Egor split it.
+    const partners = await paymentService.getPartnerStats();
+    const partnerEarnedTotal = partners.reduce((sum, p) => sum + p.earned, 0);
+    const partnerDueTotal = partners.reduce((sum, p) => sum + p.due, 0);
+
+    const remainder = Math.max(0, stats.totalStars - referralObligations - partnerEarnedTotal);
     const sounShare = Math.floor(remainder * 0.75);
     const egorShare = Math.floor(remainder * 0.25);
 
@@ -53,6 +60,15 @@ export async function handleDbStats(ctx: Context) {
       `${ce(CUSTOM_EMOJI.gold, '💰')} **Распределение:**\n` +
       `• Доля Soun: **${sounShare}** ⭐ (75%)\n` +
       `• Доля Егор: **${egorShare}** ⭐ (25%)`;
+
+    if (partners.length > 0) {
+      message += `\n\n🤝 **Партнёры** (заработано: ${partnerEarnedTotal} ⭐, к выводу: ${partnerDueTotal} ⭐):\n`;
+      for (const p of partners) {
+        const status = p.active ? '' : ' 🚫';
+        const name = p.username ? `@${p.username}` : p.name;
+        message += `• ${name}${status} — код \`${p.code}\` — ${p.pct}% — ${p.earned} ⭐ (к выводу ${p.due} ⭐, рефов: ${p.refs})\n`;
+      }
+    }
 
     if (referrals.length > 0) {
       message += `\n\n📈 **Реферальные чаты** (к выводу: ${referralObligations} ⭐):\n`;

@@ -238,6 +238,58 @@ export class PaymentService {
     };
   }
 
+  /**
+   * Partner program statistics. Partners are mini-app bloggers who earn a percent
+   * of every Stars payment made by players they referred (via their code/link).
+   * Tables live in the shared PostgreSQL DB under the app_ prefix and store money
+   * in hundredths of a star (earned_c / paid_c).
+   */
+  async getPartnerStats(): Promise<Array<{
+    uid: number;
+    name: string;
+    username?: string;
+    code: string;
+    pct: number;
+    active: boolean;
+    refs: number;
+    spent: number;
+    earned: number;   // total earned, in stars
+    paid: number;     // already paid out, in stars
+    due: number;      // earned - paid, in stars
+  }>> {
+    try {
+      const result = await db.query(
+        `SELECT p.uid, pl.name, pl.username, p.code, p.pct, p.active,
+                p.earned_c, p.paid_c,
+                (SELECT COUNT(*) FROM app_partner_refs r WHERE r.partner = p.uid) AS refs,
+                (SELECT COALESCE(SUM(r.spent), 0) FROM app_partner_refs r WHERE r.partner = p.uid) AS spent
+         FROM app_partners p
+         LEFT JOIN app_players pl ON pl.id = p.uid
+         ORDER BY p.active DESC, p.earned_c DESC`
+      );
+      return result.rows.map((row: any) => {
+        const earned = Math.floor(Number(row.earned_c || 0) / 100);
+        const paid = Math.floor(Number(row.paid_c || 0) / 100);
+        return {
+          uid: Number(row.uid),
+          name: row.name || `id ${row.uid}`,
+          username: row.username || undefined,
+          code: row.code || '',
+          pct: Number(row.pct || 0),
+          active: Boolean(row.active),
+          refs: Number(row.refs || 0),
+          spent: Number(row.spent || 0),
+          earned,
+          paid,
+          due: Math.max(0, earned - paid),
+        };
+      });
+    } catch (error) {
+      console.warn('⚠️ Could not fetch partner stats:', error);
+      return [];
+    }
+  }
+
   async getGlobalTopPlayers(limit: number = 5): Promise<Array<{
     rank: number;
     telegram_id: number;
