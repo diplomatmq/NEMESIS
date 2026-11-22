@@ -373,10 +373,23 @@ def hello(user, fields, is_new, body):
     log.info("player %s joined by invite from %s", user["id"], inviter)
     return 200, {"ok": True, "welcome": WELCOME}
 
+def _ref_trusted(fid):
+    """Caller holds db_lock. v257: a friend brings the inviter rewards only for floors climbed honestly: the server never
+    refused one of his saves, and the anti-cheat neither holds him under suspicion nor has him hidden (the owner's
+    «Оправдать» makes him count again)."""
+    if _kv_get(f"refused:{fid}", ""):
+        return False
+    r = db.execute("SELECT status FROM ac_flags WHERE uid=?", (fid,)).fetchone()
+    return not r or r[0] == "cleared"
+
 def ref_state(uid):
-    friends = db.execute("SELECT name, room, ref_paid FROM players WHERE ref_by=? ORDER BY room DESC LIMIT 100", (uid,)).fetchall()
-    skips = cores = 0
-    for _, room, paid in friends:
+    rows = db.execute("SELECT id, name, room, ref_paid FROM players WHERE ref_by=? ORDER BY room DESC LIMIT 100", (uid,)).fetchall()
+    friends, skips, cores = [], 0, 0
+    for fid, name, room, paid in rows:
+        ok = _ref_trusted(fid)
+        friends.append((fid, name, room, paid, ok))
+        if not ok:
+            continue
         for i, (need, k_, c) in enumerate(REF_STEPS):
             if i >= (paid or 0) and room >= need:
                 skips += k_
@@ -386,15 +399,18 @@ def ref_state(uid):
 def ref_info(user):
     with db_lock:
         friends, skips, cores = ref_state(user["id"])
-    return 200, {"friends": [{"name": n, "room": r} for n, r, _ in friends], "claimable": {"skips": skips, "cores": cores}}
+    return 200, {"friends": [{"name": n, "room": r, "hold": 0 if ok else 1} for _f, n, r, _p, ok in friends],
+                 "claimable": {"skips": skips, "cores": cores}}
 
 def ref_claim(user):
     with db_lock:
         friends, skips, cores = ref_state(user["id"])
-        for room_need_idx in range(len(REF_STEPS), 0, -1):
-            need = REF_STEPS[room_need_idx - 1][0]
-            db.execute("UPDATE players SET ref_paid=? WHERE ref_by=? AND room>=? AND ref_paid<?",
-                       (room_need_idx, user["id"], need, room_need_idx))
+        for fid, _n, room, paid, ok in friends:
+            if not ok:
+                continue
+            reached = sum(1 for need, _k, _c in REF_STEPS if (room or 0) >= need)
+            if reached > (paid or 0):
+                db.execute("UPDATE players SET ref_paid=? WHERE id=?", (reached, fid))
         db.commit()
         if skips:
             db.execute("UPDATE players SET skips=skips+? WHERE id=?", (skips, user["id"]))
@@ -986,6 +1002,9 @@ def rest_cfg_set(user, body):
     if not 0 <= sec <= 86400:
         return 400, {"ok": False, "reason": "от 0 до 24 ч"}
     with db_lock:
+        old = rest_seconds()
+        if old != sec:
+            _kv_set("rest_prev", json.dumps({"s": old, "t": time.time()}))   # v257: phones not yet reloaded keep the old rest
         db.execute("INSERT OR REPLACE INTO kv(k, v) VALUES('rest_s', ?)", (str(sec),))
         db.commit()
     log.info("rest set by %s: %s s", user["id"], sec)
@@ -1156,10 +1175,21 @@ def save_get(user, q=None):
 # A wipe is a mark in time (ms). Any save of an older generation is refused and the game on the phone starts over by itself.
 # Stars, bought skips and the class change stay: they were paid for.
 def _wipe_of(uid):
-    """Caller holds db_lock."""
+    """Caller holds db_lock. v256: one player's wipe lives in kv («wipe:<uid>», ms). In PostgreSQL players.wipe_at is a
+    TIMESTAMP: the mark in milliseconds became a date tens of thousands of years ahead that can't be read back, so the
+    wipe was never seen — the phone sent the old hero again and the server took him. players.wipe_at is still read for
+    marks made by the old SQLite server."""
     a = db.execute("SELECT v FROM kv WHERE k='wipe_all'").fetchone()
-    b = db.execute("SELECT wipe_at FROM players WHERE id=?", (uid,)).fetchone()
-    return max(float(a[0]) if a else 0, float(b[0] or 0) if b else 0)
+    k = db.execute("SELECT v FROM kv WHERE k=?", (f"wipe:{uid}",)).fetchone()
+    w = max(float(a[0]) if a and a[0] else 0, float(k[0]) if k and k[0] else 0)
+    if not k:
+        try:
+            b = db.execute("SELECT wipe_at FROM players WHERE id=?", (uid,)).fetchone()
+            w = max(w, float(b[0] or 0) if b else 0)
+        except (TypeError, ValueError):
+            pass
+    return w
+
 
 _WIPE_COLS = "room=0, level=1, kills=0, bosses=0, wins=0, reached=NULL"
 
@@ -1185,7 +1215,8 @@ def _wipe_rows(uid):
 def wipe_player(uid):
     ts = time.time() * 1000
     with db_lock:
-        db.execute(f"UPDATE players SET wipe_at=?, {_WIPE_COLS} WHERE id=?", (ts, uid))
+        db.execute("INSERT OR REPLACE INTO kv(k, v) VALUES(?,?)", (f"wipe:{uid}", str(ts)))
+        db.execute(f"UPDATE players SET {_WIPE_COLS} WHERE id=?", (uid,))
         db.execute("DELETE FROM saves WHERE uid=?", (uid,))
         db.execute("DELETE FROM kv WHERE k LIKE ?", (f"qb:{uid}:%",))
         db.execute("DELETE FROM ac_state WHERE uid=?", (uid,))
@@ -1694,12 +1725,69 @@ def _eco_check(uid, old, new):
         return None, msg
     return None, None
 
+# ---- v257 pace check: wins, floors and levels can't grow faster than fights can be fought
+# A fight is followed by rest (rest_seconds() from level 20, from 60 s below — v247) unless a rest skip is spent, and every
+# skip is spent on the server (star_ledger «skip-used»). So between two saves the fights (wins + losses) are at most
+# time / rest + skips spent; the wheel's rare «Сброс отдыха» (1 in 100) and clocks are covered by ×1.5 and +10 on top.
+# A floor needs a won fight, so floors are held by the same count (the save check keeps the record within wins + 5).
+PACE_X, PACE_PLUS = 1.5, 10
+
+def _rest_floor_s(level):
+    """The shortest rest the game could have used lately for a hero of this level (seconds): today's setting, or the one
+    before it if the owner changed it within a day — a phone that has not reloaded still uses the old one."""
+    cfg = rest_seconds()
+    try:
+        prev = json.loads(_kv_get("rest_prev", "null") or "null")
+        if prev and time.time() - prev.get("t", 0) < 86400:
+            cfg = min(cfg, int(prev.get("s", cfg)))
+    except (ValueError, TypeError):
+        pass
+    lo = min(60, cfg)
+    step = max(0, min(8, (max(1, level) - 1) * 8 // 19))
+    return lo + (cfg - lo) * step / 8
+
+def _pace_check(uid, old, new, old_ts):
+    """Caller holds db_lock. A refusal message, or None."""
+    now = time.time()
+    try:
+        prev = json.loads(_kv_get(f"pace:{uid}", "null") or "null")
+    except ValueError:
+        prev = None
+    _kv_set(f"pace:{uid}", json.dumps({"t": now}))
+    t0 = prev.get("t") if isinstance(prev, dict) else None
+    if not t0:
+        # the first look: from the time the previous save was made (at least an hour back, at most a month)
+        ot = (old_ts or 0) / 1000 if (old_ts or 0) > 1e11 else (old_ts or 0)
+        t0 = now - max(3600, min(30 * 86400, now - ot if ot else 3600))
+    dt = max(0.0, now - t0)
+    a, b = _eco_of(old), _eco_of(new)
+    lv = as_int(old.get("level"), 1, 10**6)
+    rest = _rest_floor_s(lv)
+    if rest < 20:
+        return None                     # the owner turned rest (almost) off: nothing to hold the pace by
+    used = db.execute("SELECT COALESCE(SUM(n),0) AS used FROM star_ledger WHERE uid=? AND what='skip-used' AND ts>?",
+                      (uid, t0 - 120)).fetchone()[0] or 0
+    allow = dt / rest * PACE_X + int(used) + PACE_PLUS
+    fights = b["f"] - a["f"]
+    floors = b["room"] - a["room"]
+    levels = as_int(new.get("level"), 1, 10**6) - lv
+    def span():
+        return ("за " + _ac_dur(dt)) if dt >= 1 else "мгновенно"
+    if fights > allow:
+        return f"боёв +{fights} {span()}, можно не больше {int(allow)}"
+    if floors > allow + 5:
+        return f"этажей +{floors} {span()}, можно не больше {int(allow) + 5}"
+    if levels > allow * 5 + 5:
+        return f"уровней +{levels} {span()}"
+    return None
+
 _eco_soft = {}        # uid -> why the server refused his save; the anti-cheat check puts it on the list
 REFUSE_TELL_GAP = 3600   # the owners hear about one player's refused saves at most once an hour
 
 def _refused(uid, why):
     """Caller holds db_lock. A save was refused: the anti-cheat list gets the player with the reason, the owners get a message."""
     _eco_soft[uid] = "сервер не принял сохранение: " + why
+    _kv_set(f"refused:{uid}", json.dumps({"t": time.time(), "why": why}, ensure_ascii=False))   # v257: for good (friend rewards)
     now = time.time()
     k = f"acn:{uid}"
     try:
@@ -1791,6 +1879,13 @@ def save_put(user, body):
                     return 200, {"ok": 0, "bad": hard, "stuck": 0}
                 if soft:
                     log.info("economy (only noted): %s %s", user["id"], soft)
+                fast = _pace_check(user["id"], old, data, cur[1])
+                if fast:
+                    log.warning("save refused for %s: %s", user["id"], fast)
+                    _refused(user["id"], fast)
+                    db.commit()
+                    ac_enqueue(user["id"], time.time())
+                    return 200, {"ok": 0, "bad": fast, "stuck": 0}
         if cur and gen > cur_gen:
             _restart_hero(user["id"], data, cur[2])
         db.execute("INSERT OR REPLACE INTO saves(uid, data, score, ts) VALUES(?,?,?,?)", (user["id"], raw, score, ts))
@@ -2353,6 +2448,11 @@ def ac_admin_set(user, body):
             db.execute("UPDATE ac_flags SET status='cleared', cleared=kinds WHERE uid=?", (uid,))
             db.execute("UPDATE players SET flagged=0 WHERE id=?", (uid,))
         elif act == "ban":
+            # v258: «Скрыть» from a player's card works for anyone, not only for someone the anti-cheat already listed
+            if not db.execute("SELECT 1 FROM ac_flags WHERE uid=?", (uid,)).fetchone():
+                db.execute("INSERT INTO ac_flags(uid, ts, status, reasons, kinds, cleared, notified, info) VALUES(?,?,?,?,?,?,?,?)",
+                           (uid, int(time.time()), "banned", json.dumps(["скрыт админом из карточки игрока"], ensure_ascii=False),
+                            "admin", "", int(time.time()), "{}"))
             db.execute("UPDATE ac_flags SET status='banned' WHERE uid=?", (uid,))
             db.execute("UPDATE players SET flagged=1 WHERE id=?", (uid,))
         elif act == "rescan":

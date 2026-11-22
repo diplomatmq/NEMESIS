@@ -346,7 +346,7 @@ h2 small{font-size:11px;letter-spacing:.06em;color:var(--dim);text-transform:non
 .btn img{width:14px;height:14px}
 
 /* rarity text */
-.admd{margin:8px 0}.admd summary{cursor:pointer;font-weight:bold;padding:4px 0}.admi{display:flex;flex-direction:column;gap:3px;max-height:340px;overflow:auto}.admi div{display:flex;justify-content:space-between;gap:8px;font-size:13px;border-bottom:1px solid rgba(255,255,255,.06);padding:2px 0}.admi small{opacity:.6;white-space:nowrap}.rc0{color:var(--r0)}.rc1{color:var(--r1)}.rc2{color:var(--r2)}.rc3{color:var(--r3)}.rc4{color:var(--r4)}
+.rhold{color:#ffb85a;font-size:11px}.admd{margin:8px 0}.admd summary{cursor:pointer;font-weight:bold;padding:4px 0}.admi{display:flex;flex-direction:column;gap:3px;max-height:340px;overflow:auto}.admi div{display:flex;justify-content:space-between;gap:8px;font-size:13px;border-bottom:1px solid rgba(255,255,255,.06);padding:2px 0}.admi small{opacity:.6;white-space:nowrap}.rc0{color:var(--r0)}.rc1{color:var(--r1)}.rc2{color:var(--r2)}.rc3{color:var(--r3)}.rc4{color:var(--r4)}
 .fr0{border-image-source:var(--fr-r0)}.fr1{border-image-source:var(--fr-r1)}.fr2{border-image-source:var(--fr-r2)}.fr3{border-image-source:var(--fr-r3)}.fr4{border-image-source:var(--fr-r4)}
 .statl{display:flex;flex-direction:column;gap:2px;font-size:13px}
 .statl div{display:flex;align-items:center;gap:5px}
@@ -2608,7 +2608,7 @@ window.EmberNet=(()=>{
     else if(again&&(p.tries||0)<3)setTimeout(()=>{if(p.room>lastSent&&!sending)post(Object.assign({},p,{tries:(p.tries||0)+1}));},9000);}
   function onProgress(p){if(!tg||p.room<=lastSent)return;if(sending){queued=p;return;}post(p);}
   /* the board on the Path tab */
-  const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   /* v195: the board of one class — every class has its own champions */
   /* v209: every visit to the board starts on «Все»; a class picked there holds while you stay */
   let cache={},cacheAt={},lbCls='';
@@ -6868,7 +6868,7 @@ function musicAtLaunch(){musicPrefs();if(!S||S.musicOn===false)return;Music.on=t
   try{Object.assign(Music.last,JSON.parse(localStorage.getItem('ember.musicLast')||'{}'));}catch(e){}
   try{if(!Music.started)Music.start();Music.set('title');}catch(e){}}
 let musicTick=0;
-const APP_VER='255';
+const APP_VER='258';
 /* one bad frame must never freeze the game: the error is shown once and the loop goes on */
 let errShown='';
 function showErr(m){m=String(m||'').slice(0,140);if(m===errShown)return;errShown=m;try{toast('Ошибка (v'+APP_VER+'): '+esc(m),null);}catch(e){}}
@@ -7477,7 +7477,7 @@ function addItem(it){fixName(it);
 
 /* ============ UI ============ */
 const $=id=>document.getElementById(id);
-const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const RN=L.RARITIES;
 const plural=(n,a,b,c)=>{const m10=n%10,m100=n%100;return m10===1&&m100!==11?a:(m10>=2&&m10<=4&&(m100<10||m100>=20))?b:c;};
 const mmss=ms=>{const s=Math.ceil(ms/1000);return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');};
@@ -9220,7 +9220,7 @@ function partnerSection(){const P=PARTNER;if(!P||!P.ok)return '';let h='';
 async function partnerWithdraw(){try{const r=await EmberNet.partnerWithdraw();if(r&&r.ok){toast(r.already?'Заявка уже у админов':'Заявка на вывод отправлена админам',UI.check);SFX.play('coin');}else toast((r&&r.reason)||'Не получилось',null);}catch(e){toast('Сервер не ответил',null);}partnerRefresh();}
 async function partnerGen(){try{const r=await EmberNet.partnerCode();if(r&&r.ok){toast('Код готов: '+r.code,UI.check);SFX.play('coin');}}catch(e){toast('Сервер не ответил',null);}partnerRefresh();}
 async function partnerEnter(){const v=(($('pIn')||{}).value||'').trim(),st=$('pStat');if(!v){if(st)st.textContent='Введи код';return;}
-  try{const r=await EmberNet.partnerEnter(v);if(r&&r.ok){SFX.play('buff');if(r.gift)partnerGift(r.name,r.gift);else toast('Готово! Ты от партнёра: '+r.name,UI.check);partnerRefresh();}else if(st){st.textContent='✗ '+((r&&r.reason)||'Не получилось');st.style.color='#ff8a8a';}}
+  try{const r=await EmberNet.partnerEnter(v);if(r&&r.ok){SFX.play('buff');if(r.gift)partnerGift(r.name,r.gift);else toast('Готово! Ты от партнёра: '+esc(r.name),UI.check);partnerRefresh();}else if(st){st.textContent='✗ '+((r&&r.reason)||'Не получилось');st.style.color='#ff8a8a';}}
   catch(e){if(st)st.textContent='✗ Сервер не ответил';}}
 function partnerCopy(what){const p=PARTNER&&PARTNER.partner;if(!p)return;const v=what==='code'?p.code:p.link;
   const ok=()=>toast((what==='code'?'Код':'Ссылка')+' скопирован'+(what==='code'?'':'а'),UI.check);
@@ -9260,7 +9260,7 @@ function friendsSection(){
   <div class="raid px px-in">
     <p class="note" style="margin:0;text-align:left">Брось другу вызов. В сообщении будет кнопка «Войти в башню» — друг начнёт свою игру с подарком, а ты получишь награду, когда он пройдёт:</p>
     <div class="refsteps">${REF_STEPS.map(r=>`<span>${r.room} комнат: ${TKI()}${r.skips} <img src="${CORE_ICON}" alt="">${r.cores}</span>`).join('')}</div>
-    ${on?(fr.length?`<ol class="lb">${fr.slice(0,8).map((f,i)=>`<li><span class="lr">${i+1}</span><span class="ln">${esc(f.name)}</span><span class="lc">${REF_STEPS.filter(r=>f.room>=r.room).length}/3</span><b class="lv">${f.room}</b></li>`).join('')}</ol>`:'<p class="note">Пока никто не пришёл по твоей ссылке.</p>'):'<p class="note">Счётчик друзей работает в Telegram. Здесь можно посмотреть и скопировать вызов.</p>'}
+    ${on?(fr.length?`<ol class="lb">${fr.slice(0,8).map((f,i)=>`<li><span class="lr">${i+1}</span><span class="ln">${esc(f.name)}${f.hold?' <small class="rhold" title="Награды за этого друга ждут проверки анти-чита">⏳ проверка</small>':''}</span><span class="lc">${REF_STEPS.filter(r=>f.room>=r.room).length}/3</span><b class="lv">${f.room}</b></li>`).join('')}</ol>`:'<p class="note">Пока никто не пришёл по твоей ссылке.</p>'):'<p class="note">Счётчик друзей работает в Telegram. Здесь можно посмотреть и скопировать вызов.</p>'}
     ${REF&&REF.claimable&&(REF.claimable.skips||REF.claimable.cores)?`<button class="btn gold" data-act="ref-claim">Забрать: ${TKI()}${REF.claimable.skips} пропусков · ядра ${REF.claimable.cores}</button>`:''}
     <button class="btn ember" data-act="challenge">Бросить вызов</button></div>`;
 }
@@ -10781,10 +10781,13 @@ function admCard(){const P=ADM.p;if(!P)return ADM.msg?`<p class="note">${esc(ADM
   return `<div class="admc"><div class="admh"><b>${esc(P.name||'Без имени')}</b>${P.username?` <span class="dl">@${esc(P.username)}</span>`:''}<small> · id ${P.id}</small>${P.flagged?' <span class="dw">под античитом</span>':''}</div>
     <div class="admg"><span>Класс</span><b>${esc((L.CLASSES[P.cls]&&L.CLASSES[P.cls].ru)||P.cls||'—')}</b><span>Этаж / уровень</span><b>${P.room} / ${P.level}</b>
       <span>Звёзды</span><b>${P.stars}</b><span>Пропуски отдыха</span><b>${P.skips}</b><span>Куплено / выдано</span><b>${P.bought} / ${P.given}</b><span>Заходил</span><b>${ago(P.seen)}</b></div>${admFull(P)}
-    <h2>Выдать пропуски отдыха</h2>
+    <h2>Пропуски отдыха <small>сейчас ${P.skips}</small></h2>
     <div class="dbgrow">${[1,5,10,50,100].map(n=>`<button class="btn sm gold" data-act="adm-skip" data-n="${n}">+${n}</button>`).join('')}</div>
-    <div class="dbgrow"><input id="admSkipN" class="ninput" type="number" inputmode="numeric" placeholder="своё число, можно −5" style="flex:1;min-width:0"><button class="btn sm" data-act="adm-skip">Выдать</button></div>
+    <div class="dbgrow">${[1,5,10,50].map(n=>`<button class="btn sm" data-act="adm-skip" data-n="${-n}">−${n}</button>`).join('')}${P.skips?`<button class="btn sm danger" data-act="adm-skip" data-n="${-P.skips}">Забрать все</button>`:''}</div>
+    <div class="dbgrow"><input id="admSkipN" class="ninput" type="number" inputmode="numeric" placeholder="число, −7 забрать" style="flex:1;min-width:0"><button class="btn sm" data-act="adm-skip">Применить</button></div>
     <label class="admtell"><input type="checkbox" id="admTell" ${ADM.tell!==false?'checked':''}> сообщить игроку в боте</label>
+    <h2>Скрыть игрока</h2><p class="note" style="margin:0">${P.ac&&P.ac.status==='banned'?'Игрок скрыт: его нет в топе, дуэлях и группах, урон по боссам не засчитывается.':'Уберёт игрока из топа, дуэлей и групп, урон по боссам перестанет засчитываться. Играть сам он сможет. Можно вернуть.'}</p>
+    ${P.ac&&P.ac.status==='banned'?`<button class="btn sm" data-act="adm-hide" data-on="0">Вернуть игрока</button>`:`<button class="btn sm danger" data-act="adm-hide" data-on="1">Скрыть игрока</button>`}
     <h2>Сброс прогресса</h2><p class="note" style="margin:0">Герой, вещи и этажи обнуляются, игрок уходит из топа. Звёзды и пропуски остаются.</p>
     <button class="btn sm danger" data-act="w-one">Сбросить этого игрока</button></div>`;}
 function adminModal(){ADM.open=true;const T=ADM.tab;
@@ -10834,6 +10837,11 @@ async function admFind(){const who=(($('wipeWho')||{}).value||'').trim();ADM.q=w
     if(r.ok&&j&&j.ok){ADM.p=j.p;ADM.msg='';}else ADM.msg=r.status===404?'Игрок не найден. Ник ищется только у тех, кто хоть раз открывал игру; можно указать id.':'Сервер не ответил ('+r.status+')';}
   catch(e){ADM.msg='Нет связи с сервером';}
   if(ADM.open&&ADM.tab==='player'&&$('admCard'))$('admCard').innerHTML=admCard();}
+async function admHide(el){const P=ADM.p;if(!P)return;const on=el.dataset.on==='1';
+  if(on&&!el.dataset.sure){el.dataset.sure='1';el.textContent='Точно скрыть?';setTimeout(()=>{if(el.isConnected){delete el.dataset.sure;el.textContent='Скрыть игрока';}},4000);return;}
+  const j=await admReq('/admin/ac',{action:on?'ban':'clear',uid:P.id});
+  if(j&&j.ok!==false){P.ac={status:on?'banned':'cleared',reasons:(P.ac&&P.ac.reasons)||[]};P.flagged=on?1:0;toast(on?'Игрок скрыт':'Игрок возвращён',UI.check);SFX.play('coin');if($('admCard'))$('admCard').innerHTML=admCard();}
+  else toast('Сервер не принял',null);}
 async function admSkip(n){const P=ADM.p;if(!P)return;if(n==null)n=parseInt(($('admSkipN')||{}).value,10);if(!n){toast('Укажи число пропусков',null);return;}
   const tell=!!($('admTell')&&$('admTell').checked);ADM.tell=tell;
   try{const W=Telegram.WebApp;const r=await fetch(NOTICE_API+'/admin/skips',{method:'POST',headers:{'Content-Type':'application/json','X-Init-Data':W.initData},body:JSON.stringify({who:String(P.id),n,tell})});
@@ -11028,7 +11036,7 @@ document.addEventListener('click',ev=>{
       <p class="note">Для подтверждения напиши <b>СБРОС</b>:</p><input id="wipeConf" class="ninput" maxlength="10" autocomplete="off">
       <div class="row"><button class="btn" data-act="gear-back">Отмена</button><button class="btn danger" data-act="w-all-ok">Сбросить всех</button></div></div>`);break;
     case'w-all-ok':{const c=(($('wipeConf')||{}).value||'').trim().toUpperCase();if(c!=='СБРОС'){toast('Напиши СБРОС заглавными, чтобы подтвердить',null);break;}wipeReq({all:1,confirm:c});break;}
-    case'gear-back':ADM.open=false;gearModal();break;case'adm-open':ADM.open=true;adminModal();break;case'adm-tab':ADM.tab=el.dataset.t;try{localStorage.setItem('adm.tab',ADM.tab);}catch(e){}adminModal();break;case'adm-find':admFind();break;case'adm-skip':admSkip(el.dataset.n!=null?+el.dataset.n:null);break;
+    case'gear-back':ADM.open=false;gearModal();break;case'adm-open':ADM.open=true;adminModal();break;case'adm-tab':ADM.tab=el.dataset.t;try{localStorage.setItem('adm.tab',ADM.tab);}catch(e){}adminModal();break;case'adm-find':admFind();break;case'adm-skip':admSkip(el.dataset.n!=null?+el.dataset.n:null);break;case'adm-hide':admHide(el);break;
     case'notify-yes':closeModal();S.notify=0;toggleNotify(null);break;
     case'reroll':{const c=refreshCost()*(shopMode==='rare'?2:1);if(S.gold<c)break;S.gold-=c;const rr=((shopMode==='rare'?S.rare:S.shop)||{}).rr||0;if(shopMode==='rare')genRare();else genShop();(shopMode==='rare'?S.rare:S.shop).rr=rr+1;shopTalk='Свежий товар! Только что с повозки.';SFX.play('coin');renderShop();break;}
     case'fr-':farmRoom=Math.max(1,farmRoom-1);openModal(farmModal.body());farmBind();break;
@@ -11095,7 +11103,7 @@ function notifyOnboard(){
   if(S.notify==null&&!S.notifyAsked&&S.cls&&S.maxCleared>=3){if(!$('modal').hidden||fight||duel||titleOn||raidInvite||duelInvite){setTimeout(notifyOnboard,4000);return;}S.notifyAsked=1;persist();
     openModal(`<div class="sheet px"><div class="rw-title">Напоминания</div><p class="note">Бот напишет в Telegram, когда герой отдохнёт, а тебя давно не было. Не чаще пары раз в день.</p>
       <div class="row"><button class="btn" data-act="close">Не надо</button><button class="btn ember" data-act="notify-yes" data-focus>Включить</button></div></div>`);}}
-function welcome(){if(!window.EmberNet||!EmberNet.tg)return;setTimeout(notifyOnboard,2500);EmberNet.hello().then(r=>{if(r&&r.partner_joined){if(r.partner_gift)partnerGift(r.partner_joined,r.partner_gift);else toast('Ты в игре от партнёра: '+r.partner_joined,UI.check);partnerRefresh();}if(r&&r.welcome){mats().core+=r.welcome.cores||0;
+function welcome(){if(!window.EmberNet||!EmberNet.tg)return;setTimeout(notifyOnboard,2500);EmberNet.hello().then(r=>{if(r&&r.partner_joined){if(r.partner_gift)partnerGift(r.partner_joined,r.partner_gift);else toast('Ты в игре от партнёра: '+esc(r.partner_joined),UI.check);partnerRefresh();}if(r&&r.welcome){mats().core+=r.welcome.cores||0;
     // and a starter kit a small step above the rusty one: a plain iron sword and plain leather armour, put on at once
     const gift=[];for(const [tid,slot] of [['iron_sword','weapon'],['leather_armor','armor']]){const it=L.makeItem(Math.random,Math.max(1,S.maxCleared||1),0,tid,S.uid++);fixName(it);S.inv.push(it);
       const cur=S.inv.find(x=>x.uid===S.eq[slot]);if(!cur||L.itemPower(it)>L.itemPower(cur))S.eq[slot]=it.uid;gift.push(it);}
