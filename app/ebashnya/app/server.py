@@ -1469,8 +1469,10 @@ def admin_player(user, qs):
         # v250: the full picture for the owners: the hero as the server holds him, real payments, where stars went, raids, anti-cheat
         sv = _save_of(uid)
         pays = db.execute("SELECT n, ts, refunded FROM star_pay WHERE uid=?", (uid,)).fetchall()
-        led = db.execute("SELECT what, COALESCE(SUM(delta),0), COALESCE(SUM(n),0), COUNT(*) FROM star_ledger WHERE uid=? GROUP BY what", (uid,)).fetchall()
-        rd = db.execute("SELECT COALESCE(SUM(dmg),0), COALESCE(MAX(best),0), COALESCE(SUM(hits),0), COUNT(*) FROM raid_stats WHERE uid=?", (uid,)).fetchone()
+        # the adapter returns rows as dicts (RealDictCursor) and turns them into tuples by values():
+        # without aliases every COALESCE would be named "coalesce" and overwrite the others, leaving fewer columns
+        led = db.execute("SELECT what, COALESCE(SUM(delta),0) AS delta_sum, COALESCE(SUM(n),0) AS n_sum, COUNT(*) AS cnt FROM star_ledger WHERE uid=? GROUP BY what", (uid,)).fetchall()
+        rd = db.execute("SELECT COALESCE(SUM(dmg),0) AS dmg_sum, COALESCE(MAX(best),0) AS best_max, COALESCE(SUM(hits),0) AS hits_sum, COUNT(*) AS cnt FROM raid_stats WHERE uid=?", (uid,)).fetchone()
         ac = db.execute("SELECT status, reasons FROM ac_flags WHERE uid=?", (uid,)).fetchone()
         pr = db.execute("SELECT pl.name, pl.username FROM partner_refs r LEFT JOIN players pl ON pl.id=r.partner WHERE r.ref=?", (uid,)).fetchone()
         sv_at = db.execute("SELECT ts FROM saves WHERE uid=?", (uid,)).fetchone()
