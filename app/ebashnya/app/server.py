@@ -107,14 +107,22 @@ db.execute("CREATE TABLE IF NOT EXISTS ref_hits(inviter INTEGER, visitor INTEGER
 # link (startapp=p_<code>) or typed his code in their first days; he earns pct % of every Stars payment they make, forever.
 # Amounts in hundredths of a star (INTEGER). Times are INTEGER unix seconds; column names avoid the PostgreSQL adapter's
 # timestamp names (seen, updated, created, last, ends, ...) on purpose.
-db.execute("""CREATE TABLE IF NOT EXISTS partners(uid INTEGER PRIMARY KEY, code TEXT, pct INTEGER DEFAULT 0, active INTEGER DEFAULT 1,
+db.execute("""CREATE TABLE IF NOT EXISTS partners(uid BIGINT PRIMARY KEY, code TEXT, pct INTEGER DEFAULT 0, active INTEGER DEFAULT 1,
   gave INTEGER DEFAULT 0, earned_c INTEGER DEFAULT 0, paid_c INTEGER DEFAULT 0)""")
-db.execute("""CREATE TABLE IF NOT EXISTS partner_refs(ref INTEGER PRIMARY KEY, partner INTEGER, joined INTEGER DEFAULT 0,
+db.execute("""CREATE TABLE IF NOT EXISTS partner_refs(ref BIGINT PRIMARY KEY, partner BIGINT, joined INTEGER DEFAULT 0,
   spent INTEGER DEFAULT 0, earned_c INTEGER DEFAULT 0)""")
-db.execute("""CREATE TABLE IF NOT EXISTS partner_pays(id INTEGER PRIMARY KEY AUTOINCREMENT, uid INTEGER, amount_c INTEGER DEFAULT 0,
-  at_t INTEGER DEFAULT 0, by_uid INTEGER DEFAULT 0)""")
+db.execute("""CREATE TABLE IF NOT EXISTS partner_pays(id INTEGER PRIMARY KEY AUTOINCREMENT, uid BIGINT, amount_c INTEGER DEFAULT 0,
+  at_t INTEGER DEFAULT 0, by_uid BIGINT)""")
 db.execute("CREATE INDEX IF NOT EXISTS by_partner ON partner_refs(partner)")
 db.commit()
+# PostgreSQL: a Telegram id does not fit a 32-bit INTEGER (SQLite's INTEGER holds 64 bits, so only PostgreSQL is hit).
+# These three are the only tables created here and not by a TS migration, so older copies still declare INTEGER.
+for _t, _c in (("partners", "uid"), ("partner_refs", "ref"), ("partner_refs", "partner"),
+               ("partner_pays", "uid"), ("partner_pays", "by_uid")):
+    try:
+        db.execute(f"ALTER TABLE {_t} ALTER COLUMN {_c} TYPE BIGINT")
+    except Exception:
+        pass    # SQLite has no ALTER COLUMN / the column is already BIGINT — nothing to do
 db.execute("""CREATE TABLE IF NOT EXISTS raids(ci TEXT, week INTEGER, max INTEGER, hp INTEGER, killed REAL,
   PRIMARY KEY(ci, week))""")
 db.execute("""CREATE TABLE IF NOT EXISTS raid_hits(ci TEXT, week INTEGER, uid INTEGER, dmg INTEGER DEFAULT 0,
