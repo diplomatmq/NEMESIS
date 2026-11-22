@@ -358,6 +358,7 @@ def hello(user, fields, is_new, body):
         if cur.rowcount == 1:
             db.execute("UPDATE players SET skips=skips+? WHERE id=?", (WELCOME["skips"], user["id"]))
             db.execute("INSERT INTO star_ledger(uid, delta, what, n, ts) VALUES(?,?,?,?,?)", (user["id"], 0, "ref-welcome-skips", WELCOME["skips"], time.time()))
+            _ecr_add(user["id"], c=WELCOME["cores"], i=1)
         db.commit()
     if cur.rowcount != 1:
         return 200, {"ok": True, "admin": admin}
@@ -390,6 +391,8 @@ def ref_claim(user):
         if skips:
             db.execute("UPDATE players SET skips=skips+? WHERE id=?", (skips, user["id"]))
             db.execute("INSERT INTO star_ledger(uid, delta, what, n, ts) VALUES(?,?,?,?,?)", (user["id"], 0, "ref-skips", skips, time.time()))
+        if cores:
+            _ecr_add(user["id"], c=cores)
         db.commit()
     return 200, {"skips": skips, "cores": cores}
 
@@ -532,6 +535,9 @@ def raid_hit(user, fields, body):
         v = raid_view(ci, week, user["id"])
     v["reward"] = raid_reward(dmg, room, week == -1)
     v["counted"] = dmg
+    with db_lock:
+        _ecr_add(user["id"], g=v["reward"]["gold"], c=v["reward"]["cores"])
+        db.commit()
     return 200, v
 
 def raid_stats(user, given, fields):
@@ -1246,6 +1252,7 @@ def partner_attach(uid, code, is_new=False):
         # v247: the newcomer gets a gift once (here: rest skips on the server balance; the core and a blue weapon come in the game)
         db.execute("UPDATE players SET skips=skips+? WHERE id=?", (PARTNER_GIFT["skips"], uid))
         db.execute("INSERT INTO star_ledger(uid, delta, what, n, ts) VALUES(?,?,?,?,?)", (uid, 0, "partner-welcome-skips", PARTNER_GIFT["skips"], time.time()))
+        _ecr_add(uid, c=PARTNER_GIFT["cores"], i=1)
         db.commit()
         nm = db.execute("SELECT name FROM players WHERE id=?", (p[0],)).fetchone()
     log.info("partner %s: new referral %s (code %s)", p[0], uid, code)
@@ -1387,6 +1394,8 @@ def admin_partner_set(user, body):
             if o and o[0] != uid:
                 return 400, {"ok": False, "reason": "Такой код уже у другого партнёра"}
             code = c
+        if body.get("code_del"):
+            code = ""        # v255: the old link and code stop working; his referrals stay his; he can make a new code
         if cur:
             db.execute("UPDATE partners SET pct=?, active=?, code=? WHERE uid=?", (pct, act, code, uid))
         else:
@@ -1457,9 +1466,29 @@ def admin_player(user, qs):
         x = db.execute("SELECT name, username, cls, room, level, stars, skips, seen, first_seen, flagged FROM players WHERE id=?", (uid,)).fetchone()
         given = db.execute("SELECT COALESCE(SUM(n),0) FROM star_ledger WHERE uid=? AND what='admin-skips'", (uid,)).fetchone()[0]
         bought = db.execute("SELECT COALESCE(SUM(n),0) FROM star_ledger WHERE uid=? AND what='skips'", (uid,)).fetchone()[0]
+        # v250: the full picture for the owners: the hero as the server holds him, real payments, where stars went, raids, anti-cheat
+        sv = _save_of(uid)
+        pays = db.execute("SELECT n, ts, refunded FROM star_pay WHERE uid=?", (uid,)).fetchall()
+        led = db.execute("SELECT what, COALESCE(SUM(delta),0), COALESCE(SUM(n),0), COUNT(*) FROM star_ledger WHERE uid=? GROUP BY what", (uid,)).fetchall()
+        rd = db.execute("SELECT COALESCE(SUM(dmg),0), COALESCE(MAX(best),0), COALESCE(SUM(hits),0), COUNT(*) FROM raid_stats WHERE uid=?", (uid,)).fetchone()
+        ac = db.execute("SELECT status, reasons FROM ac_flags WHERE uid=?", (uid,)).fetchone()
+        pr = db.execute("SELECT pl.name, pl.username FROM partner_refs r LEFT JOIN players pl ON pl.id=r.partner WHERE r.ref=?", (uid,)).fetchone()
+        sv_at = db.execute("SELECT ts FROM saves WHERE uid=?", (uid,)).fetchone()
+    paid = [(as_int(n, 0, 10**9), _epoch(t), bool(rf)) for n, t, rf in pays]
+    try:
+        acr = json.loads(ac[1]) if ac and ac[1] else []
+    except ValueError:
+        acr = []
     return 200, {"ok": True, "p": {"id": uid, "name": x[0], "username": x[1], "cls": x[2], "room": x[3], "level": x[4], "stars": x[5] or 0,
                                    "skips": x[6] or 0, "seen": x[7] or 0, "first": x[8] or 0, "flagged": x[9] or 0,
-                                   "given": given, "bought": bought}}
+                                   "given": given, "bought": bought,
+                                   "save": sv, "save_at": (lambda t: t / 1000 if t > 1e11 else t)(_epoch(sv_at[0])) if sv_at else 0,
+                                   "paid": {"stars": sum(n for n, t, rf in paid if not rf), "count": sum(1 for n, t, rf in paid if not rf),
+                                            "refunded": sum(n for n, t, rf in paid if rf), "last": max([t for n, t, rf in paid] or [0])},
+                                   "ledger": [{"what": w, "delta": as_int(d, -10**12, 10**12), "n": as_int(n, -10**12, 10**12), "times": c} for w, d, n, c in led],
+                                   "raid": {"dmg": rd[0] or 0, "best": rd[1] or 0, "hits": rd[2] or 0, "chats": rd[3] or 0},
+                                   "ac": {"status": ac[0], "reasons": acr} if ac else None,
+                                   "partner": ((pr[0] or "") + (" @" + pr[1] if pr[1] else "")).strip() if pr else None}}
 
 def admin_skips(user, body):
     """v219 admin panel: give (or take back, n<0) rest skips; the player may be told in the bot."""
@@ -1550,6 +1579,138 @@ def _restart_hero(uid, new, old_raw):
     db.execute("DELETE FROM ac_state WHERE uid=?", (uid,))
     log.info("hero restarted by %s: floor %s", uid, room)
 
+# ---- v251 economy check: wealth can't grow faster than it can be earned
+# wealth = gold + what the bag would sell for (crafting turns gold into things worth less, selling turns things into the same gold,
+# so neither raises it). Between two saves it may grow by: the fights fought (each at most a boss's gold and a legendary item of
+# the floor), what the server itself paid (chat bosses, group bosses, duels, quests, the wheel of luck, gifts — counted in
+# ecr:<uid>) and a margin per hour for small things the phone pays alone (the daily wheel, chests). Cores likewise.
+ECO_SLACK_H = 10        # fights' worth of wealth per hour of real time on top
+ECO_HARD_X = 6          # this many times the allowance (and at least ECO_HARD_MIN fights' worth) is refused outright
+ECO_HARD_MIN = 25
+_RVAL = (1, 2, 4, 8, 16)
+
+def _ecr_add(uid, g=0, c=0, i=0, u=0):
+    """Caller holds db_lock. Gold, cores, items and «gold units» of the wheel the server handed out, each with its time:
+    a check counts what was paid from an hour before the previous save on, so a payment the phone books a save later
+    is never missed (counting one twice only makes the check kinder)."""
+    try:
+        e = json.loads(_kv_get(f"ecr:{uid}", "") or "[]")
+    except ValueError:
+        e = []
+    if not isinstance(e, list):
+        e = []
+    now = time.time()
+    e = [x for x in e if isinstance(x, list) and len(x) == 5 and now - x[0] < 2 * 86400][-400:]
+    e.append([now, max(0, int(g or 0)), max(0, int(c or 0)), max(0, int(i or 0)), max(0, int(u or 0))])
+    _kv_set(f"ecr:{uid}", json.dumps(e))
+
+def _ecr_since(uid, t0):
+    try:
+        e = json.loads(_kv_get(f"ecr:{uid}", "") or "[]")
+    except ValueError:
+        e = []
+    tot = [0, 0, 0, 0]
+    for x in e if isinstance(e, list) else []:
+        if isinstance(x, list) and len(x) == 5 and x[0] >= t0:
+            for k in range(4):
+                tot[k] += x[k + 1]
+    return tot
+
+def _eco_of(sv):
+    inv = sv.get("inv") if isinstance(sv.get("inv"), list) else []
+    w = 0
+    for it in inv:
+        if isinstance(it, dict):
+            try:
+                w += round((3 + float(it.get("ilvl") or 0) * 1.25) * _RVAL[max(0, min(4, int(it.get("rarity") or 0)))])
+            except (TypeError, ValueError):
+                pass
+    mats = sv.get("mats") if isinstance(sv.get("mats"), dict) else {}
+    st = sv.get("st") if isinstance(sv.get("st"), dict) else {}
+    uids = [as_int(it.get("uid"), 0, 10**12) for it in inv if isinstance(it, dict)]
+    return {"w": as_int(sv.get("gold"), -10**15, 10**15) + w, "c": as_int(mats.get("core"), 0, 10**12), "n": len(uids),
+            "mu": max(uids or [0]), "f": as_int(st.get("wins"), 0, 10**9) + as_int(st.get("losses"), 0, 10**9),
+            "room": as_int(sv.get("maxCleared"), 0, 10**6)}
+
+def _eco_check(uid, old, new):
+    """Caller holds db_lock. Returns (hard message | None, soft message | None) for one save following another."""
+    now = time.time()
+    try:
+        prev = json.loads(_kv_get(f"eco:{uid}", "") or "null")
+    except ValueError:
+        prev = None
+    a, b = _eco_of(old), _eco_of(new)
+    snap = {"t": now}
+    # the very first look, and an old game turning its long-gone local stars into cores once: nothing to compare
+    if new.get("starsMig") and not old.get("starsMig"):
+        _kv_set(f"eco:{uid}", json.dumps(snap))
+        return None, None
+    if not isinstance(prev, dict):
+        prev = {"t": now - 3600}         # the first look at this player: as if his last save were an hour ago
+    dt = max(0.0, now - (prev.get("t") or now))
+    dg, dc, di, du = _ecr_since(uid, (prev.get("t") or now) - 3600)
+    room = max(a["room"], b["room"]) + 1
+    # the very best one fight can bring, everything lucky at once: a boss's gold on the best room type (×1.5) with +300% gold
+    # from gear, doubled by the «×2» of the wheel after it; a legendary dropping from the fight and another from the wheel
+    gold_f = (8 + room * 3.2) * 0.65 * 1.15 * 4 * 1.5 * 4 * 2
+    item_f = (3 + (room + 5) * 1.25) * 16
+    per = gold_f + 2 * item_f
+    # fights as the save counts them, not limited by the time since the last save: a phone that played offline brings them all
+    # at once. Wins written in by hand are the anti-cheat's «+N побед за M мин» rule's business.
+    fights = max(0, b["f"] - a["f"])
+    allow_w = (fights + 3) * per + dg + di * item_f * 1.3 + du * gold_f + dt / 3600 * ECO_SLACK_H * per
+    gained = b["w"] - a["w"]
+    new_items = 0
+    if isinstance(new.get("inv"), list):
+        new_items = sum(1 for it in new["inv"] if isinstance(it, dict) and as_int(it.get("uid"), 0, 10**12) > a["mu"])
+    removed = max(0, a["n"] - (b["n"] - new_items))
+    allow_c = (fights + 3) * 7 + dc + removed * 3 + dt / 3600 * 20 + 20      # a floor boss gives up to 6
+    gc = b["c"] - a["c"]
+    _kv_set(f"eco:{uid}", json.dumps(snap))
+    def fmt(v):
+        return f"{int(v):,}".replace(",", " ")
+    span = _ac_dur(dt) if dt >= 1 else "мгновенно"
+    # the allowance already assumes every fight was the luckiest possible; only many times more than that is refused.
+    # Anything in between is only written to the log: an honest player is never refused or put on the anti-cheat list for it.
+    if gained > allow_w:
+        msg = f"богатство +{fmt(gained)} за {span} ({fights:.0f} боёв), можно до {fmt(allow_w)}"
+        if gained > ECO_HARD_X * allow_w and gained > ECO_HARD_MIN * per:
+            return msg, None
+        return None, msg
+    if gc > allow_c:
+        msg = f"ядер +{fmt(gc)} за {span}, можно до {fmt(allow_c)}"
+        if gc > ECO_HARD_X * allow_c and gc > 200:
+            return msg, None
+        return None, msg
+    return None, None
+
+_eco_soft = {}        # uid -> why the server refused his save; the anti-cheat check puts it on the list
+REFUSE_TELL_GAP = 3600   # the owners hear about one player's refused saves at most once an hour
+
+def _refused(uid, why):
+    """Caller holds db_lock. A save was refused: the anti-cheat list gets the player with the reason, the owners get a message."""
+    _eco_soft[uid] = "сервер не принял сохранение: " + why
+    now = time.time()
+    k = f"acn:{uid}"
+    try:
+        last = float(_kv_get(k, "0") or 0)
+    except ValueError:
+        last = 0
+    if now - last < REFUSE_TELL_GAP:
+        return
+    _kv_set(k, str(now))
+    pl = db.execute("SELECT name, username FROM players WHERE id=?", (uid,)).fetchone()
+    name, un = (pl[0] if pl else "") or "Игрок", (pl[1] if pl else "") or ""
+    txt = (f"🛡 Сервер не принял сохранение\n{name}{' @' + un if un else ''} (id {uid}): {why}.\n\n"
+           "Герой возвращён к последнему честному сохранению, игрок записан в Анти-чит (⚙ Меню → Анти-чит).")
+    def send():
+        for a in ADMIN_IDS:
+            try:
+                tg("sendMessage", chat_id=a, text=txt)
+            except Exception as e:
+                log.info("refused-save notice: %s", e)
+    threading.Thread(target=send, daemon=True).start()
+
 def _save_impossible(d):
     """v246: a save no honest game can make is refused outright, not only reported. Only rules without exceptions:
     one skill point per level (skills + mastery), and every floor is a won fight (the game itself keeps the record
@@ -1598,10 +1759,28 @@ def save_put(user, body):
         bad = _save_impossible(data)
         if bad:
             log.warning("save refused for %s: %s", user["id"], bad)
+            _refused(user["id"], bad)
+            db.commit()
             ac_enqueue(user["id"], time.time())          # the anti-cheat list gets him too
             # the copy the server holds is no better (saved before this rule): there is nothing honest to go back to
             srv_bad = bool(cur and _save_impossible(json.loads(cur[2]) if isinstance(cur[2], str) else {}))
             return 200, {"ok": 0, "bad": bad, "stuck": 1 if srv_bad else 0}
+        if cur and gen == cur_gen:
+            try:
+                old = json.loads(cur[2]) if isinstance(cur[2], str) else None
+            except ValueError:
+                old = None
+            if isinstance(old, dict):
+                hard, soft = _eco_check(user["id"], old, data)
+                if hard:
+                    db.commit()
+                    log.warning("save refused for %s: %s", user["id"], hard)
+                    _refused(user["id"], hard)
+                    db.commit()
+                    ac_enqueue(user["id"], time.time())
+                    return 200, {"ok": 0, "bad": hard, "stuck": 0}
+                if soft:
+                    log.info("economy (only noted): %s %s", user["id"], soft)
         if cur and gen > cur_gen:
             _restart_hero(user["id"], data, cur[2])
         db.execute("INSERT OR REPLACE INTO saves(uid, data, score, ts) VALUES(?,?,?,?)", (user["id"], raw, score, ts))
@@ -1646,8 +1825,13 @@ def reminder_loop():
                 # only those away for a while, at most once per REMIND_EVERY; the game reports rest_at whenever it is closed
                 # rest_at / reminded are TIMESTAMP columns: the numeric bounds go through the adapter's to_timestamp() wrapper,
                 # so they must be bound parameters (rest_at>? with 0), not literals — "rest_at>0" is invalid in PostgreSQL.
-                due = db.execute("""SELECT id, room FROM players WHERE notify=1 AND can_pm=1 AND rest_at>? AND rest_at<=?
-                                    AND seen<=? AND reminded<?""", (0, now, now - REMIND_AWAY, now - REMIND_EVERY)).fetchall()
+                # v255: only rest_at is compared in SQL; seen and reminded are checked here. In PostgreSQL they are TIMESTAMP
+                # columns that may be NULL (a player made by the bot's migration has no «reminded» yet), and «NULL < x» is
+                # never true there — such players were never reminded.
+                rows = db.execute("""SELECT id, room, seen, reminded FROM players WHERE notify=1 AND can_pm=1 AND rest_at>? AND rest_at<=?""",
+                                  (0, now)).fetchall()
+                due = [(uid, room) for uid, room, seen, rem in rows
+                       if (_epoch(seen) or 0) <= now - REMIND_AWAY and (_epoch(rem) or 0) < now - REMIND_EVERY]
                 for (uid, _r) in due:
                     db.execute("UPDATE players SET reminded=?, rest_at=? WHERE id=?", (now, 0, uid))
                 db.commit()
@@ -1886,7 +2070,9 @@ def _pay(uid, room, won):
         return 0
     db.execute("INSERT OR REPLACE INTO duel_paid(uid, day, n) VALUES(?,?,?)", (uid, day, n + 1))
     room = max(1, room)
-    return int((60 + room * 9) if won else (20 + room * 3))
+    v = int((60 + room * 9) if won else (20 + room * 3))
+    _ecr_add(uid, g=v)
+    return v
 
 # ---------------------------------------------------------------- anti-cheat
 # The game runs on the phone, so the server checks what it receives. A long-running Node worker (ac_worker.js) applies the
@@ -1970,6 +2156,9 @@ def ac_check(uid, recv_ts, retro=False):
     if not r:
         return []
     issues = list(r.get("issues") or [])
+    eco = _eco_soft.pop(uid, None)
+    if eco:
+        issues.append({"k": "refused", "hard": True, "msg": eco})
     wins, floor = int(r.get("wins") or 0), int(r.get("floor") or 0)
     # real time: wins can't grow faster than one per AC_SEC_PER_WIN seconds
     if stt and not retro:
@@ -2535,7 +2724,9 @@ def _ghost_gold(uid, room, won):
         return 0
     db.execute("INSERT OR REPLACE INTO duel_paid(uid, day, n) VALUES(?,?,?)", (uid, day, n + 1))
     room = max(1, room)
-    return int((30 + room * 3) if won else (10 + room))
+    v = int((30 + room * 3) if won else (10 + room))
+    _ecr_add(uid, g=v)
+    return v
 
 def ghost_fight(user, body):
     if not rate_ok(user["id"], "ghost"):
@@ -2826,6 +3017,8 @@ def luck_spin(user, body):
         if skips:
             db.execute("INSERT INTO star_ledger(uid, delta, what, n, ts) VALUES(?,?,?,?,?)", (uid, 0, "luck-skips", skips, time.time()))
         db.execute("INSERT OR REPLACE INTO kv(k, v) VALUES(?,?)", (k, str(used + n)))
+        _ecr_add(uid, c=sum(r["prize"].get("cores", 0) for r in res), i=sum(1 for r in res if r["prize"].get("item")),
+                 u=sum(r["prize"].get("gold", 0) for r in res))
         db.commit()
         st = _stars_state(uid)
     if any(r["k"] == "jack" for r in res):
@@ -3104,6 +3297,7 @@ def quests_claim(user, body):
             db.commit()
             return 200, {"ok": False, "reason": "claimed"}
         rw = _q_reward(uid, q[4])
+        _ecr_add(uid, g=rw["gold"], c=rw["cores"])
         if rw["skips"]:
             db.execute("UPDATE players SET skips=skips+? WHERE id=?", (rw["skips"], uid))
             db.execute("INSERT INTO star_ledger(uid, delta, what, n, ts) VALUES(?,?,?,?,?)", (uid, 0, "quest-skips:" + qid, rw["skips"], time.time()))
@@ -3588,6 +3782,9 @@ def gr_claim(user, body):
             rw = json.loads(r[0] or "{}")
         except ValueError:
             rw = {}
+        if isinstance(rw, dict):
+            _ecr_add(uid, g=as_int(rw.get("gold"), 0, 10**12), c=as_int(rw.get("core"), 0, 10**6), i=1 if rw.get("item") else 0)
+            db.commit()
     return 200, {"ok": True, "id": gid, "reward": rw}
 
 def gr_mine(user):

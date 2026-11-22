@@ -346,7 +346,7 @@ h2 small{font-size:11px;letter-spacing:.06em;color:var(--dim);text-transform:non
 .btn img{width:14px;height:14px}
 
 /* rarity text */
-.rc0{color:var(--r0)}.rc1{color:var(--r1)}.rc2{color:var(--r2)}.rc3{color:var(--r3)}.rc4{color:var(--r4)}
+.admd{margin:8px 0}.admd summary{cursor:pointer;font-weight:bold;padding:4px 0}.admi{display:flex;flex-direction:column;gap:3px;max-height:340px;overflow:auto}.admi div{display:flex;justify-content:space-between;gap:8px;font-size:13px;border-bottom:1px solid rgba(255,255,255,.06);padding:2px 0}.admi small{opacity:.6;white-space:nowrap}.rc0{color:var(--r0)}.rc1{color:var(--r1)}.rc2{color:var(--r2)}.rc3{color:var(--r3)}.rc4{color:var(--r4)}
 .fr0{border-image-source:var(--fr-r0)}.fr1{border-image-source:var(--fr-r1)}.fr2{border-image-source:var(--fr-r2)}.fr3{border-image-source:var(--fr-r3)}.fr4{border-image-source:var(--fr-r4)}
 .statl{display:flex;flex-direction:column;gap:2px;font-size:13px}
 .statl div{display:flex;align-items:center;gap:5px}
@@ -6868,7 +6868,7 @@ function musicAtLaunch(){musicPrefs();if(!S||S.musicOn===false)return;Music.on=t
   try{Object.assign(Music.last,JSON.parse(localStorage.getItem('ember.musicLast')||'{}'));}catch(e){}
   try{if(!Music.started)Music.start();Music.set('title');}catch(e){}}
 let musicTick=0;
-const APP_VER='248';
+const APP_VER='255';
 /* one bad frame must never freeze the game: the error is shown once and the loop goes on */
 let errShown='';
 function showErr(m){m=String(m||'').slice(0,140);if(m===errShown)return;errShown=m;try{toast('Ошибка (v'+APP_VER+'): '+esc(m),null);}catch(e){}}
@@ -9241,13 +9241,15 @@ function admPartners(){if(PADM.list==null){admPartnersLoad();}
   ${PADM.list==null?'<p class="note">Загружаю…</p>':!L2.length?'<p class="note">Партнёров пока нет.</p>':L2.map(p=>`<div class="padm ${p.active?'':'off'}">
     <div><b>${esc(p.name||('id '+p.id))}</b>${p.username?' @'+esc(p.username):''} <small>id ${p.id}</small>${p.active?'':' <small style="color:#ff8a8a">отключён</small>'}</div>
     <div class="note" style="margin:0;text-align:left">Код <b>${esc(p.code||'—')}</b> · ${p.pct}% · рефералов ${p.refs} · потратили ${p.spent}★<br>заработал ${fmtStar(p.earned)} · выплачено ${fmtStar(p.paid)} · <b>к выплате ${fmtStar(p.due)}</b></div>${p.wd?`<div class="note" style="margin:0;text-align:left;color:var(--gold,#ffc04a)">💸 Просит вывести <b>${fmtStar(p.wd.amount)}</b> · ${new Date(p.wd.at).toLocaleString('ru-RU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</div>`:''}
-    <div class="dbgrow"><input class="ninput" id="pp_${p.id}" type="number" min="0" max="100" value="${p.pct}" style="width:64px;margin:0"><button class="btn sm" data-act="pa-pct" data-id="${p.id}">% сохранить</button><button class="btn sm" data-act="pa-on" data-id="${p.id}" data-on="${p.active?0:1}">${p.active?'Отключить':'Включить'}</button></div>
+    <div class="dbgrow"><input class="ninput" id="pp_${p.id}" type="number" min="0" max="100" value="${p.pct}" style="width:64px;margin:0"><button class="btn sm" data-act="pa-pct" data-id="${p.id}">% сохранить</button><button class="btn sm" data-act="pa-on" data-id="${p.id}" data-on="${p.active?0:1}">${p.active?'Отключить':'Включить'}</button>${p.code?`<button class="btn sm danger" data-act="pa-codedel" data-id="${p.id}">Удалить код</button>`:''}</div>
     <div class="dbgrow"><input class="ninput" id="pv_${p.id}" type="number" min="0" step="0.01" placeholder="★ выплачено" style="flex:1;min-width:0;margin:0"><button class="btn sm gold" data-act="pa-pay" data-id="${p.id}">Отметить выплату</button></div></div>`).join('')}`;}
 async function admPartnerDo(act,el){const st=(m,ok)=>{PADM.msg=m;const e=$('paStat');if(e){e.textContent=m;e.style.color=ok?'#7be38a':'#ff8a8a';}};let j;
   if(act==='set'){const who=($('paWho').value||'').trim(),pct=$('paPct').value,code=($('paCode').value||'').trim();if(!who){st('Укажи id или @ник',false);return;}
     const b={who};if(pct!=='')b.pct=+pct;if(code)b.code=code;if(pct===''&&!code)b.active=1;j=await admReq('/admin/partner',b);}
   else if(act==='pct')j=await admReq('/admin/partner',{who:el.dataset.id,pct:+(($('pp_'+el.dataset.id)||{}).value||0)});
   else if(act==='on')j=await admReq('/admin/partner',{who:el.dataset.id,active:+el.dataset.on});
+  else if(act==='codedel'){if(!el.dataset.sure){el.dataset.sure='1';el.textContent='Точно удалить?';setTimeout(()=>{if(el.isConnected){delete el.dataset.sure;el.textContent='Удалить код';}},4000);return;}
+    j=await admReq('/admin/partner',{who:el.dataset.id,code_del:1});}
   else if(act==='pay'){const v=(($('pv_'+el.dataset.id)||{}).value||'').trim();if(!v){st('Укажи сумму',false);return;}j=await admReq('/admin/partner/pay',{who:el.dataset.id,amount:v});}
   if(j&&j.ok){st('✓ Сохранено',true);SFX.play('coin');PADM.list=null;await admPartnersLoad();PADM.msg='✓ Сохранено';}else st('✗ '+((j&&j.reason)||'не вышло'),false);}
 let refSeen='';
@@ -10556,6 +10558,8 @@ function kgUpdate(dt){
     if(Math.random()<dt*(3+n*2)){const q=mEnt(e);mP(q.x+mRnd(-4,4),q.y+mRnd(-2,6),mRnd(-6,6),mRnd(-10,5),{pal:KPAL.blood,life:mRnd(0.4,0.7),g:160,s:1,drag:0.5});}}
   const H=fight&&fight.f&&fight.f.hero;
   if(H&&H.sam==='thunder'&&H.hp>0&&Math.random()<dt*(H.flashT>0?14:4)){const p=heroPt(H);kSpark(p.x+mRnd(-6,6),p.y+mRnd(-8,4),Math.random()<0.4?'gold':'thunder',1,30);}
+  // v253: the Hunter sparks a little while he only stands in the room waiting out his rest (in a fight it's more)
+  if(!fight&&!duel&&SC.hero&&idleSam(SC.hero)==='thunder'&&Math.random()<dt*2.2){const p=heroPt(SC.hero);kSpark(p.x+mRnd(-6,6),p.y+mRnd(-8,4),Math.random()<0.4?'gold':'thunder',1,22);}
   if(H&&H.sam==='moon'&&H.hp>0&&Math.random()<dt*7){const p=heroPt(H);mP(p.x+mRnd(-5,5),p.y+mRnd(-2,8),mRnd(-3,3),mRnd(-16,-6),{pal:Math.random()<0.6?KPAL.smoke:KPAL.blood,life:mRnd(0.6,1),s:Math.random()<0.5?2:1,drag:0.5});}
 }
 function kBleedNC(e){if(!e.dots)return 0;const d=e.dots.find(x=>x.kind==='kbleed');return d&&d.t>0?d.n:0;}
@@ -10642,9 +10646,13 @@ function kgDraw(t){
   const y=q.y-16;for(let i=0;i<Math.min(n,10);i++){const x=Math.round(q.x-((Math.min(n,10)-1)*3)/2+i*3);P('#16121c',x-1,y-1,3,4);P(i<6?'#e0303a':'#ff6a8a',x,y,1,2);P('#ff9a9a',x,y,1,1);}};}
 
 /* ---------------- the samurai himself: the blade hums with his path ---------------- */
+/* the hero standing in the room between fights carries no fight stats: his side comes from the save */
+function idleSam(h){return h.sam||(S&&S.cls==='samurai'&&(S.path==='thunder'||S.path==='moon')?S.path:null);}
 {const _dh=drawHero;drawHero=function(h,t){const me=(fight&&fight.f&&fight.f.hero===h)||h===SC.hero,L=me&&h.sam==='moon'?KS.leap:null;let ox=0,oy=0;
   if(L&&L.t<L.dur){const k=L.t/L.dur;ox=Math.round(L.x0+(L.x1-L.x0)*k-L.x1);oy=Math.round(L.y0+(L.y1-L.y0)*k-L.y1-Math.sin(k*Math.PI)*L.h);}
-  KS.drawSam=me?h.sam:null;if(ox||oy){g.save();g.translate(ox,oy);}try{_dh(h,t);}finally{if(ox||oy)g.restore();KS.drawSam=null;}
+  const sam=me?(fight?h.sam:idleSam(h)):null;
+  KS.drawSam=sam;if(ox||oy){g.save();g.translate(ox,oy);}try{_dh(h,t);}finally{if(ox||oy)g.restore();KS.drawSam=null;}
+  if(!fight&&!duel&&me&&sam==='thunder'){const p=heroPt(h);mGlow(KGL.thunder,p.x,p.y,0.14+0.08*Math.sin(t*7));return;}
   if(!fight||!h.sam||h.sam==='steel')return;const p=heroPt(h),el=h.sam;mGlow(KGL[el],p.x+ox,p.y+oy,0.4+0.2*Math.sin(t*9)+(h.flashT>0?0.4:0));};}
 
 /* ---------------- the katana ---------------- */
@@ -10717,7 +10725,7 @@ function gearModal(){
     <div class="switch"><span>Громкость музыки</span><input type="range" id="musVol" min="0" max="100" value="${Math.round(Music.vol*100)}" style="width:50%"></div>
     <div class="switch"><span>Напомнить, когда герой отдохнёт</span><button class="btn sm" data-act="notify">${S.notify?'Включено':'Выключено'}</button></div>
     <p class="note">${window.EmberNet&&EmberNet.tg?'Прогресс сохраняется на сервере и переносится между устройствами.':storageOK?'Прогресс сохраняется в этом браузере.':'Хранилище браузера недоступно: прогресс живёт только до перезагрузки страницы.'}</p>
-    ${!isAdmin()&&!(window.EmberNet&&EmberNet.prod)?admNotice()+admSeason()+admDebug():''}
+    ${!isAdmin()&&DEV_HOST&&!(window.EmberNet&&EmberNet.prod)?admNotice()+admSeason()+admDebug():''}
     <button class="btn sm" data-act="close">ЗАКРЫТЬ</button></div>`);
 }
 /* ---------------- v219: the owner's panel — everything of the admin in one window, in tabs, instead of the end of «Меню» ---------------- */
@@ -10772,7 +10780,7 @@ function admCard(){const P=ADM.p;if(!P)return ADM.msg?`<p class="note">${esc(ADM
   const ago=t=>{if(!t)return '—';const m=Math.round((Date.now()/1e3-t)/60);return m<2?'сейчас':m<60?m+' мин назад':m<1440?Math.round(m/60)+' ч назад':Math.round(m/1440)+' дн назад';};
   return `<div class="admc"><div class="admh"><b>${esc(P.name||'Без имени')}</b>${P.username?` <span class="dl">@${esc(P.username)}</span>`:''}<small> · id ${P.id}</small>${P.flagged?' <span class="dw">под античитом</span>':''}</div>
     <div class="admg"><span>Класс</span><b>${esc((L.CLASSES[P.cls]&&L.CLASSES[P.cls].ru)||P.cls||'—')}</b><span>Этаж / уровень</span><b>${P.room} / ${P.level}</b>
-      <span>Звёзды</span><b>${P.stars}</b><span>Пропуски отдыха</span><b>${P.skips}</b><span>Куплено / выдано</span><b>${P.bought} / ${P.given}</b><span>Заходил</span><b>${ago(P.seen)}</b></div>
+      <span>Звёзды</span><b>${P.stars}</b><span>Пропуски отдыха</span><b>${P.skips}</b><span>Куплено / выдано</span><b>${P.bought} / ${P.given}</b><span>Заходил</span><b>${ago(P.seen)}</b></div>${admFull(P)}
     <h2>Выдать пропуски отдыха</h2>
     <div class="dbgrow">${[1,5,10,50,100].map(n=>`<button class="btn sm gold" data-act="adm-skip" data-n="${n}">+${n}</button>`).join('')}</div>
     <div class="dbgrow"><input id="admSkipN" class="ninput" type="number" inputmode="numeric" placeholder="своё число, можно −5" style="flex:1;min-width:0"><button class="btn sm" data-act="adm-skip">Выдать</button></div>
@@ -10794,6 +10802,32 @@ function adminModal(){ADM.open=true;const T=ADM.tab;
     <div class="admbody">${body}</div>
     <div class="dbgrow"><button class="btn sm" data-act="gear-back">← Меню</button><button class="btn sm" data-act="close">Закрыть</button></div></div>`);}
 function reGear(){if(ADM.open)adminModal();else gearModal();}
+/* v250: the full card: the hero as the server holds him (skills, points, gold, inventory), real payments, where his stars went */
+const LEDGER_RU={topup:'Пополнение за деньги','topup-test':'Тест-пополнение (бесплатно)',refund:'Возврат оплаты',skips:'Купил пропуски',class:'Смена класса',reset:'Сброс навыков',path:'Смена пути',luck:'Колесо удачи',autofarm:'Автофарм','skip-used':'Потратил пропусков','admin-skips':'Выдано админом','ref-skips':'Пропуски за друзей','ref-welcome-skips':'Подарок от друга','partner-welcome-skips':'Подарок партнёра','luck-skips':'Пропуски с колеса'};
+function admFull(P){const sv=P.save,pd=P.paid||{},n=v=>fmtN(Math.round(+v||0));let h='';
+  const dt=t=>t?new Date(t*1000).toLocaleString('ru-RU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'—';
+  h+=`<h2>Звёзды</h2><div class="admg"><span>Куплено за деньги</span><b>${n(pd.stars)} ★ <small>(${pd.count||0} оплат)</small></b><span>Последняя оплата</span><b>${dt(pd.last)}</b>${pd.refunded?`<span>Возвращено</span><b class="dw">${n(pd.refunded)} ★</b>`:''}<span>На счету сейчас</span><b>${n(P.stars)} ★</b>${P.partner?`<span>Пришёл от партнёра</span><b>${esc(P.partner)}</b>`:''}</div>`;
+  const led=(P.ledger||[]).filter(x=>x.what!=='topup').sort((a,b)=>a.delta-b.delta);
+  if(led.length)h+=`<details class="admd"><summary>Куда ушли звёзды и пропуски</summary><div class="admg">${led.map(x=>{const k=x.what.startsWith('quest-skips')?'Пропуски за задания':(LEDGER_RU[x.what]||x.what);return `<span>${esc(k)}</span><b>${x.delta?`${x.delta>0?'+':''}${n(x.delta)} ★ · `:''}${n(x.n)} шт</b>`;}).join('')}</div></details>`;
+  const rd=P.raid||{};h+=`<h2>Боссы в чатах</h2><div class="admg"><span>Урон всего</span><b>${n(rd.dmg)}</b><span>Лучший удар</span><b>${n(rd.best)}</b><span>Ударов / чатов</span><b>${rd.hits||0} / ${rd.chats||0}</b></div>`;
+  if(P.ac)h+=`<h2>Анти-чит</h2><p class="note" style="margin:0;text-align:left">Статус: <b>${P.ac.status==='banned'?'скрыт навсегда':P.ac.status==='cleared'?'оправдан':'подозрение'}</b>${(P.ac.reasons||[]).length?'<br>'+P.ac.reasons.map(esc).join('<br>'):''}</p>`;
+  if(!sv)return h+`<p class="note">Сохранения героя на сервере нет.</p>`;
+  let pw='—',spent=0;try{pw=fmtN(L.duelPower(L.duelHero(sv)));}catch(e){}try{spent=Object.values(sv.skills||{}).reduce((a,v)=>a+(+v>0?+v:0),0);}catch(e){}
+  const st=sv.st||{},M=sv.mats||{},inv=Array.isArray(sv.inv)?sv.inv:[],eq=sv.eq||{},eqs=new Set(Object.values(eq));
+  h+=`<h2>Герой на сервере <small>сохранён ${dt(P.save_at)}</small></h2><div class="admg"><span>Уровень / рекорд</span><b>${sv.level||1} / ${sv.maxCleared||0}</b><span>Сила</span><b>${pw}</b>
+    <span>Очки навыков</span><b class="${spent>(sv.level||1)?'dw':''}">${spent} из ${sv.level||1}${spent>(sv.level||1)?' — больше уровня!':''}</b>
+    <span>Победы / поражения</span><b>${n(st.wins)} / ${n(st.losses)}</b><span>Убито / боссов</span><b>${n(st.kills)} / ${n(st.bosses)}</b>
+    <span>Золото сейчас</span><b>${n(sv.gold)}</b><span>Золота заработано</span><b>${n(st.goldTotal)}</b><span>Ядра / пыль</span><b>${n(M.core)} / ${n(M.dust)}</b>
+    <span>Вещей / легендарок</span><b>${inv.length} / ${n(st.legend)}</b></div>`;
+  const sk=Object.entries(sv.skills||{}).filter(([k,v])=>+v>0).sort((a,b)=>b[1]-a[1]);
+  if(sk.length)h+=`<details class="admd"><summary>Навыки (${sk.length})</summary><div class="admg">${sk.map(([k,v])=>{const m=k.startsWith('m_')&&MASTERY.find(x=>x.id===k.slice(2)),d=L.SKILLS[k];return `<span>${esc(m?'Мастерство: '+m.ru:(d&&d.ru)||k)}</span><b>${v}</b>`;}).join('')}</div></details>`;
+  const nm=it=>{let x=it.slot==='weapon'?weaponName(it.tid,sv.cls):(ITEM_RU[it.tid]||it.name||it.tid);const md=it.lockMod||it.mod;if(md&&L.MODS[md])x+=' '+L.MODS[md].ru;return x;};
+  const ip=it=>{try{return L.itemPower(it);}catch(e){return 0;}};
+  const items=inv.filter(it=>it&&typeof it==='object').map(it=>({it,p:ip(it),e:eqs.has(it.uid)})).sort((a,b)=>(b.e-a.e)||((b.it.rarity|0)-(a.it.rarity|0))||(b.p-a.p));
+  const rn=r=>(L.RARITIES[r]&&L.RARITIES[r].ru)||('ранг '+r);
+  const cnt={};items.forEach(x=>{const k=x.it.demonic?'Демонических':rn(x.it.rarity|0);cnt[k]=(cnt[k]||0)+1;});
+  h+=`<details class="admd"><summary>Инвентарь (${items.length}): ${Object.entries(cnt).map(([k,v])=>k+' '+v).join(' · ')}</summary><div class="admi">${items.slice(0,150).map(({it,p,e})=>`<div><span class="rc${it.rarity|0}">${e?'▶ ':''}${esc(nm(it))}${it.fused?' +'+it.fused:''}${it.demonic?' 😈':''}</span><small>ур.${it.ilvl|0} · сила ${fmtN(p)}</small></div>`).join('')}${items.length>150?`<p class="note">…и ещё ${items.length-150}</p>`:''}</div></details>`;
+  return h;}
 async function admFind(){const who=(($('wipeWho')||{}).value||'').trim();ADM.q=who;if(!who){ADM.p=null;ADM.msg='Введи @ник или id';$('admCard').innerHTML=admCard();return;}
   ADM.p=null;ADM.msg='Ищу…';$('admCard').innerHTML=admCard();
   try{const W=Telegram.WebApp;const r=await fetch(NOTICE_API+'/admin/player?who='+encodeURIComponent(who),{headers:{'X-Init-Data':W.initData}});const j=await r.json().catch(()=>null);
@@ -10982,7 +11016,7 @@ document.addEventListener('click',ev=>{
     case'p-send':partnerSend();break;
     case'pa-set':admPartnerDo('set',el);break;
     case'pa-pct':admPartnerDo('pct',el);break;
-    case'pa-on':admPartnerDo('on',el);break;
+    case'pa-on':admPartnerDo('on',el);break;case'pa-codedel':admPartnerDo('codedel',el);break;
     case'pa-pay':admPartnerDo('pay',el);break;
     case'notify':toggleNotify(el);break;
     case'n-post':{const t=($('noticeIn')||{}).value||'';if(!t.trim()){toast('Напиши текст',null);break;}noticePost(t.trim(),+el.dataset.h);break;}
@@ -11159,7 +11193,19 @@ function start(data){
   const hot=window.claude&&window.claude.hot;if(hot&&hot.snapshot)hot.snapshot(()=>({save:S}));
 }
 const hot=window.claude&&window.claude.hot;
-if(hot&&hot.ready)hot.ready(start);else start(hot&&hot.data||{});
+/* v249: the game lives in Telegram. Opened as a plain web page (the address copied into a browser) it shows only a door to
+   the bot: no game, no debug menu. Local test hosts still run it in the browser. */
+function tgGate(){const bot=window.EMBER_BOT||'',url=bot?`https://t.me/${bot}/${window.EMBER_APP||'game'}`:'https://t.me/';
+  try{document.querySelectorAll('video,audio').forEach(v=>{try{v.pause();}catch(e){}});}catch(e){}
+  const d=document.createElement('div');d.id='tgGate';
+  d.innerHTML=`<div class="tgg"><img src="title.jpg" alt="" onerror="this.remove()"><p>Башня открывается только в Telegram.</p><a class="go" href="${url}">Открыть в Telegram</a>${bot?`<small>@${esc(bot)}</small>`:''}</div>`;
+  const st=document.createElement('style');st.textContent=`html,body{background:#0b0910!important;margin:0;height:100%;overflow:hidden}#tgGate{position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;background:#0b0910;color:#efe6d6;font-family:inherit;text-align:center;padding:16px}
+  .tgg{max-width:360px;display:flex;flex-direction:column;align-items:center;gap:14px}.tgg img{width:auto;max-width:100%;max-height:58vh;border-radius:6px;opacity:.9;image-rendering:pixelated}.tgg h1{margin:0;font:28px var(--f-disp,monospace);letter-spacing:2px;color:#ffc04a}.tgg p{margin:0;opacity:.85;font:15px var(--f-ui,sans-serif)}.tgg .go{display:inline-block;text-decoration:none;padding:14px 26px;background:#e8762c;color:#1a0f08;font:16px var(--f-disp,monospace);box-shadow:inset 0 -4px 0 #a84a14,0 0 0 3px #1a0f08}.tgg small{opacity:.55;font:13px var(--f-ui,sans-serif)}`;
+  document.head.appendChild(st);document.body.replaceChildren(d);}
+const DEV_HOST=location.protocol==='file:'||/^(localhost|127\.|0\.0\.0\.0|10\.|192\.168\.|\[::1\])/.test(location.hostname);
+const TG_OK=!!(window.Telegram&&Telegram.WebApp&&Telegram.WebApp.initData);
+if(!TG_OK&&!DEV_HOST)tgGate();
+else if(hot&&hot.ready)hot.ready(start);else start(hot&&hot.data||{});
 })();
 </script>
 
