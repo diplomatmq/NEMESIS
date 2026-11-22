@@ -85,10 +85,12 @@ export async function handleClassCallback(ctx: Context) {
   if (data.startsWith('classpage:')) {
     const page = await getClassPage(Number(data.slice('classpage:'.length)));
     await ctx.answerCallbackQuery();
+    // the arrows clamp at the ends, so pressing them on the first/last page sends identical
+    // content and Telegram answers 400 "message is not modified" — nothing to do, just ignore it
     await ctx.editMessageText(markdownToTelegramHtml(page.text), {
       reply_markup: page.keyboard,
       parse_mode: 'HTML',
-    });
+    }).catch(() => {});
     return;
   }
 
