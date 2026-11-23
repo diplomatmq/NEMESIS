@@ -61,7 +61,7 @@ if __name__ == "__main__":
     import time
     from server import (
         bot_loop, reminder_loop, chan_loop, events_loop, housekeeping_loop,
-        ac_loop, ac_scan, ac_digest_loop, ThreadingHTTPServer, Handler,
+        ac_loop, ac_scan, ac_digest_loop, mb_loop, ThreadingHTTPServer, Handler,
         BOT_TOKEN, PORT, PUBLIC, log
     )
     
@@ -87,6 +87,7 @@ if __name__ == "__main__":
     threading.Thread(target=reminder_loop, daemon=True).start()
     threading.Thread(target=chan_loop, daemon=True).start()
     threading.Thread(target=events_loop, daemon=True).start()
+    threading.Thread(target=mb_loop, daemon=True).start()
     threading.Thread(target=housekeeping_loop, daemon=True).start()
     
     def _br_warm():

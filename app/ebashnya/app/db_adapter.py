@@ -75,7 +75,8 @@ class PostgreSQLAdapter:
             'kv', 'raid_tries', 'duels', 'quests', 'star_ledger', 'gr_lobby', 
             'nft_drops', 'activity', 'gr_claims', 'sessions', 'ghost_offers', 'quest_claims',
             'duel_paid', 'ac_flags', 'ac_state', 'star_pay',
-            'partners', 'partner_refs', 'partner_pays'   # v238 partner program
+            'partners', 'partner_refs', 'partner_pays',   # v238 partner program
+            'mb_games', 'mb_players', 'mb_msgs', 'mb_chats'   # v264 «Массовая бойня»
         ]
         
         # A table may end the statement ("SELECT COUNT(*) FROM saves"): the trailing separator makes the
@@ -100,7 +101,7 @@ class PostgreSQLAdapter:
         
         # v238: the partner tables are created by server.py itself (no TS migration): prefix their CREATE TABLE IF NOT EXISTS too.
         # Only these — the other tables come from the bot's migrations and must not be touched.
-        for table in ('partners', 'partner_refs', 'partner_pays'):
+        for table in ('partners', 'partner_refs', 'partner_pays', 'mb_games', 'mb_players', 'mb_msgs', 'mb_chats'):
             result = result.replace(f'EXISTS {table}(', f'EXISTS app_{table}(')
 
         # Convert SQLite syntax to PostgreSQL

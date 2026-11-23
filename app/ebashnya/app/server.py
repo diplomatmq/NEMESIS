@@ -4214,6 +4214,900 @@ def brotli_of(raw, key):
     threading.Thread(target=_br_make, args=(raw, key), daemon=True).start()
     return None
 
+# ---------------------------------------------------------------- МАССОВАЯ БОЙНЯ (v256)
+# A chat giveaway shown as one big automatic battle. The server decides everything that matters:
+#   * who may join (chat member, channel subscription, N NFT gifts in the profile),
+#   * the draw: secrets.SystemRandom shuffles the fighters once; the last one in that order wins (1/N each),
+#   * who kills whom: mb_engine.js runs the game's own battle simulation (Node.js) with that order,
+#   * the clock: every client gets the same start time and the same death log, and draws the battle with its own camera.
+# The log is handed out at most MB_LOOKAHEAD seconds ahead of the battle, so nobody learns the winner early.
+# The draw (order, seed) and a SHA-256 of the whole protocol are stored before the battle; a restart changes nothing.
+import secrets, math, re, zlib, struct
+RL.update({"mbjoin": (6, 60), "mbfighter": (40, 60)})
+MB_MAX = 500
+MB_PTS = 15
+MB_SKPTS = 30             # skill points at level 30
+# the class's skills a level-15 hero can take: base skills and, per path, its nodes open by level 15 (must match the game)
+MB_TREE = {
+    "knight":    (("bash", "guard", "holy_blade", "bastion"), {"guardian": ("p_bulwark", "p_ironskin", "p_faithwall"), "crusader": ("p_judgement", "p_zeal", "p_wrath")}),
+    "mage":      (("m_bolt", "m_wave", "m_comet", "m_mind"), {"pyro": ("p_flamewave", "p_ignite", "p_inferno"), "cryo": ("p_icelance", "p_frostbite", "p_tide")}),
+    "necro":     (("raise_dead", "bone_spear", "life_drain", "dark_pact"), {"bonelord": ("p_bonearmy", "p_gravepower", "p_legion"), "plague": ("p_plaguecloud", "p_rot", "p_pestilence")}),
+    "gladiator": (("energy_wave", "cross_wave", "blade_dance", "crowd"), {"arena": ("p_dualstrike", "p_crowdroar", "p_champion"), "energyblade": ("p_energystorm", "p_resonance", "p_overload")}),
+    "samurai":   (("k_iai", "k_cres", "k_flurry", "k_breath"), {"thunder": ("p_k_god", "p_k_static", "p_k_flash"), "moon": ("p_k_wave", "p_k_bleed", "p_k_eclipse")}),
+}
+MB_SKMAX = 5
+MB_SKMAX3 = {"p_faithwall", "p_wrath", "p_inferno", "p_tide", "p_legion", "p_pestilence", "p_champion", "p_overload", "p_k_flash", "p_k_eclipse"}   # the third path skills: up to 3
+mb_skmax = lambda k: 3 if k in MB_SKMAX3 else MB_SKMAX
+def mb_build_ok(cls, path, skills):
+    """The build's skills, cleaned: only this class's and this path's, each 0…5, 15 points at most. None when it can't be fixed."""
+    base, paths = MB_TREE.get(cls, MB_TREE["knight"])
+    if path not in paths:
+        path = next(iter(paths))
+    allowed = set(base) | set(paths[path])
+    out = {}
+    for k, v in (skills or {}).items():
+        if k in allowed:
+            v = int(v)
+            if v < 0 or v > mb_skmax(k):
+                return None
+            if v:
+                out[k] = v
+    if sum(out.values()) > MB_SKPTS:
+        return None
+    return path, out
+def mb_fill(cls, path, skills):
+    """Points left unspent go round the skills in order: they only change how the fighter fights on the map."""
+    base, paths = MB_TREE.get(cls, MB_TREE["knight"])
+    order = list(base) + list(paths[path])
+    left, i = MB_SKPTS - sum(skills.values()), 0
+    while left > 0 and i < 400:
+        k = order[i % len(order)]
+        if skills.get(k, 0) < mb_skmax(k):
+            skills[k] = skills.get(k, 0) + 1
+            left -= 1
+        i += 1
+    return skills
+MB_CLASSES = ("knight", "mage", "necro", "gladiator", "samurai")   # must match L.CLASS_ORDER in the game
+MB_LOOKAHEAD = 12.0
+MB_LEAD_IN = 12.0          # seconds between the draw and the first blow: clients load the battle
+MB_ENGINE = os.path.join(HERE, "mb_engine.js")
+MB_REG_MIN = (2, 5, 10, 15, 30, 60, 120, 360, 720, 1440)
+MB_DELAY_MIN = (0, 1, 2, 5, 10, 15, 30, 60)
+MB_TZ = 3 * 3600           # times in the chat are written in Moscow time, like the rest of the game
+_mb_rng = secrets.SystemRandom()
+# Telegram ids are BIGINT and times REAL DEFAULT 0 (→ DOUBLE PRECISION): the same tables work in SQLite and in PostgreSQL (db_adapter)
+db.execute("""CREATE TABLE IF NOT EXISTS mb_games(id TEXT PRIMARY KEY, chat_id BIGINT, chat_title TEXT, by_uid BIGINT, title TEXT,
+  prize TEXT, conds TEXT, max_n INTEGER DEFAULT 500, created REAL DEFAULT 0, reg_ends REAL DEFAULT 0, plan_at REAL DEFAULT 0,
+  start_at REAL DEFAULT 0, status TEXT, n INTEGER DEFAULT 0, seed INTEGER DEFAULT 0, ord TEXT, log TEXT, hash TEXT, proto TEXT,
+  winner BIGINT DEFAULT 0, post_mid BIGINT DEFAULT 0, posted INTEGER DEFAULT 0, pend INTEGER DEFAULT 0, last_post REAL DEFAULT 0,
+  last_edit REAL DEFAULT 0, last_n INTEGER DEFAULT 0, finished REAL DEFAULT 0, flags TEXT)""")
+db.execute("""CREATE TABLE IF NOT EXISTS mb_players(pk TEXT PRIMARY KEY, gid TEXT, uid BIGINT, name TEXT, username TEXT, cls TEXT,
+  stats TEXT, joined REAL DEFAULT 0)""")
+db.execute("CREATE INDEX IF NOT EXISTS mb_players_gid ON mb_players(gid)")
+db.execute("CREATE TABLE IF NOT EXISTS mb_msgs(pk TEXT PRIMARY KEY, chat_id BIGINT, uid BIGINT, n INTEGER DEFAULT 0)")
+db.commit()
+
+def mb_duration(n):
+    """Mirror of mbDuration in the game: 2 → 2:00, 30 → 4:00, 500 → 5:30."""
+    if n <= 2:
+        return 120
+    if n < 30:
+        return round(120 + 120 * math.log(n / 2) / math.log(15))
+    return round(240 + 90 * min(1, math.log(n / 30) / math.log(500 / 30)))
+
+def mb_timeline(n):
+    """Mirror of mbTimeline: T[k] is when the k-th death is due (seconds from the first blow)."""
+    D, deaths = mb_duration(n), n - 1
+    if deaths <= 0:
+        return 0, []
+    T = [0.0] * deaths
+    fin = D if n <= 2 else min(40, D * 0.12)
+    T[deaths - 1] = D
+    spot = min(deaths - 1, 9)
+    mass = deaths - 1 - spot
+    spot_end = D - fin
+    spot_start = max(D * 0.7, spot_end - spot * 14) if mass else D * 0.25
+    step = (spot_end - spot_start) / spot if spot else 0
+    for i in range(spot):
+        T[mass + i] = spot_start + step * (i + 0.5)
+    a, b = 6, max(7, spot_start - 4)
+    for k in range(mass):
+        q = (k + 1) / mass
+        u = 1 - (1 - q) ** (1 / 2.2)
+        T[k] = a + u * (b - a)
+    return D, T
+
+def mb_msk(ts):
+    return time.strftime("%H:%M", time.gmtime(ts + MB_TZ))
+
+def _mb_row(gid):
+    r = db.execute("SELECT id, chat_id, chat_title, by_uid, title, prize, conds, max_n, created, reg_ends, plan_at, start_at, status, n, "
+                   "seed, ord, log, hash, proto, winner, post_mid, posted, pend, last_post, last_edit, last_n, finished, flags "
+                   "FROM mb_games WHERE id=?", (gid,)).fetchone()
+    if not r:
+        return None
+    keys = ("id", "chat_id", "chat_title", "by_uid", "title", "prize", "conds", "max_n", "created", "reg_ends", "plan_at", "start_at",
+            "status", "n", "seed", "ord", "log", "hash", "proto", "winner", "post_mid", "posted", "pend", "last_post", "last_edit",
+            "last_n", "finished", "flags")
+    g = dict(zip(keys, r))
+    g["conds"] = json.loads(g["conds"] or "{}")
+    g["flags"] = json.loads(g["flags"] or "{}")
+    return g
+
+def _mb_count(gid):
+    return db.execute("SELECT COUNT(*) FROM mb_players WHERE gid=?", (gid,)).fetchone()[0]
+
+def mb_clean_gid(v):
+    v = str(v or "")
+    return v if re.fullmatch(r"[a-f0-9]{10}", v) else ""
+
+# ---- counting messages: every message the bot sees in a group adds one (needs privacy mode off, or the bot as admin)
+# ---- the chats the bot sits in: whoever is in such a chat can start a massacre there from the game, for stars
+db.execute("CREATE TABLE IF NOT EXISTS mb_chats(chat_id BIGINT PRIMARY KEY, title TEXT, username TEXT, admin INTEGER, ts REAL DEFAULT 0)")
+db.commit()
+_mb_seen, _mb_cache_bot, _mb_cache_mem = {}, {}, {}
+MB_PRICE_DEFAULT = 50
+
+def mb_price():
+    r = db.execute("SELECT v FROM kv WHERE k='mb_price'").fetchone()
+    try:
+        return max(0, int(r[0])) if r else MB_PRICE_DEFAULT
+    except (TypeError, ValueError):
+        return MB_PRICE_DEFAULT
+
+def mb_price_set(user, body):
+    """Owners: the price of a massacre in stars (0 — free)."""
+    if user["id"] not in ADMIN_IDS:
+        return 403, {"ok": False}
+    try:
+        n = int(body.get("price"))
+    except (TypeError, ValueError):
+        return 400, {"ok": False, "reason": "число"}
+    if not 0 <= n <= 100000:
+        return 400, {"ok": False, "reason": "от 0 до 100000"}
+    with db_lock:
+        db.execute("INSERT OR REPLACE INTO kv(k, v) VALUES('mb_price', ?)", (str(n),))
+        db.commit()
+    log.info("massacre price set by %s: %s", user["id"], n)
+    return 200, {"ok": True, "price": n}
+
+def mb_chat_seen(chat, admin=None):
+    """A group the bot is in (a message, a command, a change of its rights). admin: True/False when known, None — unknown."""
+    if chat.get("type") not in ("group", "supergroup") or not chat.get("id"):
+        return
+    cid, now = chat["id"], time.time()
+    if admin is None and now - _mb_seen.get(cid, 0) < 300:
+        return
+    _mb_seen[cid] = now
+    with db_lock:
+        old = db.execute("SELECT admin FROM mb_chats WHERE chat_id=?", (cid,)).fetchone()
+        adm = (1 if admin else 0) if admin is not None else (old[0] if old else None)
+        db.execute("INSERT OR REPLACE INTO mb_chats(chat_id, title, username, admin, ts) VALUES(?,?,?,?,?)",
+                   (cid, chat.get("title") or "", chat.get("username") or "", adm, now))
+        db.commit()
+    if admin is not None:
+        _mb_cache_bot.pop(cid, None)
+
+def mb_count_msg(msg):          # the hook in handle_update: every group message tells us the bot is in that chat
+    mb_chat_seen(msg.get("chat") or {})
+
+_mb_bot_rights0 = bot_rights
+def bot_rights(upd):
+    """my_chat_member: the bot's rights in a group changed — remember whether it can run a massacre there."""
+    ch, new = upd.get("chat") or {}, upd.get("new_chat_member") or {}
+    st = new.get("status")
+    if st in ("left", "kicked"):
+        with db_lock:
+            db.execute("DELETE FROM mb_chats WHERE chat_id=?", (ch.get("id"),))
+            db.commit()
+        _mb_cache_bot.pop(ch.get("id"), None)
+    else:
+        mb_chat_seen(ch, admin=st == "administrator")
+    _mb_bot_rights0(upd)
+
+def mb_bot_admin(cid):
+    """Is the bot an admin of this chat? Asked of Telegram, kept 5 minutes."""
+    c = _mb_cache_bot.get(cid)
+    if c and time.time() - c[1] < 300:
+        return c[0]
+    r = tg_try("getChatMember", chat_id=cid, user_id=BOT_ID) if BOT_ID else {"ok": False}
+    ok = r.get("ok") and (r.get("result") or {}).get("status") == "administrator"
+    _mb_cache_bot[cid] = (ok, time.time())
+    if r.get("ok") or "chat not found" in str(r.get("description", "")).lower() or "kicked" in str(r.get("description", "")).lower():
+        with db_lock:
+            if ok:
+                db.execute("UPDATE mb_chats SET admin=1 WHERE chat_id=?", (cid,))
+            else:
+                db.execute("DELETE FROM mb_chats WHERE chat_id=?", (cid,)) if not r.get("ok") else db.execute("UPDATE mb_chats SET admin=0 WHERE chat_id=?", (cid,))
+            db.commit()
+    return ok
+
+def mb_in_chat(cid, uid):
+    """Is the player in this chat? Kept 5 minutes."""
+    k = (cid, uid)
+    c = _mb_cache_mem.get(k)
+    if c and time.time() - c[1] < 300:
+        return c[0]
+    r = tg_try("getChatMember", chat_id=cid, user_id=uid)
+    res = r.get("result") or {}
+    ok = bool(r.get("ok")) and (res.get("status") in ("creator", "administrator", "member") or (res.get("status") == "restricted" and res.get("is_member")))
+    _mb_cache_mem[k] = (ok, time.time())
+    return ok
+
+_mb_seed_at = [0]
+def mb_seed_chats():
+    """The chats where the boss was ever called are chats the bot sits in: they join the list too. Where the main bot relays only
+    some updates to the game (a separate poller), group messages never reach us — this is how those chats are found."""
+    if time.time() - _mb_seed_at[0] < 600:
+        return
+    _mb_seed_at[0] = time.time()
+    try:
+        with db_lock:
+            have = {r[0] for r in db.execute("SELECT chat_id FROM mb_chats").fetchall()}
+            for cid, title in db.execute("SELECT chat_id, title FROM raid_events WHERE chat_id IS NOT NULL").fetchall():
+                if cid and int(cid) not in have:
+                    db.execute("INSERT OR IGNORE INTO mb_chats(chat_id, title, username, admin, ts) VALUES(?,?,?,?,?)", (int(cid), title or "", "", None, 0))
+                    have.add(int(cid))
+            db.commit()
+    except Exception as e:
+        log.info("mb seed chats: %s", e)
+
+def mb_chats(user, qs):
+    """The chats where this player can start a massacre: the bot is an admin there and the player is a member.
+    ?q=@name — find one more chat by its username."""
+    uid = user["id"]
+    q = (qs.get("q") or [""])[0].strip()
+    if q:
+        q = re.sub(r"^(?:https?://)?t\.me/", "@", q)
+        if not q.startswith("@"):
+            q = "@" + q
+        if re.fullmatch(r"@[A-Za-z0-9_]{4,32}", q):
+            r = tg_try("getChat", chat_id=q)
+            if r.get("ok"):
+                mb_chat_seen(r["result"])
+    mb_seed_chats()
+    with db_lock:
+        rows = db.execute("SELECT chat_id, title, username FROM mb_chats WHERE admin IS NULL OR admin=1 ORDER BY ts DESC LIMIT 60").fetchall()
+        busy = {r[0]: r[1] for r in db.execute("SELECT chat_id, id FROM mb_games WHERE status IN ('reg','running','pay')").fetchall()}
+        st = _stars_state(uid)
+    def check(row):
+        return row if mb_bot_admin(row[0]) and mb_in_chat(row[0], uid) else None
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        ok = [r for r in ex.map(check, rows) if r]
+    return 200, {"ok": True, "price": mb_price(), "balance": st["balance"], "test": st.get("test"),
+                 "chats": [{"id": r[0], "title": r[1] or (("@" + r[2]) if r[2] else str(r[0])), "username": r[2] or "", "busy": busy.get(r[0], "")} for r in ok]}
+
+# ---- /massacre in a group: a massacre is now made in the game; the bot shows the way there
+def mb_cid_enc(cid):
+    return ("n" if cid < 0 else "p") + str(abs(cid))
+
+def mb_command(msg):
+    chat = msg["chat"]
+    mb_chat_seen(chat)
+    with db_lock:
+        busy = db.execute("SELECT id FROM mb_games WHERE chat_id=? AND status IN ('reg','running')", (chat["id"],)).fetchone()
+        price = mb_price()
+    if busy:
+        tg_try("sendMessage", chat_id=chat["id"], text="В этом чате уже идёт массовая бойня.",
+               reply_markup={"inline_keyboard": [[{"text": "⚔️ Открыть", "url": app_link("mb_" + busy[0])}]]})
+        return
+    tg_try("sendMessage", chat_id=chat["id"], reply_to_message_id=msg.get("message_id"), parse_mode="HTML",
+           text=f"⚔️ <b>Массовая бойня</b> создаётся в игре — любым участником чата" + (f", стоит <b>{price} ★</b>." if price else ", бесплатно.")
+                + ("" if mb_bot_admin(chat["id"]) else f"\n\n⚠️ Сначала сделайте @{BOT_USERNAME} админом этого чата."),
+           reply_markup={"inline_keyboard": [[{"text": "⚔️ Создать бойню", "url": app_link("mbc_" + mb_cid_enc(chat["id"]))}]]})
+
+def _mb_conds_text(c):
+    out = []
+    if c.get("chan"):
+        out.append(f"📢 подписка на {html_esc(c['chan'])}")
+    if mb_nft_need(c):
+        n = mb_nft_need(c)
+        out.append(f"🎁 не меньше {n} NFT-{plural_ru(n, 'подарка', 'подарков', 'подарков')} в профиле")
+    return out
+
+def _mb_announce_text(g, n):
+    """The giveaway post: blocks with air between them, the important bits in bold, the fine print in a quote."""
+    c = _mb_conds_text(g["conds"])
+    reg, plan = mb_msk(g["reg_ends"]), mb_msk(g["plan_at"])
+    when = (f"🗡 Битва в <b>{plan} МСК</b>\n⏳ Регистрация до {reg}" if reg != plan else f"🗡 Битва в <b>{plan} МСК</b>")
+    return (f"⚔️ <b>{html_esc(g['title'])}</b>\n"
+            f"<i>Массовая бойня: все на одной арене, выживет один</i>\n\n"
+            + mb_prizes_text(g) + "\n\n"
+            + when + "\n"
+            + f"👥 Участников: <b>{n}</b> из {g['max_n']}\n\n"
+            + ("📋 <b>Условия</b>\n" + "\n".join(c) + "\n\n" if c else "")
+            + "<blockquote>Шансы у всех равные: победителя выбирает честный жребий, класс и прокачка на него не влияют.</blockquote>")
+
+def mb_new(user, body):
+    try:
+        chat_id = int(body.get("chat"))
+    except (TypeError, ValueError):
+        return 400, {"ok": False, "reason": "Выбери чат."}
+    if not mb_bot_admin(chat_id):
+        return 403, {"ok": False, "reason": f"Бот не админ в этом чате: попроси админов сделать @{BOT_USERNAME} администратором."}
+    if not mb_in_chat(chat_id, user["id"]):
+        return 403, {"ok": False, "reason": "Ты не состоишь в этом чате."}
+    with db_lock:
+        crow = db.execute("SELECT title FROM mb_chats WHERE chat_id=?", (chat_id,)).fetchone()
+    t = {"t": crow[0] if crow else ""}
+    title = str(body.get("title", "")).strip()[:40] or "Массовая бойня"
+    raw = body.get("prizes")
+    raw = [str(x) for x in raw][:10] if isinstance(raw, list) else [str(body.get("prize", ""))]
+    prizes = []
+    for x in raw:
+        n, i, u = mb_prize(x)
+        if not n:
+            break
+        prizes.append({"n": n, "i": i, "u": u})
+    if not prizes:
+        return 400, {"ok": False, "reason": "Укажи приз."}
+    try:
+        mx = max(2, min(MB_MAX, int(body.get("max", MB_MAX))))
+        reg = int(body.get("reg", 10))
+        delay = int(body.get("delay", 0))
+        nnft = max(0, min(1000, int(body.get("nft", 0) or 0)))
+        places = max(1, min(10, int(body.get("places", 1) or 1)))
+    except (TypeError, ValueError):
+        return 400, {"ok": False, "reason": "Проверь числа."}
+    if reg not in MB_REG_MIN or delay not in MB_DELAY_MIN:
+        return 400, {"ok": False, "reason": "Неверное время."}
+    places = min(places, mx)
+    if len(prizes) < places:
+        return 400, {"ok": False, "reason": f"Укажи приз для каждого места: заполнено {len(prizes)} из {places}."}
+    prizes = prizes[:places]
+    prize, pimg, purl = prizes[0]["n"], prizes[0]["i"], prizes[0]["u"]
+    chan = str(body.get("chan", "") or "").strip()[:64]
+    if chan:
+        if re.fullmatch(r"[A-Za-z0-9_]{4,32}", chan):
+            chan = "@" + chan
+        chan = re.sub(r"^(?:https?://)?t\.me/", "@", chan)
+        if not re.fullmatch(r"@[A-Za-z0-9_]{4,32}|-100\d{5,16}", chan):
+            return 400, {"ok": False, "reason": "Канал пиши как @name."}
+        # the bot itself must sit in the channel as an admin: only then Telegram shows it who is subscribed
+        r = tg_try("getChatMember", chat_id=chan, user_id=BOT_ID) if BOT_ID else {"ok": False}
+        st = ((r.get("result") or {}).get("status")) if r.get("ok") else None
+        if st not in ("administrator", "creator"):
+            return 400, {"ok": False, "reason": f"Бота нет среди админов канала {chan}: добавь @{BOT_USERNAME} в канал админом, иначе подписку не проверить и розыгрыш не создать."}
+    if nnft:
+        r = tg_try("getUserGifts", user_id=user["id"], limit=1)
+        if not r.get("ok"):
+            return 400, {"ok": False, "reason": "Telegram не дал боту проверить подарки, условие с NFT сейчас недоступно."}
+    now = time.time()
+    with db_lock:
+        if db.execute("SELECT id FROM mb_games WHERE chat_id=? AND status IN ('reg','running')", (chat_id,)).fetchone():
+            return 409, {"ok": False, "reason": "В этом чате уже идёт массовая бойня."}
+        # the price comes off the hero's star balance; short — the game tops up exactly what is missing and comes back
+        price, bal = mb_price(), (db.execute("SELECT stars FROM players WHERE id=?", (user["id"],)).fetchone() or (0,))[0] or 0
+        if bal < price:
+            return 200, {"ok": False, "reason": "balance", "need": price, "balance": bal}
+        if price:
+            db.execute("UPDATE players SET stars=stars-? WHERE id=?", (price, user["id"]))
+            db.execute("INSERT INTO star_ledger(uid, delta, what, n, ts) VALUES(?,?,?,?,?)", (user["id"], -price, "massacre", 1, now))
+        gid = secrets.token_hex(5)
+        reg_ends = now + reg * 60
+        plan_at = reg_ends + delay * 60 + (MB_LEAD_IN if delay == 0 else 0)
+        db.execute("INSERT INTO mb_games(id, chat_id, chat_title, by_uid, title, prize, conds, max_n, created, reg_ends, plan_at, status, flags) "
+                   "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                   (gid, chat_id, t.get("t", ""), user["id"], title, prize, json.dumps({"chan": chan, "nft": nnft, "places": places, "prizes": prizes, "pimg": pimg, "purl": purl}),
+                    mx, now, reg_ends, plan_at, "reg", json.dumps({"paid": price})))
+        db.commit()
+        g = _mb_row(gid)
+    kb = {"inline_keyboard": [[{"text": "⚔️ Участвовать", "url": app_link("mb_" + gid)}]]}
+    r = tg_try("sendMessage", chat_id=chat_id, text=_mb_announce_text(g, 0), parse_mode="HTML", reply_markup=kb)
+    if not r.get("ok"):          # the post didn't go out: no massacre, the stars go back
+        with db_lock:
+            db.execute("UPDATE mb_games SET status='cancelled' WHERE id=?", (gid,))
+            if price:
+                db.execute("UPDATE players SET stars=stars+? WHERE id=?", (price, user["id"]))
+                db.execute("INSERT INTO star_ledger(uid, delta, what, n, ts) VALUES(?,?,?,?,?)", (user["id"], price, "massacre-refund", 1, time.time()))
+            db.commit()
+        return 200, {"ok": False, "reason": f"Бот не смог написать в чат ({r.get('description') or 'ошибка Telegram'}). Звёзды вернулись на счёт."}
+    if r.get("ok") and isinstance(r.get("result"), dict):
+        with db_lock:
+            db.execute("UPDATE mb_games SET post_mid=? WHERE id=?", (r["result"]["message_id"], gid))
+            db.commit()
+        tg_try("pinChatMessage", chat_id=chat_id, message_id=r["result"]["message_id"], disable_notification=True)
+    return 200, {"ok": True, "gid": gid, "cost": price}
+
+MB_MEDAL = {1: "🥇", 2: "🥈", 3: "🥉"}
+def mb_prize_list(g):
+    c = g["conds"]
+    return c.get("prizes") or [{"n": g["prize"], "i": c.get("pimg", ""), "u": c.get("purl", "")}]
+def mb_prize_html(p):
+    """A prize in a chat message: plain text; a Telegram gift is a link to it."""
+    return f'<a href="{html_esc(p["u"])}">{html_esc(p["n"])}</a>' if p.get("u") else html_esc(p["n"])
+def mb_prizes_text(g):
+    ps = mb_prize_list(g)
+    if len(ps) == 1:
+        return f"🏆 <b>Приз:</b> {mb_prize_html(ps[0])}"
+    return "🏆 <b>Призы</b>\n" + "\n".join(f"{MB_MEDAL.get(i, f'{i}.')} {mb_prize_html(p)}" for i, p in enumerate(ps, 1))
+
+MB_GIFT_RE = re.compile(r"(?:https?://)?(?:t\.me|telegram\.me)/nft/([A-Za-z0-9]+)-(\d+)", re.I)
+def mb_prize(text):
+    """The prize as typed. A Telegram gift link (t.me/nft/PlushPepe-123) brings the gift's own picture: (name, picture, link)."""
+    text = text.strip()
+    m = MB_GIFT_RE.search(text)
+    if not m:
+        return text[:60], "", ""
+    slug, num = m.group(1), m.group(2)
+    name = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", slug) + f" #{num}"
+    rest = (text[:m.start()] + text[m.end():]).strip(" ·-—:")
+    return (rest or name)[:60], f"https://nft.fragment.com/gift/{slug.lower()}-{num}.large.jpg", f"https://t.me/nft/{slug}-{num}"
+
+def mb_nft_need(c):
+    try:
+        return max(0, int(c.get("nft") or 0))
+    except (TypeError, ValueError):
+        return 0              # a game made before v258 named a gift: no count to check
+
+def _mb_nft_count(uid, need):
+    """How many NFT (upgraded, unique) gifts are in the profile, counted up to `need`; None when Telegram doesn't answer."""
+    n, off = 0, ""
+    for _ in range(20):
+        p = {"user_id": uid, "exclude_unlimited": True, "exclude_limited_upgradable": True,
+             "exclude_limited_non_upgradable": True, "limit": 100}
+        if off:
+            p["offset"] = off
+        r = tg_try("getUserGifts", **p)
+        if not r.get("ok"):
+            return None
+        res = r.get("result") or {}
+        n += sum(1 for og in res.get("gifts") or [] if og.get("type") == "unique")
+        off = res.get("next_offset") or ""
+        if n >= need or not off:
+            return n
+    return n
+
+def mb_check(g, uid):
+    """None when the player may join, otherwise the reason in plain words. Every check asks Telegram itself."""
+    r = tg_try("getChatMember", chat_id=g["chat_id"], user_id=uid)
+    st = ((r.get("result") or {}).get("status")) if r.get("ok") else None
+    if not r.get("ok"):
+        return "Не получилось проверить, что ты в чате розыгрыша. Попробуй ещё раз."
+    if st in ("left", "kicked") or (st == "restricted" and not (r.get("result") or {}).get("is_member")):
+        return "Участвовать могут только участники чата, где идёт розыгрыш."
+    c = g["conds"]
+    if c.get("chan"):
+        r = tg_try("getChatMember", chat_id=c["chan"], user_id=uid)
+        if not r.get("ok"):
+            return "Не получилось проверить подписку на канал. Попробуй позже."
+        m = r.get("result") or {}
+        if not (m.get("status") in ("member", "administrator", "creator") or (m.get("status") == "restricted" and m.get("is_member"))):
+            return f"Подпишись на {c['chan']} и попробуй снова."
+    need = mb_nft_need(c)
+    if need:
+        have = _mb_nft_count(uid, need)
+        if have is None:
+            return "Telegram не ответил на проверку подарков. Попробуй через минуту."
+        if have < need:
+            return f"Нужно не меньше {need} NFT-{plural_ru(need, 'подарка', 'подарков', 'подарков')} в профиле, у тебя {have}. Считаются только улучшенные подарки, видимые в профиле."
+    return None
+
+def _mb_default_cls(uid):
+    r = db.execute("SELECT cls FROM players WHERE id=?", (uid,)).fetchone()
+    return r[0] if r and r[0] in MB_CLASSES else "knight"
+
+def mb_join(user, body):
+    gid = mb_clean_gid(body.get("gid"))
+    with db_lock:
+        g = _mb_row(gid) if gid else None
+    if not g:
+        return 404, {"ok": False, "reason": "Розыгрыш не найден."}
+    if g["status"] != "reg" or time.time() >= g["reg_ends"]:
+        return 409, {"ok": False, "reason": "Регистрация закрыта."}
+    pk = f"{gid}:{user['id']}"
+    with db_lock:
+        if db.execute("SELECT 1 FROM mb_players WHERE pk=?", (pk,)).fetchone():
+            return 200, {"ok": True, "already": True}
+    if not rate_ok(user["id"], "mbjoin"):
+        return 429, {"ok": False, "reason": "Слишком часто. Подожди немного."}
+    why = mb_check(g, user["id"])
+    if why:
+        return 403, {"ok": False, "reason": why}
+    with db_lock:      # count and insert under one lock: two taps or two players at once can't pass the limit
+        g = _mb_row(gid)
+        if g["status"] != "reg" or time.time() >= g["reg_ends"]:
+            return 409, {"ok": False, "reason": "Регистрация закрыта."}
+        if _mb_count(gid) >= g["max_n"]:
+            return 409, {"ok": False, "reason": "Мест больше нет."}
+        db.execute("INSERT OR IGNORE INTO mb_players(pk, gid, uid, name, username, cls, stats, joined) VALUES(?,?,?,?,?,?,?,?)",
+                   (pk, gid, user["id"], display_name(user)[:40] or "Игрок", (user.get("username") or "")[:40], _mb_default_cls(user["id"]),
+                    json.dumps({"path": "", "skills": {}}), time.time()))
+        db.commit()
+    return 200, {"ok": True}
+
+def mb_fighter(user, body):
+    gid = mb_clean_gid(body.get("gid"))
+    cls = str(body.get("cls", ""))
+    sk = body.get("skills") or {}
+    if cls not in MB_CLASSES or not isinstance(sk, dict):
+        return 400, {"ok": False}
+    try:
+        b = mb_build_ok(cls, str(body.get("path", "")), sk)
+    except (TypeError, ValueError):
+        b = None
+    if not b:
+        return 400, {"ok": False, "reason": "Очков больше, чем можно."}
+    with db_lock:
+        g = _mb_row(gid) if gid else None
+        if not g or g["status"] != "reg":
+            return 409, {"ok": False, "reason": "Битва уже началась: бойца не изменить."}
+        n = db.execute("UPDATE mb_players SET cls=?, stats=? WHERE pk=?", (cls, json.dumps({"path": b[0], "skills": b[1]}), f"{gid}:{user['id']}")).rowcount
+        db.commit()
+    return (200, {"ok": True}) if n else (404, {"ok": False, "reason": "Сначала зарегистрируйся."})
+
+def mb_cancel(user, body):
+    gid = mb_clean_gid(body.get("gid"))
+    with db_lock:
+        g = _mb_row(gid) if gid else None
+    if not g or g["status"] != "reg":
+        return 409, {"ok": False, "reason": "Отменить можно только до начала битвы."}
+    if not (user["id"] == g["by_uid"] or user["id"] in ADMIN_IDS or _is_chat_admin(g["chat_id"], user["id"])):
+        return 403, {"ok": False}
+    with db_lock:
+        n = db.execute("UPDATE mb_games SET status='cancelled', finished=? WHERE id=? AND status='reg'", (time.time(), gid)).rowcount
+        paid = int((g.get("flags") or {}).get("paid", 0) or 0) if isinstance(g.get("flags"), dict) else 0
+        if n and paid:           # cancelled before the battle: the organizer gets his stars back
+            db.execute("UPDATE players SET stars=stars+? WHERE id=?", (paid, g["by_uid"]))
+            db.execute("INSERT INTO star_ledger(uid, delta, what, n, ts) VALUES(?,?,?,?,?)", (g["by_uid"], paid, "massacre-refund", 1, time.time()))
+        db.commit()
+    tg_try("sendMessage", chat_id=g["chat_id"], text=f"❌ Массовая бойня «{html_esc(g['title'])}» отменена организатором.", parse_mode="HTML")
+    if g["post_mid"]:
+        tg_try("unpinChatMessage", chat_id=g["chat_id"], message_id=g["post_mid"])
+    return 200, {"ok": True}
+
+def _mb_canon(proto):
+    return json.dumps(proto, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+
+def mb_draw(gid):
+    """Registration is over: freeze the fighters and draw the order of deaths. Runs once per game (status changes under the lock)."""
+    with db_lock:
+        g = _mb_row(gid)
+        if not g or g["status"] != "reg":
+            return
+        rows = db.execute("SELECT uid, name, username, cls, stats FROM mb_players WHERE gid=? ORDER BY joined, pk", (gid,)).fetchall()
+        now = time.time()
+        if len(rows) < 2:
+            db.execute("UPDATE mb_games SET status='cancelled', finished=? WHERE id=?", (now, gid))
+            db.commit()
+            cancel = True
+        else:
+            cancel = False
+            parts = []
+            for uid, name, un, cls, st in rows:
+                cls = cls if cls in MB_CLASSES else "knight"
+                raw = json.loads(st or "{}")
+                try:
+                    bd = mb_build_ok(cls, str(raw.get("path", "")), raw.get("skills") or {}) or mb_build_ok(cls, "", {})
+                except (TypeError, ValueError, AttributeError):
+                    bd = mb_build_ok(cls, "", {})
+                parts.append({"uid": uid, "name": name, "username": un or "", "cls": cls, "path": bd[0], "skills": mb_fill(cls, bd[0], dict(bd[1]))})
+            order = list(range(len(parts)))
+            _mb_rng.shuffle(order)
+            seed = _mb_rng.getrandbits(31)
+            start_at = max(now + MB_LEAD_IN, g["plan_at"])
+            proto = {"game": gid, "chat": g["chat_id"], "title": g["title"], "prize": g["prize"], "drawn": round(now, 3),
+                     "start": round(start_at, 3), "fighters": parts, "order": order, "seed": seed}
+            h = hashlib.sha256(_mb_canon(proto)).hexdigest()
+            db.execute("UPDATE mb_games SET status='running', n=?, seed=?, ord=?, proto=?, hash=?, start_at=?, winner=? WHERE id=? AND status='reg'",
+                       (len(parts), seed, json.dumps(order), json.dumps(proto, ensure_ascii=False), h, start_at, parts[order[-1]]["uid"], gid))
+            db.commit()
+    if cancel:
+        tg_try("sendMessage", chat_id=g["chat_id"], parse_mode="HTML",
+               text=f"❌ Массовая бойня «{html_esc(g['title'])}» отменена: участников меньше двух.")
+        if g["post_mid"]:
+            tg_try("unpinChatMessage", chat_id=g["chat_id"], message_id=g["post_mid"])
+        return
+    threading.Thread(target=mb_compute, args=(gid,), daemon=True).start()
+    tg_try("sendMessage", chat_id=g["chat_id"], parse_mode="HTML",
+           text=(f"🔥 <b>{html_esc(g['title'])}</b>\n<i>Регистрация закрыта</i>\n\n"
+                 f"👥 Бойцов: <b>{len(parts)}</b>\n🗡 Битва начнётся через <b>{int(start_at - time.time() + 0.5)} с</b>\n\n"
+                 + mb_prizes_text(g) + "\n\n"
+                 "<blockquote>Жребий уже брошен. Проверить, что результат не подменили, можно в игре: «Итоги битвы» → «Проверить протокол».</blockquote>"),
+           reply_markup={"inline_keyboard": [[{"text": "📺 Смотреть трансляцию", "url": app_link("mb_" + gid)}]]})
+
+_mb_computing = set()
+def mb_compute(gid):
+    """Who kills whom: the game's battle simulation with the drawn order (Node.js). Without Node: a fair fallback."""
+    if gid in _mb_computing:
+        return
+    _mb_computing.add(gid)
+    try:
+        with db_lock:
+            g = _mb_row(gid)
+        if not g or g["log"] or g["status"] != "running":
+            return
+        proto = json.loads(g["proto"])
+        parts, order, seed = proto["fighters"], proto["order"], proto["seed"]
+        log_rows = None
+        if NODE and os.path.exists(MB_ENGINE):
+            try:
+                q = {"fighters": [{"cls": p["cls"]} for p in parts], "order": order, "seed": seed}
+                p = subprocess.run([NODE, MB_ENGINE], input=json.dumps(q).encode(), capture_output=True, timeout=120)
+                r = json.loads(p.stdout.decode() or "{}")
+                if r.get("log") and len(r["log"]) == len(parts) - 1:
+                    log_rows = r["log"]
+                else:
+                    log.warning("mb engine: %s", (r.get("error") or p.stderr.decode()[-300:]))
+            except Exception as e:
+                log.warning("mb engine: %s", e)
+        if log_rows is None:
+            # the fallback still keeps the draw: each victim is killed by a fighter who dies later (or by the winner)
+            D, T = mb_timeline(len(parts))
+            rnd = random.Random(seed)
+            rank = {v: k for k, v in enumerate(order)}
+            log_rows = []
+            for k, v in enumerate(order[:-1]):
+                later = order[k + 1:]
+                kl = later[rnd.randrange(len(later))]
+                log_rows.append([k, v, kl, round(T[k], 2)])
+        with db_lock:
+            db.execute("UPDATE mb_games SET log=? WHERE id=? AND (log IS NULL OR log='')", (json.dumps(log_rows), gid))
+            db.commit()
+        _mb_cache.pop(gid, None)
+    finally:
+        _mb_computing.discard(gid)
+
+# ---- what the game asks while the giveaway runs (cached for a second: hundreds of players poll the same battle)
+_mb_cache = {}
+def _mb_snapshot(gid):
+    now = time.time()
+    c = _mb_cache.get(gid)
+    if c and now - c["at"] < 1.0:
+        return c
+    with db_lock:
+        g = _mb_row(gid)
+        if not g:
+            return None
+        n = _mb_count(gid) if g["status"] == "reg" else g["n"]
+        players = {}
+        if g["status"] == "reg":
+            for uid, cls, st in db.execute("SELECT uid, cls, stats FROM mb_players WHERE gid=?", (gid,)).fetchall():
+                players[uid] = (cls, json.loads(st or "{}") or {})
+    c = {"at": now, "g": g, "n": n, "players": players}
+    if g["proto"]:
+        proto = json.loads(g["proto"])
+        c["fighters"] = [[p["username"] or p["name"], p["cls"], p.get("path", ""), p.get("skills", {})] for p in proto["fighters"]]
+        c["uid2i"] = {p["uid"]: i for i, p in enumerate(proto["fighters"])}
+        c["T"] = mb_timeline(len(proto["fighters"]))[1]
+        c["log"] = json.loads(g["log"]) if g["log"] else None
+    _mb_cache[gid] = c
+    return c
+
+def mb_state(user, q):
+    gid = mb_clean_gid(q.get("gid", [""])[0])
+    c = _mb_snapshot(gid) if gid else None
+    if not c:
+        return 404, {"ok": False, "reason": "Розыгрыш не найден."}
+    g, now = c["g"], time.time()
+    out = {"ok": True, "gid": gid, "title": g["title"], "prize": g["prize"], "conds": g["conds"], "max": g["max_n"],
+           "status": g["status"], "regEnds": int(g["reg_ends"] * 1000), "planAt": int(g["plan_at"] * 1000),
+           "startAt": int(g["start_at"] * 1000), "now": int(now * 1000), "count": c["n"], "chat": g["chat_title"] or "",
+           "manage": user["id"] == g["by_uid"] or user["id"] in ADMIN_IDS}
+    me = c["players"].get(user["id"])
+    if me:
+        out["me"] = {"joined": True, "cls": me[0], "path": me[1].get("path", ""), "skills": me[1].get("skills", {})}
+    if "fighters" in c:
+        i = c["uid2i"].get(user["id"])
+        out["me"] = {"joined": i is not None, "idx": i}
+        if i is not None:
+            out["me"].update({"cls": c["fighters"][i][1], "path": c["fighters"][i][2], "skills": c["fighters"][i][3]})
+        out["n"] = len(c["fighters"])
+        out["fighters"] = c["fighters"]
+        out["seed"] = g["seed"]
+        out["hash"] = g["hash"]
+        if c["log"] is None:
+            out["log"], out["computing"] = [], True
+        else:
+            try:
+                frm = max(0, int(q.get("from", ["0"])[0]))
+            except ValueError:
+                frm = 0
+            t = now - g["start_at"]
+            done = g["status"] == "done"
+            out["log"] = [r[:3] for r in c["log"][frm:] if done or c["T"][r[0]] <= t + MB_LOOKAHEAD]
+        if g["status"] == "done":
+            out["winner"] = c["uid2i"].get(g["winner"])
+    return 200, out
+
+def mb_proto(user, q):
+    """The whole protocol of a finished battle: anyone can hash it and compare with the fingerprint posted before the battle."""
+    gid = mb_clean_gid(q.get("gid", [""])[0])
+    with db_lock:
+        g = _mb_row(gid) if gid else None
+    if not g or g["status"] != "done":
+        return 404, {"ok": False, "reason": "Протокол открывается после битвы."}
+    proto = json.loads(g["proto"])
+    return 200, {"ok": True, "hash": g["hash"], "canonical": _mb_canon(proto).decode("utf-8"), "log": json.loads(g["log"] or "[]")}
+
+def mb_mine(user):
+    with db_lock:
+        rows = db.execute("SELECT g.id, g.title, g.status, g.reg_ends, g.start_at, g.chat_title FROM mb_games g WHERE g.status IN ('reg','running') "
+                          "AND (g.by_uid=? OR g.id IN (SELECT gid FROM mb_players WHERE uid=?)) ORDER BY g.created DESC LIMIT 5",
+                          (user["id"], user["id"])).fetchall()
+    return 200, {"ok": True, "games": [{"gid": r[0], "title": r[1], "status": r[2], "chat": r[5] or ""} for r in rows]}
+
+# ---- the bot's posts while the battle runs: one summary every 10 s while the crowd is big, every kill by name at the end
+def _mb_who(p):
+    return mention(p["uid"], p["name"], p["username"])
+
+def _mb_send(g, text, markup=None):
+    p = {"chat_id": g["chat_id"], "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}
+    if markup:
+        p["reply_markup"] = markup
+    r = tg_try("sendMessage", **p)
+    if not r.get("ok") and r.get("error_code") == 429:
+        return float(((r.get("parameters") or {}).get("retry_after")) or 5)
+    return 0.0
+
+def mb_progress(g):
+    if not g["log"]:
+        return
+    now = time.time()
+    if now < g["last_post"]:
+        return                      # Telegram asked to slow down
+    proto, rows = json.loads(g["proto"]), json.loads(g["log"])
+    parts, N = proto["fighters"], len(proto["fighters"])
+    t = now - g["start_at"]
+    posted = g["posted"]
+    due = [r for r in rows[posted:] if r[3] <= t]
+    if not due:
+        if posted >= N - 1:
+            mb_finish(g)
+        return
+    left_after = N - 1 - (posted + len(due))
+    lines, wait = [], 0.0
+    if N - 1 - posted > 15 and left_after > 15:
+        if now - (g["last_post"] or g["start_at"]) < 10 and left_after > 15:
+            return                  # collect for the 10-second summary
+        k = len(due)
+        lines.append(f"💀 За последние 10 секунд погибли {k} {plural_ru(k, 'боец', 'бойца', 'бойцов')}.\n🩸 Осталось бойцов: <b>{left_after + 1}</b>")
+        for m in (250, 100, 50, 25):
+            if left_after + 1 < m <= N - posted:      # this summary crossed the mark
+                lines.append(f"🔥 В живых меньше {m} бойцов!")
+                break
+    else:
+        for r in due:
+            alive = N - 1 - r[0]
+            lines.append(f"☠️ {_mb_who(parts[r[1]])} уничтожен бойцом {_mb_who(parts[r[2]])}\n🩸 Осталось бойцов: <b>{alive}</b>")
+            if alive == 2:
+                a, b = [parts[i] for i in range(N) if i not in {x[1] for x in rows[:r[0] + 1]}][:2]
+                lines.append(f"⚔️ <b>Финальная дуэль:</b> {_mb_who(a)} против {_mb_who(b)}")
+    wait = _mb_send(g, "\n\n".join(lines))   # the last blows too: their own message, before the results
+    with db_lock:
+        if wait:
+            db.execute("UPDATE mb_games SET last_post=? WHERE id=?", (now + wait, g["id"]))
+        else:
+            db.execute("UPDATE mb_games SET posted=?, last_post=? WHERE id=? AND posted=?", (posted + len(due), now, g["id"], posted))
+        db.commit()
+    if not wait and posted + len(due) >= N - 1:
+        g = _mb_row(g["id"])
+        mb_finish(g)
+
+MB_CLS_RU = {"knight": "Рыцарь", "mage": "Маг", "necro": "Некромант", "gladiator": "Гладиатор", "samurai": "Самурай"}
+_mb_font = None
+def mb_card_png(cls, name):
+    """The winner's card: his class standing in the steel set (a/mbcard_<class>.bin, raw 640×640 RGB),
+    his nick written on the plate in the game's pixel font (a/mbfont.json), packed as PNG. None if the pieces are missing."""
+    global _mb_font
+    try:
+        raw = bytearray(zlib.decompress(open(os.path.join(PUBLIC, "a", f"mbcard_{cls if cls in MB_CLS_RU else 'knight'}.bin"), "rb").read()))
+        if _mb_font is None:
+            _mb_font = json.load(open(os.path.join(PUBLIC, "a", "mbfont.json"), encoding="utf-8"))
+    except Exception as e:
+        log.warning("mb card: %s", e)
+        return None
+    W = 640
+    glyphs, gh = _mb_font["g"], _mb_font["h"]
+    text = "".join(ch if ch in glyphs else "?" for ch in name)[:32] or "?"
+    tw = sum(len(glyphs[ch][0]) if glyphs[ch] else 4 for ch in text) + len(text) - 1
+    sc = next((k for k in (4, 3, 2) if tw * k <= 500), 1)
+    x0, y0 = (W - tw * sc) // 2, 585 - gh * sc // 2
+    def put(x, y, col):
+        if 0 <= x < W and 0 <= y < W:
+            i = (y * W + x) * 3
+            raw[i:i + 3] = col
+    for dx, dy, col in [(o[0], o[1], (10, 7, 16)) for o in ((-1, 0), (1, 0), (0, -1), (0, 1), (1, 1))] + [(0, 0, (255, 210, 74))]:
+        x = x0
+        for ch in text:
+            rows = glyphs[ch]
+            for gy, row in enumerate(rows):
+                for gx, bit in enumerate(row):
+                    if bit == "1":
+                        for yy in range(sc):
+                            for xx in range(sc):
+                                put(x + gx * sc + xx + dx * sc, y0 + gy * sc + yy + dy * sc, col)
+            x += ((len(rows[0]) if rows else 4) + 1) * sc
+    def chunk(t, d):
+        return struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xffffffff)
+    rows = b"".join(b"\x00" + bytes(raw[y * W * 3:(y + 1) * W * 3]) for y in range(W))
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", W, W, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(rows, 6)) + chunk(b"IEND", b""))
+
+def mb_places(proto, k):
+    """The first k places: the winner, then whoever fell last."""
+    parts, order = proto["fighters"], proto["order"]
+    return [parts[order[len(order) - p]] for p in range(1, min(k, len(order)) + 1)]
+
+def mb_finish(g):
+    """The last blow has fallen: one results post, whatever restarts happen (status changes once, under the lock)."""
+    with db_lock:
+        cur = _mb_row(g["id"])
+        if not cur or cur["status"] != "running":
+            return
+        db.execute("UPDATE mb_games SET status='done', finished=? WHERE id=? AND status='running'", (time.time(), g["id"]))
+        db.commit()
+    _mb_cache.pop(g["id"], None)
+    proto = json.loads(cur["proto"])
+    N = len(proto["fighters"])
+    top = mb_places(proto, cur["conds"].get("places", 1))
+    w = top[0]
+    ps = mb_prize_list(cur)
+    rows = [f"{MB_MEDAL.get(i, f'{i}.')} {_mb_who(p)}" + (f" — {mb_prize_html(ps[i - 1])}" if i <= len(ps) else "") for i, p in enumerate(top, 1)]
+    cap = (f"🏆 <b>Итоги: {html_esc(cur['title'])}</b>\n\n"
+           f"Последним на ногах остался {_mb_who(w)}\n\n"
+           + ("Призовые места:\n" if len(top) > 1 else "Приз:\n") + "\n".join(rows) + "\n\n"
+           f"👥 Бойцов было {N}, шанс у каждого — 1 из {N}.")
+    kb = {"inline_keyboard": [[{"text": "📜 Итоги битвы", "url": app_link("mb_" + cur["id"])}]]}
+    png = mb_card_png(w["cls"], "@" + w["username"] if w.get("username") else (w.get("name") or "Победитель"))
+    try:
+        r = tg_multipart("sendPhoto", {"photo": ("winner.png", png, "image/png")}, chat_id=cur["chat_id"], caption=cap,
+                         parse_mode="HTML", reply_markup=kb) if png else {"ok": False}
+    except Exception as e:
+        log.warning("mb card send: %s", e)
+        r = {"ok": False}
+    if not r.get("ok"):
+        _mb_send(cur, cap, kb)
+    if cur["post_mid"]:
+        tg_try("unpinChatMessage", chat_id=cur["chat_id"], message_id=cur["post_mid"])
+    tg_try("sendMessage", chat_id=cur["by_uid"], parse_mode="HTML",
+           text=f"🏆 Бойня «{html_esc(cur['title'])}» окончена. Кому что отдать:\n"
+                + "\n".join(f"{i}. {_mb_who(p)} (id {p['uid']})" + (f" — {mb_prize_html(ps[i - 1])}" if i <= len(ps) else "") for i, p in enumerate(top, 1)),
+           disable_web_page_preview=True)
+
+def mb_loop():
+    while True:
+        time.sleep(1)
+        try:
+            now = time.time()
+            with db_lock:
+                ids = db.execute("SELECT id, status, reg_ends, plan_at FROM mb_games WHERE status IN ('reg','running')").fetchall()
+            for gid, status, reg_ends, plan_at in ids:
+                if status == "reg":
+                    if now >= max(reg_ends, plan_at - MB_LEAD_IN):
+                        mb_draw(gid)
+                    else:
+                        with db_lock:
+                            g = _mb_row(gid)
+                            n = _mb_count(gid)
+                        if g["post_mid"] and n != g["last_n"] and now - g["last_edit"] > 20:
+                            kb = {"inline_keyboard": [[{"text": "⚔️ Участвовать", "url": app_link("mb_" + gid)}]]}
+                            if g["conds"].get("photo"):      # a post made by v258 with the gift's picture
+                                tg_try("editMessageCaption", chat_id=g["chat_id"], message_id=g["post_mid"], caption=_mb_announce_text(g, n), parse_mode="HTML", reply_markup=kb)
+                            else:
+                                tg_try("editMessageText", chat_id=g["chat_id"], message_id=g["post_mid"], text=_mb_announce_text(g, n), parse_mode="HTML", reply_markup=kb)
+                            with db_lock:
+                                db.execute("UPDATE mb_games SET last_n=?, last_edit=? WHERE id=?", (n, now, gid))
+                                db.commit()
+                else:
+                    with db_lock:
+                        g = _mb_row(gid)
+                    if not g["log"]:
+                        threading.Thread(target=mb_compute, args=(gid,), daemon=True).start()   # after a restart in the middle
+                        continue
+                    if now >= g["start_at"]:
+                        if not g["flags"].get("go"):
+                            with db_lock:
+                                db.execute("UPDATE mb_games SET flags=? WHERE id=?", (json.dumps(dict(g["flags"], go=1)), gid))
+                                db.commit()
+                            _mb_send(g, f"⚔️ <b>{html_esc(g['title'])}</b>: битва началась! Бойцов: <b>{g['n']}</b>",
+                                     {"inline_keyboard": [[{"text": "📺 Смотреть трансляцию", "url": app_link("mb_" + gid)}]]})
+                            continue
+                        mb_progress(g)
+        except Exception as e:
+            log.warning("mb loop: %s", e)
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "Emberspire"
 
@@ -4327,6 +5221,14 @@ class Handler(BaseHTTPRequestHandler):
             ensure_player(u)
             if path == "/api/leaderboard":
                 return self.send_json(*leaderboard(u, urllib.parse.parse_qs(url.query).get("cls", [""])[0]))
+            if path == "/api/mb/state":
+                return self.send_json(*mb_state(u, urllib.parse.parse_qs(url.query)))
+            if path == "/api/mb/proto":
+                return self.send_json(*mb_proto(u, urllib.parse.parse_qs(url.query)))
+            if path == "/api/mb/mine":
+                return self.send_json(*mb_mine(u))
+            if path == "/api/mb/chats":
+                return self.send_json(*mb_chats(u, urllib.parse.parse_qs(url.query)))
             if path == "/api/ref":
                 return self.send_json(*ref_info(u))
             if path == "/api/partner":
@@ -4499,6 +5401,11 @@ class Handler(BaseHTTPRequestHandler):
             "/api/gr/claim": lambda: gr_claim(u, body),
             "/api/gr/bot": lambda: gr_bot(u, body),
             "/api/gr/public": lambda: gr_public(u, body),
+            "/api/mb/new": lambda: mb_new(u, body),
+            "/api/mb/join": lambda: mb_join(u, body),
+            "/api/mb/fighter": lambda: mb_fighter(u, body) if rate_ok(u["id"], "mbfighter") else (429, {"ok": False}),
+            "/api/mb/cancel": lambda: mb_cancel(u, body),
+            "/api/admin/mbprice": lambda: mb_price_set(u, body),
         }
         fn = routes.get(path)
         return self.send_json(*(fn() if fn else (404, {"ok": False})))
@@ -5349,6 +6256,17 @@ def handle_update(upd):
         return
     text = msg.get("text") or ""
     first = text.split()[0] if text.split() else ""
+    if msg.get("chat", {}).get("type") in ("group", "supergroup"):
+        try:
+            mb_count_msg(msg)          # v264: remembers the groups the bot is in (a massacre is started there from the game)
+        except Exception as e:
+            log.warning("mb count: %s", e)
+        if first.split("@")[0].lower() in ("/massacre", "/бойня") and ("@" not in first or first.split("@", 1)[1].lower() == (BOT_USERNAME or "").lower()):
+            try:
+                mb_command(msg)
+            except Exception as e:
+                log.warning("/massacre: %s", e)
+            return
     if first.split("@")[0].lower() == "/start" and msg.get("chat", {}).get("type") in ("group", "supergroup"):
         # plain /start@bot after adding the bot (or /start boss|raid): show the boss panel
         try:
@@ -5467,7 +6385,8 @@ def bot_loop():
     # the «/» menu in groups: admins see /boss there and a tap sends «/boss@bot», which always reaches this bot
     try:
         tg("setMyCommands", scope={"type": "all_chat_administrators"}, commands=[
-            {"command": "boss", "description": "Призвать босса в чат"}])
+            {"command": "boss", "description": "Призвать босса в чат"},
+            {"command": "massacre", "description": "Массовая бойня: как создать розыгрыш"}])
     except Exception as e:
         log.warning("could not set group commands: %s", e)
     offset = 0
@@ -5532,6 +6451,7 @@ if __name__ == "__main__":
     threading.Thread(target=reminder_loop, daemon=True).start()
     threading.Thread(target=chan_loop, daemon=True).start()
     threading.Thread(target=events_loop, daemon=True).start()
+    threading.Thread(target=mb_loop, daemon=True).start()
     threading.Thread(target=housekeeping_loop, daemon=True).start()
     def _br_warm():
         """v196: ask ourselves for the game page and its picture files, so the brotli copies are ready before the first player comes."""

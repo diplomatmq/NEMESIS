@@ -84,10 +84,10 @@ function shouldForwardToPython(update: any): boolean {
       }
       if (!text) return false;
 
-      // Group boss panel and group /start are drawn by the Python bot.
+      // Group boss panel, group /start and the /massacre giveaway prompt are drawn by the Python bot.
       const first = text.split(/\s+/)[0] || '';
       const command = first.split('@')[0].toLowerCase();
-      if (command === '/boss' || command === '/start') return true;
+      if (command === '/boss' || command === '/start' || command === '/massacre' || command === '/бойня') return true;
       const words = text.toLowerCase().split(/\s+/);
       if (username && words[0] === '@' + username && ['raid', 'boss', 'рейд', 'босс'].includes(words[1])) {
         return true;

@@ -516,7 +516,7 @@ h2 small{font-size:11px;letter-spacing:.06em;color:var(--dim);text-transform:non
 .skill .sn small{font-size:10px;letter-spacing:.12em;color:var(--dim);text-transform:uppercase;font-weight:500}
 .skill .sd{font-size:12px;color:var(--muted);line-height:1.25;margin-top:2px}
 .skill .sd b{color:var(--text);font-weight:500}
-.pips{display:flex;gap:3px;margin-top:4px}.pips i{width:8px;height:4px;background:#2b2236;box-shadow:inset 0 0 0 1px var(--line)}.pips i.on{background:var(--gold)}
+.pips{display:flex;gap:3px;margin-top:4px}.pips i{width:8px;height:4px;background:#3a2f4a;box-shadow:inset 0 0 0 1px #6b5a80}.pips i.on{background:var(--gold)}
 .skill .btn{min-width:44px}
 .mastery{display:grid;grid-template-columns:1fr;gap:6px}.mastery.locked{padding:10px}
 .mst{display:grid;grid-template-columns:auto 1fr auto auto;gap:8px;align-items:center;padding:8px 10px;background:var(--inset);box-shadow:inset 0 0 0 2px var(--line)}
@@ -2597,7 +2597,9 @@ window.EmberNet=(()=>{
   }
   const user=tg&&tg.initDataUnsafe&&tg.initDataUnsafe.user||null;
   function nav(st){if(!tg||!at('6.1'))return;try{(st.modal||st.tab!=='tower')?tg.BackButton.show():tg.BackButton.hide();}catch(e){}}
-  function haptic(k){if(!tg||!at('6.1'))return;try{const H=tg.HapticFeedback;
+  /* v259: vibration can be turned off in the settings; kept on this device (like the music) */
+  function vibOn(){try{return localStorage.getItem('ember.vib')!=='0';}catch(e){return true;}}
+  function haptic(k){if(!tg||!at('6.1')||!vibOn())return;try{const H=tg.HapticFeedback;
     if(k==='crit')H.impactOccurred('medium');else if(k==='hit')H.impactOccurred('light');else if(k==='hurt')H.impactOccurred('rigid');
     else if(k==='boss'||k==='legend'||k==='level')H.notificationOccurred('success');else if(k==='lose')H.notificationOccurred('error');else if(k==='tab')H.selectionChanged();}catch(e){}}
   /* scores: sent after each cleared room, at most one request in flight; the server checks the Telegram signature */
@@ -4972,7 +4974,7 @@ function resize(force){
   const r={width:stageEl.clientWidth,height:stageEl.clientHeight}; if(r.width<10||r.height<10) return; // layout size: correct under the desktop zoom too
   if(GRS){grResize(r);return;}
   // fill the stage: the room may scale by fractions of a CSS pixel
-  const sw=r.width-4,sh=r.height-4,dpr=window.devicePixelRatio||1;
+  const sw=r.width-4,sh=r.height-4,dpr=(window.devicePixelRatio||1)*(window.__deskK||1);
   let scale=Math.min(sw/FW,sh/ROOM_H,6);
   scale=Math.max(1,dpr>=2?Math.floor(scale*dpr*2)/(dpr*2):Math.floor(scale*dpr)/dpr); // on dense screens a sub-pixel step is invisible
   const W=Math.floor(sw/scale),H=Math.max(ROOM_H,Math.min(260,Math.floor(sh/scale)));
@@ -6859,6 +6861,7 @@ function musicKind(){return titleOn?'title':duel||GRS||(fight&&(fight.f.raid||fi
 /* the title music starts with the game; a phone that forbids sound before the first touch starts it on that touch */
 /* v239: the music choice lives on the device as well: switched off (button or slider at 0) stays off at the next launch,
    even if a cloud save from before the switch arrives. Otherwise every launch starts at 10%. */
+function vibIsOn(){try{return localStorage.getItem('ember.vib')!=='0';}catch(e){return true;}}
 function musPrefSave(){try{localStorage.setItem('ember.mus',JSON.stringify({on:S.musicOn!==false,vol:S.musicVol}));}catch(e){}}
 function musicPrefs(){if(!S)return;let mp=null;try{mp=JSON.parse(localStorage.getItem('ember.mus')||'null');}catch(e){}
   if(mp&&mp.on===false)S.musicOn=false;if(mp&&mp.on===true&&S.musicOn===false)S.musicOn=true;
@@ -6868,7 +6871,7 @@ function musicAtLaunch(){musicPrefs();if(!S||S.musicOn===false)return;Music.on=t
   try{Object.assign(Music.last,JSON.parse(localStorage.getItem('ember.musicLast')||'{}'));}catch(e){}
   try{if(!Music.started)Music.start();Music.set('title');}catch(e){}}
 let musicTick=0;
-const APP_VER='258';
+const APP_VER='261';
 /* one bad frame must never freeze the game: the error is shown once and the loop goes on */
 let errShown='';
 function showErr(m){m=String(m||'').slice(0,140);if(m===errShown)return;errShown=m;try{toast('Ошибка (v'+APP_VER+'): '+esc(m),null);}catch(e){}}
@@ -6899,6 +6902,7 @@ function loopBody(ts,unseen){
   SC.time+=dt;
   simTimers();if(AUTO.on&&SC.time-autoAt>0.4){autoAt=SC.time;autoTick();}
   /* the tower lives only while you look at it — except the autofarm, which goes on everywhere */
+  if(window.__mbBusy&&!studioOn&&!AUTO.on&&!fight&&!duel&&!GRS)return;   // v258: a battle covers the screen — the tower doesn't draw under it
   if(studioOn||(tab!=='tower'&&!AUTO.on)){drawWheel(SC.time);if(tab==='shop')drawShopScene(SC.time);updateHud();return;}
   if(SC.hitstop>0)SC.hitstop-=dt;
   else if(fight&&!fight.f.done){let rem=dt;while(rem>0){const st=Math.min(rem,1/60);L.stepFight(fight.f,st);rem-=st;}}
@@ -9542,7 +9546,7 @@ function grCleanup(){if(!GRS)return;S.st.kills=GRS.kills;SC.hero=GRS.heroSave||S
 /* the arena: one big hall, a war sigil under the boss, braziers in the corners */
 function grResize(r){
   const AW=L.GR_AW,AH=L.GR_AH,TW=10,TOPW=22,BOTW=10,needW=AW+2*TW,needH=AH+TOPW+BOTW;
-  const sw=r.width-4,sh=r.height-4,dpr=window.devicePixelRatio||1;
+  const sw=r.width-4,sh=r.height-4,dpr=(window.devicePixelRatio||1)*(window.__deskK||1);
   let scale=Math.min(sw/needW,sh/needH,6);scale=Math.max(1,dpr>=2?Math.floor(scale*dpr*2)/(dpr*2):Math.floor(scale*dpr)/dpr);
   const W=Math.max(needW,Math.floor(sw/scale)),H=Math.max(needH,Math.min(320,Math.floor(sh/scale)));
   if(GRS.bg&&W===SC.W&&H===SC.H&&scale===SC.scale)return;
@@ -9621,7 +9625,7 @@ function renderPath(){
   const seg=`<div class="pseg" role="tablist">${[['top','Топ',UI.crown],['duel','Дуэли',UI.win],['raid','Рейд',UI.skull],['me','Я',UI.tower]].map(([k,t,ic])=>`<button role="tab" aria-selected="${PT===k}" class="${PT===k?'on':''}" data-pt="${k}"><img src="${ic}" alt="">${t}${k==='duel'&&inc?`<i class="pbadge">${inc}</i>`:k==='raid'&&(raidHot||grNewGroups())?'<i class="pbadge">!</i>':k==='me'&&refReady()?'<i class="pbadge">!</i>':''}</button>`).join('')}</div>`;
   if(PT==='top'){$('v-path').innerHTML=seg+seasonCard()+`<div id="lbBox"></div>`;if(window.EmberNet)EmberNet.renderBoard($('lbBox'),S.maxCleared);seasonTick();return;}
   if(PT==='duel'){$('v-path').innerHTML=seg+duelSection();return;}
-  if(PT==='raid'){$('v-path').innerHTML=seg+grSection()+raidSection()+raidTestSection();setTimeout(grMarkPubSeen,1500);return;}
+  if(PT==='raid'){$('v-path').innerHTML=seg+mbSection()+grSection()+raidSection()+raidTestSection();setTimeout(grMarkPubSeen,1500);return;}
   $('v-path').innerHTML=seg+`
   <div class="panel px"><div class="towerwrap">
     <div><div class="sub">Текущий ярус</div><div class="bigline">Комната <b>${((cur-1)%10)+1}</b> / 10</div>
@@ -10720,6 +10724,7 @@ function gearModal(){
     <p class="note cloudln" style="margin:0">${cloudLine()}</p>
     <div class="switch"><span>Звуки боя</span><button class="btn sm" data-act="sound">${S.sound?'Включён':'Выключен'}</button></div>
     <div class="switch"><span>Полный экран</span><button class="btn sm" data-act="fullscr">${fsOn()?'Включён':'Выключен'}</button></div>
+    <div class="switch"><span>Вибрация</span><button class="btn sm" data-act="vib">${vibIsOn()?'Включена':'Выключена'}</button></div>
     <div class="switch"><span>Музыка</span><button class="btn sm" data-act="music">${S.musicOn!==false?'Включена':'Выключена'}</button></div>
     <div class="switch"><span>Громкость эффектов</span><input type="range" id="sfxVol" min="0" max="100" value="${Math.round((S.sfxVol!=null?S.sfxVol:1)*100)}" style="width:50%"></div>
     <div class="switch"><span>Громкость музыки</span><input type="range" id="musVol" min="0" max="100" value="${Math.round(Music.vol*100)}" style="width:50%"></div>
@@ -10775,7 +10780,7 @@ function admDebug(){return `<h2>Debug</h2>
     <button class="btn ember" data-act="dtest">Тестовый бой</button>
     `;}
 const ADM={open:false,tab:'player',p:null,msg:'',q:'',tell:true};try{ADM.tab=localStorage.getItem('adm.tab')||'player';}catch(e){}
-const ADM_TABS=[['player','👤 Игрок'],['notice','📢 Объявление'],['season','🏆 Сезон'],['money','⭐ Звёзды'],['rest','⏳ Отдых'],['partners','🤝 Партнёры'],['ac','🛡 Античит'],['debug','🧪 Отладка'],['danger','⚠️ Опасное']];
+const ADM_TABS=[['player','👤 Игрок'],['notice','📢 Объявление'],['season','🏆 Сезон'],['money','⭐ Звёзды'],['rest','⏳ Отдых'],['partners','🤝 Партнёры'],['ac','🛡 Античит'],['mb','⚔️ Бойня'],['debug','🧪 Отладка'],['danger','⚠️ Опасное']];
 function admCard(){const P=ADM.p;if(!P)return ADM.msg?`<p class="note">${esc(ADM.msg)}</p>`:'<p class="note" style="margin:0">Найди игрока по @нику или id — здесь появится его карточка: этаж, звёзды, пропуски, выдача пропусков и сброс.</p>';
   const ago=t=>{if(!t)return '—';const m=Math.round((Date.now()/1e3-t)/60);return m<2?'сейчас':m<60?m+' мин назад':m<1440?Math.round(m/60)+' ч назад':Math.round(m/1440)+' дн назад';};
   return `<div class="admc"><div class="admh"><b>${esc(P.name||'Без имени')}</b>${P.username?` <span class="dl">@${esc(P.username)}</span>`:''}<small> · id ${P.id}</small>${P.flagged?' <span class="dw">под античитом</span>':''}</div>
@@ -10795,7 +10800,7 @@ function adminModal(){ADM.open=true;const T=ADM.tab;
   const body=T==='player'?`<div class="dbgrow"><input id="wipeWho" class="ninput" maxlength="40" placeholder="@ник или id" value="${esc(who)}" style="flex:1;min-width:0"><button class="btn sm gold" data-act="adm-find">Найти</button></div>
       <div id="admCard">${admCard()}</div><p class="note nstat" id="wipeStat" style="margin:0"></p>`
     :T==='notice'?admNotice():T==='season'?admSeason():T==='money'?admStars()
-    :T==='rest'?admRest()
+    :T==='rest'?admRest():T==='mb'?mbAdmHtml()
     :T==='partners'?admPartners()
     :T==='ac'?`<h2>Анти-чит</h2><p class="note" style="margin:0">Игроки, которых сервер подозревает, с причинами. Решаешь ты.</p><button class="btn" data-act="ac-open">Открыть список подозрительных</button>`
     :T==='debug'?admDebug()
@@ -11048,6 +11053,7 @@ document.addEventListener('click',ev=>{
       const fsv=!fsOn();try{localStorage.setItem('ember.fs',fsv?'1':'0');}catch(e){}window.__fsAsked=1;EmberFS.set(fsv);el.textContent=fsv?'Включён':'Выключен';break;}
     case'sound':S.sound=!S.sound;SFX.on=S.sound;el.textContent=S.sound?'Включён':'Выключен';persist();break;
     case'terms':{ev.preventDefault();const u=(window.EMBER_TERMS||(location.origin+'/terms'));try{const W=window.Telegram&&Telegram.WebApp;if(W&&W.openLink&&W.initData)W.openLink(u);else window.open(u,'_blank');}catch(e){window.open(u,'_blank');}break;}
+    case'vib':{const on=!vibIsOn();try{localStorage.setItem('ember.vib',on?'1':'0');}catch(e){}el.textContent=on?'Включена':'Выключена';if(on&&window.EmberNet&&EmberNet.haptic)EmberNet.haptic('crit');break;}
     case'music':S.musicOn=!(S.musicOn!==false);Music.on=S.musicOn;el.textContent=Music.on?'Включена':'Выключена';persist();musPrefSave();if(Music.on){Music.start();Music.want=null;Music.set(musicKind());}else Music.apply();break;
     case'd-gold':S.gold+=1000;persist();SFX.play('coin');toast('+1000 золота',UI.coin);renderActive();break;
     case'd-item':{const it=L.makeItem(Math.random,Math.max(1,S.room),L.rollRarity(Math.random),null,S.uid++);addItem(it);persist();toast(`Выдано: <span class="rc${it.rarity}">${esc(it.name)}</span>`,itemIcon(it.tid));renderActive();break;}
@@ -11118,10 +11124,15 @@ function partnerGift(name,g){if(!S)return;g=g||{};mats().core+=g.cores||0;let it
     const cur=S.inv.find(x=>x.uid===S.eq.weapon);if(!cur||L.itemPower(it)>L.itemPower(cur))S.eq.weapon=it.uid;}catch(e){it=null;}
   try{onGearChanged();}catch(e){}persist();starsRefresh();
   whenFree(()=>openModal(`<div class="sheet px px-gold"><h3>Подарок от партнёра «${esc(name)}»</h3><p class="note" style="font-size:14px;color:var(--text)">Ты пришёл по приглашению партнёра — держи на старт${it?' (оружие уже надето)':''}:</p><div class="giftrow"><span><img src="${TICKET_ICON}" alt="">${g.skips||0} ${plural(g.skips||0,'пропуск','пропуска','пропусков')} отдыха</span><span><img src="${CORE_ICON}" alt="">${g.cores||0} ${plural(g.cores||0,'ядро','ядра','ядер')}</span>${it?`<span><img src="${itemIcon(it.tid)}" alt=""><i class="rc${it.rarity}" style="font-style:normal">${esc(it.name)}</i></span>`:''}</div><p class="note">С пропусками открыт автофарм — поднимайся!</p><button class="btn ember" data-act="close" data-focus>Забрать</button></div>`));}
-/* laptops and desktops: the whole game is drawn as on a tall phone and scaled up to fill the window */
+/* laptops and desktops: the game keeps a phone's tall proportions. Telegram Desktop opens it in a wide, short window; laid
+   out as is, every bar keeps its height and only the room shrinks. Instead the game is laid out on a tall page (about 780
+   high, 0.56 as wide) and that page is scaled to the window's height (never below 0.8) and centred; the sides stay dark. */
 function desktopFit(){const W=innerWidth,H=innerHeight,b=document.body,fine=matchMedia('(pointer:fine)').matches;
-  let k=1;if(fine&&W>=760&&H>=560)k=Math.max(1,Math.min(2.6,H/600,W/500));
-  if(k>1.02){b.style.width=(W/k)+'px';b.style.height=(H/k)+'px';b.style.transform=`scale(${k})`;b.style.transformOrigin='0 0';document.documentElement.style.overflow='hidden';document.documentElement.style.background='var(--void)';}
+  let k=1,lw=0,lh=0;
+  if(fine&&W/H>0.6&&H>=360){k=Math.max(0.8,Math.min(2.6,H/780));lh=H/k;lw=Math.min(W/k,Math.max(380,lh*0.56));}
+  window.__deskK=lw?k:1;
+  if(lw){b.style.width=lw+'px';b.style.height=lh+'px';b.style.transform=`translateX(${Math.max(0,(W-lw*k)/2)}px) scale(${k})`;b.style.transformOrigin='0 0';
+    document.documentElement.style.overflow='hidden';document.documentElement.style.background='var(--void)';}
   else{b.style.width='';b.style.height='';b.style.transform='';}
   if(typeof resize==='function')requestAnimationFrame(()=>resize(true));}
 addEventListener('resize',desktopFit);
@@ -11195,6 +11206,7 @@ function start(data){
   if(window.EmberNet&&EmberNet.duelId){duelInvite=EmberNet.duelId();duelsOpen=EmberNet.duelsOpen();friendsOpen=!!(EmberNet.friendsOpen&&EmberNet.friendsOpen());}
   window.__lbCrown=UI.crown;
   setTimeout(duelRefresh,2500);
+  setTimeout(()=>{try{mbBoot();}catch(e){}},900);   // v256: a giveaway link from the chat
   requestAnimationFrame(t=>{lastTs=t;requestAnimationFrame(loop);});
   window.__emberNav={closeModal,setTab,modalOpen:()=>!$('modal').hidden};
   if(location.protocol==='file:'||/^(localhost|127\.0\.0\.1)$/.test(location.hostname))window.__ember={grRefresh:()=>grRefresh(),setSeason:v=>{SEASON=v;},setPathView:v=>setPathView(v),starsCall:(k,a)=>starsCall(k,a),setGRM:v=>{GRM=v;grBarUpd();},setSTARS:v=>{STARS=v;},grWatch:v=>grWatch(v),grSection:()=>grSection(),get GRS(){return GRS;},persist:()=>persist(),nftTest:items=>{NFTS=items;nftModal();},nftDrop:n=>nftShowDrop(n),SC,get S(){return S;},get AUTO(){return AUTO;},autoAfter:r=>autoAfter(r),get STARS(){return STARS;},updateFightBtn,setPick:v=>{pickSel=v;},get fight(){return fight;},closeModal,setTab,startFight,testRoom:r=>!!buildRoom(r),testArt:(lk)=>{const a=sideArt(lk);lookPortrait(lk);return !!a;},modalOpen:()=>!$('modal').hidden};
@@ -11212,6 +11224,918 @@ function tgGate(){const bot=window.EMBER_BOT||'',url=bot?`https://t.me/${bot}/${
   document.head.appendChild(st);document.body.replaceChildren(d);}
 const DEV_HOST=location.protocol==='file:'||/^(localhost|127\.|0\.0\.0\.0|10\.|192\.168\.|\[::1\])/.test(location.hostname);
 const TG_OK=!!(window.Telegram&&Telegram.WebApp&&Telegram.WebApp.initData);
+/* ===== МАССОВАЯ БОЙНЯ: the battle simulation. The same text runs in the game and on the server (mb_engine.js, Node).
+   MBCore(L) needs L.mulberry32 and L.CLASSES (range, proj). Nothing here draws. ===== */
+function MBCore(L){
+/* ---------- 2. the timeline: the k-th death happens at T[k] seconds; 3–5 minutes for 20…500 fighters ---------- */
+// few fighters: 2…4 minutes; a crowd: up to 5:30 (2 → 2:00, 30 → 4:00, 500 → 5:30)
+function mbDuration(N){if(N<=2)return 120;if(N<30)return Math.round(120+120*Math.log(N/2)/Math.log(15));return Math.round(240+90*Math.min(1,Math.log(N/30)/Math.log(500/30)));}
+function mbTimeline(N){
+  const D=mbDuration(N),deaths=N-1,T=new Array(Math.max(0,deaths));if(deaths<=0)return {D:0,T,fin:0};
+  const fin=N<=2?D:Math.min(40,D*0.12);T[deaths-1]=D;                 // the final duel ends the battle
+  const spot=Math.min(deaths-1,9),mass=deaths-1-spot,spotEnd=D-fin;    // the last 9 deaths before the duel come one by one
+  const spotStart=mass?Math.max(D*0.7,spotEnd-spot*14):D*0.25,step=spot?(spotEnd-spotStart)/spot:0;
+  for(let i=0;i<spot;i++)T[mass+i]=spotStart+step*(i+0.5);
+  const a=6,b=Math.max(a+1,spotStart-4);                                // mass phase: many deaths early, fewer later
+  for(let k=0;k<mass;k++){const q=(k+1)/mass,u=1-Math.pow(1-q,1/2.2);T[k]=a+u*(b-a);}
+  return {D,T,fin};
+}
+
+/* ---------- 6. the battle world ---------- */
+function mbWorld(entrants,order,seed,prize,opts){opts=opts||{};order=order||[];
+  const N=entrants.length,TL=mbTimeline(N),R0=Math.max(150,Math.min(1100,Math.sqrt(N)*48)),rnd=L.mulberry32(seed>>>0);
+  const W={N,T:TL.T,D:TL.D,fin:TL.fin,R0,R:R0,t:opts.t0!=null?opts.t0:-2.5,rnd,seed,order:order.slice(),plan:[],server:!!opts.server,prize,alive:N,next:0,assign:0,ev:[],fx:[],proj:[],mins:[],pops:[],decals:[],done:false,winner:null,slow:0,duel:false,cell:48,grid:new Map()};
+  // spawn: spread over the disc with a minimum gap, never on top of each other
+  const pts=[],minD=Math.min(26,R0*1.6/Math.sqrt(N)),cs=minD,occ=new Map(),key=(x,y)=>((x/cs)|0)+','+((y/cs)|0);
+  for(let tries=0;pts.length<N&&tries<N*400;tries++){const a=rnd()*Math.PI*2,r=Math.sqrt(rnd())*R0*0.9,x=Math.cos(a)*r,y=Math.sin(a)*r;let ok=true;
+    for(let dx=-1;dx<=1&&ok;dx++)for(let dy=-1;dy<=1&&ok;dy++){const l=occ.get((((x/cs)|0)+dx)+','+(((y/cs)|0)+dy));if(l)for(const p of l)if((p[0]-x)**2+(p[1]-y)**2<minD*minD){ok=false;break;}}
+    if(!ok)continue;pts.push([x,y]);const k=key(x,y);(occ.get(k)||occ.set(k,[]).get(k)).push([x,y]);}
+  while(pts.length<N){const a=rnd()*Math.PI*2,r=Math.sqrt(rnd())*R0*0.9;pts.push([Math.cos(a)*r,Math.sin(a)*r]);}
+  const dieAt=new Array(N).fill(Infinity),rank=new Array(N);
+  order.forEach((idx,k)=>{if(idx==null)return;rank[idx]=k;if(k<N-1)dieAt[idx]=TL.T[k];});
+  W.f=entrants.map((e,i)=>{const st=Object.assign({str:0,vit:0,arm:0,crit:0,hast:0,eva:0},e.stats||{}),C=L.CLASSES[e.cls];
+    return {i,name:e.name,me:!!e.me,cls:e.cls,C,st,ranged:!!C.range,proj:C.proj||'',x:pts[i][0],y:pts[i][1],face:rnd()<0.5?1:-1,fv:rnd()<0.5?1:-1,
+      hp:1,alive:true,dieAt:dieAt[i],k:rank[i],state:'idle',anim:0,dur:0.5,atkCd:0.5+rnd()*2,tgt:null,tgtT:0,doom:null,hunt:[],flash:0,
+      spd:24+st.eva*0.9+st.hast*0.3,adur:Math.max(0.32,0.55-st.hast*0.012),cd:Math.max(0.55,1.15-st.hast*0.03),
+      pDodge:0.06+st.eva*0.014,pBlock:0.07+st.arm*0.014+(e.cls==='knight'?0.08:0),pCrit:0.05+st.crit*0.012,dmgK:0.85+st.str*0.04,tough:1+st.vit*0.05,
+      ph:rnd()*10,deadT:0,killer:null,kills:0,wan:[0,0],wanT:0,style:C.style,kind:C.weapon,aim:0,alt:0,buffT:0,buffId:'',path:e.path||'',
+      sk:(e.sk||[]).map(q=>Object.assign({},q,{t:1.5+rnd()*Math.max(1,q.cd)}))};});
+  W.me=W.f.find(f=>f.me)||null;W.winner=order.length===N&&order[N-1]!=null?W.f[order[N-1]]:null;
+  // props scattered over the arena
+  W.props=[];const PK=['bones','skull','rock','rock','bones','sword','brazier','banner'];
+  for(let i=0;i<Math.round(R0*R0/2600);i++){const a=rnd()*Math.PI*2,r=Math.sqrt(rnd())*R0*0.97;W.props.push({k:PK[(rnd()*PK.length)|0],x:Math.cos(a)*r,y:Math.sin(a)*r});}
+  return W;
+}
+function mbGrid(W){const G=W.grid,cs=W.cell;G.clear();for(const f of W.f){if(!f.alive)continue;const k=((Math.floor(f.x/cs))*73856093)^((Math.floor(f.y/cs))*19349663);let l=G.get(k);if(!l)G.set(k,l=[]);l.push(f);}}
+function mbNear(W,f,maxR,pred){const cs=W.cell,cx=Math.floor(f.x/cs),cy=Math.floor(f.y/cs);let best=null,bd=Infinity;
+  for(let ring=0;ring*cs<=maxR+cs;ring++){for(let dx=-ring;dx<=ring;dx++)for(let dy=-ring;dy<=ring;dy++){if(Math.max(Math.abs(dx),Math.abs(dy))!==ring)continue;
+      const l=W.grid.get(((cx+dx)*73856093)^((cy+dy)*19349663));if(!l)continue;
+      for(const o of l){if(o===f||!o.alive||(pred&&!pred(o)))continue;const d=(o.x-f.x)**2+(o.y-f.y)**2;if(d<bd){bd=d;best=o;}}}
+    if(best&&Math.sqrt(bd)<ring*cs)break;}
+  return best&&Math.sqrt(bd)<=maxR?best:null;}
+
+/* the director: a death comes due → send the nearest fighter who outlives that moment */
+function mbAssign(W,k){const vi=W.order[k];if(vi==null)return false;   // server mode: this death is not known yet
+  const v=W.f[vi];if(!v.alive)return true;
+  if(W.server){const kl=W.f[W.plan[k]];if(kl&&kl!==v&&kl.alive){v.doom={by:kl,T:W.T[k],t0:W.t,h0:Math.max(0.35,v.hp)};kl.hunt.push(v);v.tgt=kl;return true;}}
+  mbSendKiller(W,v,W.T[k]);return true;}
+function mbSendKiller(W,v,T){
+  const ok=o=>o.dieAt>Math.max(T,W.t)+1.5;
+  let killer=mbNear(W,v,90,o=>ok(o)&&!o.hunt.length)||mbNear(W,v,140,ok)||mbNear(W,v,400,o=>ok(o)&&o.hunt.length<2);
+  if(!killer){let bd=Infinity;for(const o of W.f){if(o===v||!o.alive||!ok(o))continue;const d=(o.x-v.x)**2+(o.y-v.y)**2+(o.hunt.length*4000);if(d<bd){bd=d;killer=o;}}}
+  if(!killer)killer=W.winner&&W.winner!==v?W.winner:W.f.find(o=>o!==v&&o.alive);
+  v.doom={by:killer,T,t0:W.t,h0:Math.max(0.35,v.hp)};killer.hunt.push(v);v.tgt=killer;
+}
+/* skills: the fighter's own upgraded skills, cast when they fit the distance. They hurt like any blow and never decide a death */
+function mbSkillOk(s,d,want){const k=s.kind;return k==='summon'?d<=110:k==='melee'?d<=want+8:k==='dash'?d<=80:k==='ranged'?d<=85:k==='aoe'?d<=Math.max(18,(s.r||30)*0.8):d<=60;}
+function mbHop(W,f,tg,over,mult){const dx=tg.x-f.x,dy=tg.y-f.y,d=Math.hypot(dx,dy)||1,R=W.R-10;let x=tg.x+dx/d*over,y=tg.y+dy/d*over;const r=Math.hypot(x,y);if(r>R){x*=R/r;y*=R/r;}
+  const from={x:f.x,y:f.y};f.x=x;f.y=y;f.face=dx>=0?1:-1;mbHit(W,f,tg,false,mult||1);return from;}
+function mbNearOf(W,c,me,r){let best=null,bd=r*r;for(const o of W.f){if(!o.alive||o===me||o===c)continue;const d=(o.x-c.x)**2+(o.y-c.y)**2;if(d<bd){bd=d;best=o;}}return best;}
+function mbCast(W,f,s,tg,d){
+  f.state='attack';f.anim=0;f.dur=0.5;f.hitDone=true;f.atk=tg;f.aim=Math.atan2(tg.y-f.y,tg.x-f.x);
+  const ev={type:'cast',f,id:s.id,lv:s.lv,kind:s.kind,tg,from:{x:f.x,y:f.y}};
+  const SK=1.6+0.15*(s.lv||1);   // a skill hits far harder than a plain blow: level 1 ×1.75 … level 5 ×2.35
+  if(s.kind==='melee')mbHit(W,f,tg,false,SK);
+  else if(s.kind==='dash'){if(s.hops>1){f.hops=[];let cur=tg;for(let k=0;k<s.hops;k++){f.hops.push(cur);cur=mbNearOf(W,cur,f,60)||cur;}f.hopT=0;f.hopN=0;f.hopK=SK*0.8;f.dur=s.hops*0.17+0.2;ev.god=1;}else{mbHop(W,f,tg,10,SK);ev.to={x:f.x,y:f.y};}}
+  else if(s.kind==='ranged'){const life=Math.max(0.15,d/140);ev.travel=life;W.proj.push({a:f,b:tg,x0:f.x+f.face*8,y0:f.y-16,t:0,life,skill:SK,col:MB_PCOL[f.proj]||MB_PCOL.arcane});}
+  else if(s.kind==='aoe'){const r=s.r||30;let n=0;for(const o of W.f){if(!o.alive||o===f||n>=6)continue;if((o.x-f.x)**2+(o.y-f.y)**2<=r*r){mbHit(W,f,o,false,SK*0.75);n++;}}}
+  else if(s.kind==='summon'){const mine=W.mins.filter(m=>m.own===f).length,n=Math.max(0,Math.min(s.n||2,4-mine));
+    for(let k=0;k<n;k++){const a=W.rnd()*6.28;W.mins.push({skel:1,kind:'skel',own:f,name:f.name,alive:true,hp:1,max:1,tgt:null,x:f.x+Math.cos(a)*14,y:f.y+Math.sin(a)*8,face:f.face,life:s.dur||10,
+      spawnT:0.35,state:'spawn',anim:0,hitT:0,hitAnim:0,atkT:0.4,pCrit:0.05,dmgK:0.55,st:{str:0}});}}
+  else{f.buffT=3;f.buffId=s.id;}
+  W.ev.push(ev);
+}
+/* deaths drawn within the same 2 seconds count as simultaneous (the crowd phase); further apart they keep the drawn order */
+const MB_WIN=2;
+function mbDue(W,v){return W.t>=W.T[v.k]&&W.T[v.k]-W.T[W.next]<=MB_WIN;}
+function mbKill(W,v,k,crit){
+  v.alive=false;v.state='dead';v.deadT=W.t;v.killer=k;v.hp=0;v.doom=null;k.kills++;
+  const i=k.hunt.indexOf(v);if(i>=0)k.hunt.splice(i,1);
+  v.done=true;while(W.next<W.N-1&&W.order[W.next]!=null&&W.f[W.order[W.next]].done)W.next++;W.alive--;W.ev.push({t:W.t,type:'kill',v,k,left:W.alive});
+  for(let j=0;j<14;j++){const a=W.rnd()*6.28,s=20+W.rnd()*50;W.fx.push({k:'p',x:v.x,y:v.y-10,vx:Math.cos(a)*s,vy:Math.sin(a)*s*0.6-30,g:90,life:0.5+W.rnd()*0.4,t:0,col:['#d6404e','#8a1a2a','#ff6070','#e2dccc'][j%4]});}
+  W.fx.push({k:'skull',x:v.x,y:v.y-26,t:0,life:1.1});
+  if(W.decals.length>900)W.decals.shift();W.decals.push({x:v.x+(W.rnd()-0.5)*6,y:v.y+1,s:W.rnd()});
+  if(W.alive===2){W.duel=true;const [a,b]=W.f.filter(f=>f.alive);a.tgt=b;b.tgt=a;W.ev.push({t:W.t,type:'duel',a,b});}
+  if(W.alive===1){W.done=true;W.winner=k;W.slow=1.4;W.ev.push({t:W.t,type:'win',w:k});}
+  if(crit)W.pops.push({x:v.x,y:v.y-30,txt:'ДОБИТ',col:'#ff6070',t:0,life:1,big:1});
+}
+function mbHit(W,a,b,fromProj,mult){mult=mult||1;
+  if(!a.alive||!b.alive)return;
+  if(b.skel){const crit=W.rnd()<a.pCrit,dmg=(0.16+W.rnd()*0.1)*(crit?1.8:1)*a.dmgK*mult,n=Math.max(1,Math.round(dmg*500));b.hp-=dmg;b.hitT=0.12;b.kx=(b.x-a.x)>0?2:-2;
+    if(W.pops.length<120)W.pops.push({x:b.x,y:b.y-22,txt:String(n)+(crit?'!':''),col:crit?'#ffd24a':'#cfe8d6',t:0,life:0.7,big:crit});
+    if(b.hp<=0){b.alive=false;for(let j=0;j<10;j++)W.fx.push({k:'p',x:b.x,y:b.y-10,vx:(W.rnd()-0.5)*90,vy:-30-W.rnd()*50,g:160,life:0.6,t:0,col:j%3?'#e8f0e0':'#6ef0a0'});W.ev.push({type:'skeldie',m:b});}
+    else W.ev.push({type:'hit',a,b,crit});return;}
+  const due=b.doom&&b.doom.by===a&&mbDue(W,b);
+  if(due){mbKill(W,b,a,true);return;}
+  const r=W.rnd(),pop=(txt,col,big)=>{if(W.pops.length<120)W.pops.push({x:b.x+(W.rnd()-0.5)*6,y:b.y-28,txt,col,t:0,life:0.8,big});};
+  // the picture must agree with the draw: whoever outlives his attacker fights like it — more dodges and blocks, less damage taken
+  const fa=(a.own||a).dieAt,fb=b.dieAt,fated=fb>fa+1,low=!b.doom&&b.hp<0.4?0.14:0,ed=(fated?0.12:0)+low,eb=(fated?0.1:0)+low;   // hurt but not his turn: he fights on the defensive
+  if(r<b.pDodge+ed){pop('уклон','#a59cb8');b.dodge=0.25;b.dx=(W.rnd()<0.5?-1:1)*9;return;}
+  if(r<b.pDodge+ed+b.pBlock+eb){pop('блок','#7ab8ff');for(let j=0;j<4;j++)W.fx.push({k:'p',x:b.x-b.face*3,y:b.y-14,vx:(W.rnd()-0.5)*60,vy:-20-W.rnd()*30,g:120,life:0.3,t:0,col:j%2?'#fff':'#ffe08a'});return;}
+  const crit=W.rnd()<a.pCrit,dmg=(0.035+W.rnd()*0.025)*(crit?1.9:1)*a.dmgK*mult/b.tough*(fated?0.8:1);
+  // nobody drops to zero from a stray blow: only the fighter whose turn has come falls, and only to the one sent for him
+  const nh=b.hp-dmg;b.hp=Math.max(b.doom?0.03:0.06,nh);
+  // a fighter whose turn hasn't come gets his second wind when he's nearly down: everyone sees why he still stands
+  if(!b.doom&&b.hp<0.2&&W.t-(b.swT||-99)>12){b.swT=W.t;b.hp=0.55+W.rnd()*0.2;b.buffT=1.2;b.buffId='second_wind';b.kx=(b.x-a.x)>0?7:-7;
+    if(W.pops.length<120)W.pops.push({x:b.x,y:b.y-36,txt:'второе дыхание',col:'#7be38a',t:0,life:1.2,big:0});
+    for(let j=0;j<14;j++){const an=j/14*6.28;W.fx.push({k:'p',x:b.x+Math.cos(an)*8,y:b.y-6+Math.sin(an)*4,vx:Math.cos(an)*14,vy:-40-W.rnd()*30,g:-20,life:0.8,t:0,col:j%2?'#b8ffcc':'#3ecf6a'});}
+    W.ev.push({type:'wind',f:b});}if(W.t-(b.flAt||-9)>0.5){b.flash=0.12;b.flAt=W.t;}   // a crowd hits often: blink at most twice a second
+  const n=Math.max(1,Math.round(dmg*(800+a.st.str*30)));if(mult>1)pop(String(n)+(crit?'!':''),crit?'#ffd24a':MB_SKCOL[a.cls]||'#ff9a3a',1);else pop(crit?n+'!':String(n),crit?'#ffd24a':'#f0e7d3',crit);
+  for(let j=0;j<(crit?8:4);j++)W.fx.push({k:'p',x:b.x,y:b.y-12,vx:(W.rnd()-0.5)*70,vy:-10-W.rnd()*40,g:110,life:0.35,t:0,col:crit?'#ffd24a':'#ff6070'});
+  b.kx=(b.x-a.x)>0?2:-2;W.ev.push({type:'hit',a,b,crit});
+}
+const MB_SKCOL={knight:'#8fd3ff',mage:'#ff9a3a',necro:'#7be38a',gladiator:'#ffd24a',samurai:'#c8a0ff'};   // skill damage numbers, in the class's colour
+const MB_PCOL={arcane:['#e8d8ff','#b07aff','#6a3ab0'],shadow:['#d8ffd8','#7be38a','#2a6a3a'],arrow:['#fff','#e2dccc','#6a5030'],lightning:['#fff','#8fd3ff','#4d65b4'],bullet:['#fff','#ffd24a','#a06020']};
+function mbStep(W,dt){
+  if(W.slow>0){W.slow-=dt;dt*=0.25;}
+  W.t+=dt;if(W.t<0)return;
+  mbGrid(W);
+  const lead=k=>W.N-1-k<=10?10:8;
+  while(W.assign<W.N-1&&W.T[W.assign]-lead(W.assign)<=W.t){if(mbAssign(W,W.assign)===false)break;W.assign++;}
+  W.R+=(Math.max(70,W.R0*Math.sqrt(W.alive/W.N)*1.05)-W.R)*Math.min(1,dt*0.4);
+  for(const f of W.f){
+    if(!f.alive)continue;
+    f.flash=Math.max(0,f.flash-dt);if(f.dodge>0)f.dodge-=dt;if(f.buffT>0)f.buffT-=dt;
+    if(f.doom&&!f.doom.by.alive){const T=f.doom.T;f.doom=null;mbSendKiller(W,f,T);}   // my killer fell first: someone else comes for me
+    if(!f.doom&&f.hp<1)f.hp=Math.min(1,f.hp+dt*(f.tgt&&!f.tgt.skel&&Math.hypot(f.tgt.x-f.x,f.tgt.y-f.y)<30?0.01:0.05));   // slowly in a fight, faster when nobody is on him
+    if(f.doom)f.hp=Math.min(f.hp,Math.max(0.03,f.doom.h0*Math.max(0,f.doom.T-W.t)/Math.max(1,f.doom.T-f.doom.t0)+0.12));
+    // whom to fight: my victim first, then my killer, then whoever is near
+    let tg=f.hunt.length?f.hunt[0]:(f.doom?f.doom.by:f.tgt);
+    if(!tg||!tg.alive||(!f.hunt.length&&!f.doom&&!W.duel&&W.t>f.tgtT)){tg=mbNear(W,f,150)||null;f.tgtT=W.t+3+W.rnd()*4;
+      if(!f.hunt.length&&!f.doom&&W.mins.length){let sb=null,sd=45*45;for(const m of W.mins){if(!m.alive||m.own===f||m.spawnT>0)continue;const d=(m.x-f.x)**2+(m.y-f.y)**2;if(d<sd&&(m.tgt===f||W.rnd()<0.35)){sd=d;sb=m;}}
+        if(sb){tg=sb;f.tgtT=W.t+2+W.rnd()*2;}}}
+    f.tgt=tg;
+    let mx=0,my=0,sp=f.spd;
+    if(tg){const dx=tg.x-f.x,dy=tg.y-f.y,d=Math.hypot(dx,dy)||1,want=f.ranged?40:11;
+      // a hunter hurries when his victim's moment is near; a doomed fighter stops backing away and faces his killer
+      const hunting=f.hunt.length&&f.hunt[0]===tg,soon=hunting&&W.t>tg.doom.T-2.5;if((soon&&d>want+6)||(hunting&&d>120))sp*=soon&&W.t>tg.doom.T+1?2.6:2;
+      const doomed=f.doom&&f.doom.by===tg;
+      if(d>want+2){mx=dx/d;my=dy/d;if(doomed&&W.t>f.doom.T-3){mx*=0.8;my*=0.8;}}else if(f.ranged&&d<want-14&&!doomed){mx=-dx/d*0.7;my=-dy/d*0.7;}
+      else{const s=Math.sin(W.t*1.3+f.ph)*0.35;mx=-dy/d*s;my=dx/d*s;}
+      if(Math.abs(dx)>2)f.face=dx>0?1:-1;f.fv=dy>4?1:dy<-4?-1:f.fv;
+      // attack
+      f.atkCd-=dt;
+      if(hunting&&tg.doom&&mbDue(W,tg))f.atkCd=Math.min(f.atkCd,0);
+      if(f.sk.length){for(const q of f.sk)q.t-=dt;
+        if(f.state!=='attack'){const q=f.sk.find(q=>q.t<=0&&mbSkillOk(q,d,want));if(q){q.t=q.cd*(0.8+W.rnd()*0.5);mbCast(W,f,q,tg,d);}}}
+      if(f.state!=='attack'&&d<=want+(f.ranged?14:5)&&f.atkCd<=0){f.aim=Math.atan2(dy,dx);f.alt=f.alt?0:1;f.state='attack';f.anim=0;f.dur=f.adur*(f.ranged?1.3:1);f.hitDone=false;f.atkCd=f.cd*(0.75+W.rnd()*0.5)*(f.hunt.length&&W.t>=tg.dieAt?0.6:1);f.atk=tg;}
+    }else{ // nobody near: walk toward the middle
+      if(W.t>f.wanT){f.wanT=W.t+2+W.rnd()*3;const a=W.rnd()*6.28;f.wan=[Math.cos(a)*0.5-f.x/W.R0,Math.sin(a)*0.5-f.y/W.R0];}mx=f.wan[0];my=f.wan[1];}
+    // the arena closes in
+    const rc=Math.hypot(f.x,f.y);if(rc>W.R-8){mx-=f.x/rc*1.2;my-=f.y/rc*1.2;sp=Math.max(sp,f.spd*1.3);}
+    // keep apart from neighbours
+    const cs=W.cell,cx=Math.floor(f.x/cs),cy=Math.floor(f.y/cs);
+    for(let ax=-1;ax<=1;ax++)for(let ay=-1;ay<=1;ay++){const l=W.grid.get(((cx+ax)*73856093)^((cy+ay)*19349663));if(!l)continue;
+      for(const o of l){if(o===f)continue;const dx=f.x-o.x,dy=f.y-o.y,dd=dx*dx+dy*dy;if(dd<81&&dd>0.01){const d=Math.sqrt(dd);mx+=dx/d*(9-d)/9*1.5;my+=dy/d*(9-d)/9*1.5;}}}
+    if(f.dodge>0){f.x+=(f.dx||0)*dt*4;}
+    if(f.kx){f.x+=f.kx*dt*6;f.kx*=0.8;if(Math.abs(f.kx)<0.1)f.kx=0;}
+    const m=Math.hypot(mx,my);
+    if(f.hops&&f.hops.length){f.hopT-=dt;if(f.hopT<=0){const t2=f.hops.shift();f.hopT=0.17;const tg2=t2&&t2.alive?t2:mbNear(W,f,60);
+      if(tg2){const from=mbHop(W,f,tg2,12,f.hopK||1.5);W.ev.push({type:'hop',f,from,to:{x:f.x,y:f.y},n:f.hopN++});}else f.hops.length=0;}}
+    if(f.state==='attack'){f.anim+=dt;const p=f.anim/f.dur;
+      if(p>=0.45&&!f.hitDone){f.hitDone=true;const b=f.atk;
+        if(b&&b.alive){if(f.ranged){const d=Math.hypot(b.x-f.x,b.y-f.y),life=Math.max(0.15,d/150);W.proj.push({a:f,b,x0:f.x+f.face*8,y0:f.y-16,t:0,life,col:MB_PCOL[f.proj]||MB_PCOL.arcane});W.ev.push({type:'shot',f,tg:b,travel:life});}
+          else if(Math.hypot(b.x-f.x,b.y-f.y)<f.C.range+22){mbHit(W,f,b);W.ev.push({type:'blow',f,tg:b});W.fx.push({k:'slash',x:f.x+f.face*7,y:f.y-12,face:f.face,t:0,life:0.16});}}}
+      if(f.anim>=f.dur)f.state='idle';
+      if(m>0.01){f.x+=mx/m*sp*dt*0.25;f.y+=my/m*sp*dt*0.25;}
+    }else if(m>0.15){const k=Math.min(1,m);f.x+=mx/m*sp*k*dt;f.y+=my/m*sp*k*dt;f.state='run';}
+    else f.state='idle';
+  }
+  for(let i=W.mins.length-1;i>=0;i--){const m=W.mins[i];m.life-=dt;m.hitT=Math.max(0,m.hitT-dt);if(m.hitAnim>0)m.hitAnim-=dt;
+    if(!m.alive||m.life<=0||!m.own.alive){W.mins.splice(i,1);continue;}
+    if(m.spawnT>0){m.spawnT-=dt;if(m.spawnT<=0)m.state='idle';continue;}
+    let tg=m.own.tgt&&m.own.tgt.alive&&!m.own.tgt.skel?m.own.tgt:mbNear(W,m,60,o=>o!==m.own);m.tgt=tg;
+    const ox=m.own.x+(W.mins.indexOf(m)%2?10:-10),oy=m.own.y+6;let tx=ox,ty=oy;
+    if(tg){tx=tg.x-Math.sign(tg.x-m.x||1)*9;ty=tg.y;}
+    const dx=tx-m.x,dy=ty-m.y,d=Math.hypot(dx,dy);
+    if(d>2){const sp=Math.min(d,38*dt);m.x+=dx/d*sp;m.y+=dy/d*sp;m.state='move';m.anim+=dt;}else m.state='idle';
+    if(tg){m.face=tg.x>=m.x?1:-1;m.atkT-=dt;if(m.atkT<=0&&Math.hypot(tg.x-m.x,tg.y-m.y)<14){m.atkT=1/0.9;m.hitAnim=0.15;mbHit(W,m,tg);}}
+  }
+  // projectiles
+  for(let i=W.proj.length-1;i>=0;i--){const p=W.proj[i];p.t+=dt;if(p.t>=p.life){W.proj.splice(i,1);if(p.b.alive)mbHit(W,p.a,p.b,true,p.skill||1);
+    for(let j=0;j<5;j++)W.fx.push({k:'p',x:p.b.x,y:p.b.y-14,vx:(W.rnd()-0.5)*60,vy:(W.rnd()-0.5)*50,g:20,life:0.3,t:0,col:p.col[1]});}}
+  for(let i=W.fx.length-1;i>=0;i--){const q=W.fx[i];q.t+=dt;if(q.k==='p'){q.vy+=(q.g||0)*dt;q.x+=q.vx*dt;q.y+=q.vy*dt;}if(q.t>=q.life)W.fx.splice(i,1);}
+  for(let i=W.pops.length-1;i>=0;i--){const q=W.pops[i];q.t+=dt;if(q.t>=q.life)W.pops.splice(i,1);}
+  if(W.fx.length>1500)W.fx.splice(0,W.fx.length-1500);
+}
+
+
+/* server mode: the server's draw arrives piece by piece — [k, victim, killer, tExec] — at most ~12 s ahead of the battle */
+function mbFeedLog(W,rows){for(const r of rows){const k=r[0],v=r[1],kl=r[2];if(W.order[k]!=null)continue;W.order[k]=v;W.plan[k]=kl;const f=W.f[v];if(f){f.k=k;f.dieAt=W.T[k];}}}
+return {mbDuration,mbTimeline,mbWorld,mbStep,mbFeedLog,mbDue};
+}
+
+/* =====================================================================================================
+   МАССОВАЯ БОЙНЯ (v255 test build). The whole mode runs on this device; every other fighter is a bot.
+   The outcome is a fair lottery: before the battle a crypto shuffle fixes the order of deaths, the last
+   one in it wins. Class and stats only change how a fighter looks and moves, never when it dies.
+   The battle on the map is a director: when a fighter's turn comes, the nearest living fighter who is
+   still due to live past that moment is sent to kill him, and they meet on foot (no teleports).
+   ===================================================================================================== */
+const MBX={st:null,raf:0};
+const MB_PTS=30,MB_LV=30,MB_MAX=500;
+const MB_STAT_FX={str:'крупнее цифры урона, сильнее отдача',vit:'полоска здоровья тает медленнее',arm:'чаще блокирует удары',
+  crit:'чаще критические удары',hast:'бьёт быстрее',eva:'чаще уворачивается и быстрее бегает'};
+const mbEsc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const {mbDuration,mbTimeline,mbWorld,mbStep,mbFeedLog}=MBCore(L);
+const mbClasses=()=>(L.CLASS_ORDER||['knight','mage','necro','gladiator','samurai']).filter(c=>L.CLASSES[c]);
+
+/* ---------- 1. the lottery: uniform, no modulo bias, from the browser's crypto generator ---------- */
+function mbRandU32(){const a=new Uint32Array(1);crypto.getRandomValues(a);return a[0];}
+function mbRandInt(n){const lim=Math.floor(4294967296/n)*n;let v;do v=mbRandU32();while(v>=lim);return v%n;}
+function mbShuffle(a){a=a.slice();for(let i=a.length-1;i>0;i--){const j=mbRandInt(i+1),t=a[i];a[i]=a[j];a[j]=t;}return a;}
+async function mbHash(obj){try{const h=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(obj)));
+  return [...new Uint8Array(h)].map(x=>x.toString(16).padStart(2,'0')).join('');}catch(e){return '';}}
+
+/* ---------- 3. names for the bots ---------- */
+const MB_N1=['ash','dark','night','ember','iron','grim','frost','storm','shadow','blood','void','wolf','raven','stone','bone','silver','fire','doom','ghost','rune'];
+const MB_N2=['_knight','_blade','fang','_lord','hunter','_slayer','_x','walker','born','_one','_wolf','heart','_kid','_bro','master','_tg','_san','claw','_99','_777'];
+const MB_N3=['nikita','max','alex','lisa','kostya','dima','katya','ivan','olga','misha','sasha','anya','pasha','vova','lena','kirill','denis','yana','egor','sonya'];
+function mbBotName(rnd){const r=rnd();if(r<0.45)return MB_N1[(rnd()*MB_N1.length)|0]+MB_N2[(rnd()*MB_N2.length)|0];
+  if(r<0.85)return MB_N3[(rnd()*MB_N3.length)|0]+(rnd()<0.6?'_'+((rnd()*999)|0):MB_N2[(rnd()*MB_N2.length)|0]);return MB_N1[(rnd()*MB_N1.length)|0]+((rnd()*9999)|0);}
+function mbMyName(){try{const u=Telegram.WebApp.initDataUnsafe.user;if(u)return u.username||[u.first_name,u.last_name].filter(Boolean).join(' ')||'Ты';}catch(e){}return 'Ты';}
+const mbAt=n=>/^[A-Za-z0-9_]{3,}$/.test(n)?'@'+n:n;
+
+/* ---------- 4. sprites: every class drawn once with the game's own rig, then reused for hundreds of fighters ---------- */
+const MBF={};const MBFW=64,MBFH=60,MBFX=32,MBFY=54;
+function mbFrames(cls){const k=cls+mbArt();if(MBF[k])return MBF[k];return MBF[k]=mbAs(cls,()=>mbFrames0(cls));}
+/* the class card picture: the hero in the steel set, as he will fight */
+const MB_PORT={};function mbPortrait(cls){const k=cls+mbArt();if(MB_PORT[k])return MB_PORT[k];const fr=mbFrames(cls).idle[1][0].c,c=document.createElement('canvas');
+  c.width=34;c.height=34;const q=c.getContext('2d');q.imageSmoothingEnabled=false;q.drawImage(fr,Math.round(17-MBFX),Math.round(31-MBFY));return MB_PORT[k]=c.toDataURL();}
+function mbFrames0(cls){
+  const C=L.CLASSES[cls],kind=C.weapon,style=C.style,rig=mbRig(cls),look=MB_LOOK;
+  const one=(state,fv,anim,t)=>{const c=mk(MBFW,MBFH),g0=g,lk0=curLook;g=ctx2(c);curLook=look;
+    try{const fake={face:1,fv,state,anim,dur:1,style,kind,aim:fv>0?0.55:-0.55,alt:0,hitT:0};const ps=poseFor(fake,t);
+      drawRig(MBFX,MBFY,1,ps,{t,look,front:fv>0,rig,kind,vx:state==='run'?0.8:0,vy:0});}catch(e){}finally{g=g0;curLook=lk0;}return finish(c);};
+  const F={idle:{},run:{},atk:{}},RUNP=2*Math.PI/13;
+  for(const fv of [1,-1]){
+    F.idle[fv]=[0,1,2,3].map(i=>one('idle',fv,0,i*0.3));
+    F.run[fv]=[0,1,2,3,4,5].map(i=>one('run',fv,0,i/6*RUNP));
+    F.atk[fv]=[0,1,2,3,4,5].map(i=>one('attack',fv,(i+0.5)/6,0));}
+  {const c=mk(34,30),g0=g,lk0=curLook;g=ctx2(c);curLook=look;try{const ps=poseFor({face:1,fv:-1,state:'idle',hitT:0,kind},0);ps.by=0;
+    drawRig(16,28,1,ps,{t:0,look,front:false,rig,kind});}catch(e){}finally{g=g0;curLook=lk0;}F.lying=rotate90(finish(c));}
+  return F;
+}
+/* a gold outline around one frame: the player's own fighter keeps it in any crowd */
+function mbOutline(sp,flip){const k=flip?'mboF':'mbo';if(sp[k])return sp[k];
+  const src=flip?sp.flip:sp.c,w=sp.w,h=sp.h,d=ctx2(src).getImageData(0,0,w,h).data,out=mk(w,h),q=ctx2(out),im=q.createImageData(w,h),o=im.data;
+  const on=(x,y)=>x>=0&&y>=0&&x<w&&y<h&&d[(y*w+x)*4+3]>0;
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){if(on(x,y))continue;let r=0;
+    if(on(x+1,y)||on(x-1,y)||on(x,y+1)||on(x,y-1))r=1;else if(on(x+1,y+1)||on(x-1,y-1)||on(x+1,y-1)||on(x-1,y+1)||on(x+2,y)||on(x-2,y)||on(x,y+2)||on(x,y-2))r=2;
+    if(!r)continue;const i=(y*w+x)*4;if(r===1){o[i]=255;o[i+1]=214;o[i+2]=74;o[i+3]=255;}else{o[i]=255;o[i+1]=150;o[i+2]=40;o[i+3]=120;}}
+  q.putImageData(im,0,0);return sp[k]=out;}
+
+
+/* ---------- 4b. builds: the class's skills at level 15, the same tree and points as in the tower ---------- */
+const MB_SKPTS=30;   // level 30: 30 points, each path opens its third skill (up to 3)
+function mbTree(cls){const C=L.CLASSES[cls]||L.CLASSES.knight,P=(L.PATHS&&L.PATHS[cls])||[];
+  return {base:C.skills.filter(id=>L.SKILLS[id]&&L.SKILLS[id].unlock<=MB_LV),
+    paths:P.map(p=>({id:p.id,ru:p.ru,desc:p.desc||'',color:p.color||'#f4c95d',nodes:Object.keys(p.nodes||{}).filter(id=>L.SKILLS[id]&&(L.SKILLS[id].unlock||99)<=MB_LV)}))};}
+function mbAvail(cls,path){const T=mbTree(cls),P=T.paths.find(p=>p.id===path);return T.base.concat(P?P.nodes:[]);}
+function mbFill(cls,path,skills){const T=mbTree(cls);if(!T.paths.some(p=>p.id===path))path=T.paths.length?T.paths[0].id:'';const sk=Object.assign({},skills||{}),ord=mbAvail(cls,path);let left=MB_SKPTS-mbUsed(sk);
+  for(let i=0;left>0&&i<400&&ord.length;i++){const k=ord[i%ord.length];if((sk[k]|0)<((L.SKILLS[k]&&L.SKILLS[k].max)||5)){sk[k]=(sk[k]|0)+1;left--;}}return {path,skills:sk};}   // same order as the server's mb_fill
+const mbUsed=sk=>Object.values(sk||{}).reduce((s,v)=>s+(v|0),0);
+function mbKindOf(sk){if(!sk||sk.kind==='passive')return null;const a=sk.act||{},t=a.type,k=a.k;
+  if(t==='strike'||t==='multi')return 'melee';if(t==='dash')return 'dash';
+  if(t==='proj'||t==='volley'||t==='chain'||t==='meteor')return 'ranged';if(t==='aoe')return 'aoe';
+  if(t==='summon')return 'summon';
+  if(t==='mage')return k==='wave'||k==='flame'?'aoe':'ranged';
+  if(t==='samu')return k==='iai'?'dash':k==='cres'?'aoe':k==='flurry'?'melee':k==='god'?'dash':'ranged';
+  return 'self';}
+/* what the battle needs from a build: active skills with their level, reach and cooldown */
+const mbNum=(v,lv,d)=>{try{const x=typeof v==='function'?v(lv):v;return x>0?+x:d;}catch(e){return d;}};
+function mbBuildSk(cls,path,skills){const out=[];for(const id of mbAvail(cls,path)){const lv=(skills&&skills[id])|0,sk=L.SKILLS[id];if(!lv||!sk)continue;
+  const kind=mbKindOf(sk);if(!kind)continue;let cd=8;try{cd=typeof sk.cd==='function'?sk.cd(lv):(sk.cd||8);}catch(e){}
+  out.push({id,lv,kind,r:(sk.act&&sk.act.r)||0,hops:sk.act&&sk.act.k==='god'?(sk.act.n||3):1,n:mbNum(sk.act&&sk.act.n,lv,2),dur:mbNum(sk.act&&sk.act.dur,lv,10),cd:Math.max(3,+cd||8)});}return out;}
+/* a random build for a bot: a path, then points spread over the skills it can take */
+function mbRandBuild(cls,rnd){const T=mbTree(cls),path=T.paths.length?T.paths[(rnd()*T.paths.length)|0].id:'',av=mbAvail(cls,path),sk={};
+  for(let p=0,guard=0;p<MB_SKPTS&&guard<200;guard++){const id=av[(rnd()*av.length)|0],mx=(L.SKILLS[id]&&L.SKILLS[id].max)||5;if((sk[id]|0)<mx){sk[id]=(sk[id]|0)+1;p++;}}
+  return {path,skills:sk};}
+const mbMageEl=f=>f.path==='pyro'?'fire':f.path==='cryo'?'ice':'arcane';
+const mbSamEl=f=>f.path==='thunder'?'thunder':f.path==='moon'?'moon':'steel';
+
+/* ---------- 4c. the game's own effects on the battle map ----------
+   The tower draws skills with its effect modules (common, mage, samurai…), all tied to one scene and one hero.
+   mbScene points that scene at the battle map for a moment (no offset, the caster as the hero), so every
+   fighter's skill looks exactly like in the tower. Their lists live in MBG between frames. */
+const MBG={fx:[],parts:[],floats:[],mgfx:[],mgparts:[],mgfloor:[],ksfx:[],ksfloor:[]};
+function mbScene(fn,hero){
+  const s={ox:SC.ox,oy:SC.oy,fx:SC.fx,pa:SC.particles,fl:SC.floats,hero:SC.hero,sh:SC.shake,hs:SC.hitstop,
+    mf:MG.fx,mp:MG.parts,mfl:MG.floor,kf:KS.fx,kfl:KS.floor,kd:KS.dim,kdt:KS.dimT,kt:KS.tint,cl:clog,sc:skillCall,fg:fight};
+  SC.ox=0;SC.oy=-FY;SC.fx=MBG.fx;SC.particles=MBG.parts;SC.floats=MBG.floats;if(hero)SC.hero=hero;
+  MG.fx=MBG.mgfx;MG.parts=MBG.mgparts;MG.floor=MBG.mgfloor;KS.fx=MBG.ksfx;KS.floor=MBG.ksfloor;KS.dim=0;KS.dimT=0;KS.tint=null;
+  clog=()=>{};skillCall=()=>{};fight=null;
+  try{fn();}catch(e){if(DEV_HOST)console.warn('mb fx',e);}
+  finally{MBG.fx=SC.fx;MBG.parts=SC.particles;MBG.floats=SC.floats;MBG.mgfx=MG.fx;MBG.mgparts=MG.parts;MBG.mgfloor=MG.floor;MBG.ksfx=KS.fx;MBG.ksfloor=KS.floor;
+    SC.ox=s.ox;SC.oy=s.oy;SC.fx=s.fx;SC.particles=s.pa;SC.floats=s.fl;SC.hero=s.hero;SC.shake=s.sh;SC.hitstop=s.hs;
+    MG.fx=s.mf;MG.parts=s.mp;MG.floor=s.mfl;KS.fx=s.kf;KS.floor=s.kfl;KS.dim=s.kd;KS.dimT=s.kdt;KS.tint=s.kt;clog=s.cl;skillCall=s.sc;fight=s.fg;}
+}
+function mbFxReset(){for(const k in MBG)MBG[k]=[];}
+/* the tower's sounds stay quiet under the battle, except what the camera is looking at */
+{const _play=SFX.play.bind(SFX);SFX.play=function(k){if(MBX.V&&!MBX.snd)return;return _play(k);};}
+function mbNearCam(V,f){return V&&Math.abs(f.x-V.cam.x)<90&&Math.abs(f.y-V.cam.y)<120;}
+/* a cast in the simulation becomes the tower's own skill event */
+function mbCastFx(V,e){
+  const f=e.f,sk=L.SKILLS[e.id],a=(sk&&sk.act)||{},tg=e.tg,id=e.id,evs=[];
+  switch(a.type){
+    case'strike':evs.push({type:'skill',id,fx:a.fx||'strike',e:tg});break;
+    case'multi':evs.push({type:'skill',id,fx:'strike',e:tg});break;
+    case'dash':evs.push({type:'skill',id,fx:a.fx||'dash',from:e.from,e:tg});break;
+    case'proj':evs.push({type:'skill',id,fx:'proj',proj:a.proj,e:tg,travel:e.travel||0.3});break;
+    case'volley':{let n=3;try{n=typeof a.n==='function'?a.n(e.lv):(a.n||3);}catch(_){}n=Math.max(2,Math.min(5,n|0));for(let k=0;k<n;k++)evs.push({type:'shoot',proj:a.proj,e:tg,travel:e.travel||0.3,delay:k*0.08});break;}
+    case'aoe':evs.push({type:'skill',id,fx:a.fx||'fire',r:a.r||30,ticks:a.ticks||1});break;
+    case'chain':evs.push({type:'skill',id,fx:'chain',chain:[tg]});break;
+    case'buff':evs.push({type:'skill',id,fx:'buff'});break;
+    case'shield':evs.push({type:'skill',id,fx:'shield'});break;
+    case'heal':case'hot':evs.push({type:'skill',id,fx:'heal'});break;
+    case'mage':{const el=mbMageEl(f),k=a.k;
+      if(k==='bolt')evs.push({type:'skill',id,fx:'mbolt',el,e:tg,travel:e.travel||0.3});
+      else if(k==='wave'||k==='flame')evs.push({type:'skill',id,fx:'mwave',el:k==='flame'?'fire':el,r:a.r||42,big:k==='flame'?1:0});
+      else if(k==='comet'){const d=a.delay||0.8;evs.push({type:'skill',id,fx:'mcomet',el,x:tg.x,y:tg.y,r:a.r||30,delay:d});V.later.push({at:V.time+d,f,ev:{type:'mimpact',el,x:tg.x,y:tg.y,r:a.r||30}});}
+      else if(k==='lance')evs.push({type:'skill',id,fx:'mlance',el:'ice',e:tg,travel:e.travel||0.3});
+      break;}
+    case'samu':{const el=mbSamEl(f),k=a.k;
+      if(k==='iai')evs.push({type:'skill',id,fx:'kiai',el,from:e.from,to:e.to||{x:f.x,y:f.y}});
+      else if(k==='cres')evs.push({type:'skill',id,fx:'kcres',el,r:a.r||38,face:f.face});
+      else if(k==='flurry')evs.push({type:'skill',id,fx:'kflurry',el,e:tg,ts:[tg],n:a.n||7});
+      else if(k==='god')evs.push({type:'skill',id,fx:'kgod',el,n:3});
+      else if(k==='mwave')evs.push({type:'skill',id,fx:'kmwave',el:'moon',ts:[tg],tr:[e.travel||0.3]});
+      break;}
+    case'summon':break;
+  }
+  mbGameEvents(V,f,evs);
+  if(a.type==='summon')mbScene(()=>{SC.fx.push({k:'ring',t:0,life:0.5,r:20,cols:['#e8ffe8','#7be38a','#2a6a3a'],h:f});for(let i=0;i<10;i++){const an=Math.random()*6.28;SC.particles.push({x:f.x+Math.cos(an)*8,y:f.y-4,vx:Math.cos(an)*30,vy:-30-Math.random()*30,g:60,col:i%2?'#7be38a':'#d8ffd8',life:0.6,t:0});}},f);
+}
+function mbGameEvents(V,f,evs){if(!evs.length)return;const n0=MBG.fx.length;MBX.snd=mbNearCam(V,f);
+  mbScene(()=>{drainEvents({hero:f,enemies:[],allies:[],events:evs},evs);for(let i=n0;i<SC.fx.length;i++)if(!SC.fx[i].h)SC.fx[i].h=f;},f);MBX.snd=false;}
+function mbFxUpdate(V,dt){const W=V.W;
+  for(let i=V.later.length-1;i>=0;i--){const q=V.later[i];if(V.time>=q.at){V.later.splice(i,1);mbGameEvents(V,q.f,[q.ev]);}}
+  mbScene(()=>updateFx(dt),W.me||W.f[0]);
+  if(MBG.fx.length>600)MBG.fx.splice(0,MBG.fx.length-600);if(MBG.parts.length>1500)MBG.parts.splice(0,MBG.parts.length-1500);
+  if(MBG.mgparts.length>1500)MBG.mgparts.splice(0,MBG.mgparts.length-1500);}
+/* the tower's big spells flash or darken the whole room; in a crowd of hundreds one fighter's skill must not tint the battle: room-sized fills are skipped */
+function mbFxDraw(V,t){const g0=g,q=V.q,fr=q.fillRect;q.fillRect=function(x,y,w,h){if(Math.abs(w*h)>9000)return;return fr.call(this,x,y,w,h);};
+  try{mbScene(()=>{g=V.q;try{drawFx(t);}finally{g=g0;}},V.W.me||V.W.f[0]);}finally{q.fillRect=fr;}
+  for(const p of MBG.parts){if(p.t>p.life*0.6&&Math.random()<0.4)continue;q.fillStyle=p.col;q.fillRect(Math.round(p.x),Math.round(p.y),1,1);}}
+function mbDrawSkel(V,m,t){const g0=g;mbAs('necro',()=>mbScene(()=>{g=V.q;try{drawAlly(m,t);}finally{g=g0;}},m.own));}   // the artist's hooded skeletons switch on for a necromancer
+/* a fighter drawn live with the tower's rig: real swings, thrusts, casts, the blade's trail */
+const MB_RIG={};
+/* the tower's art packs (drawn arms, strikes, blades) switch on for the player's own class only: while a fighter is drawn, his class is "the player's" */
+const MB_LOOK=Object.assign(weaponLook({tid:'steel_blade',rarity:1}),{tid:'steel_blade'});   // everyone in the steel set: steel blade (staff/scythe/katana art of its own class)   // the art packs pick the class's weapon art by the look's tid
+function mbAs(cls,fn){const S0=S,l0=curLook;S=S0?Object.assign(Object.create(S0),{cls}):{cls};curLook=MB_LOOK;try{return fn();}finally{S=S0;curLook=l0;}}
+const mbArt=()=>{try{return artAllReady()?'a':'p';}catch(e){return 'p';}};   // the art packs load late: a rig made before them is plain and must not stay cached
+const mbRig=cls=>{const k=cls+mbArt();return MB_RIG[k]||(MB_RIG[k]=mbAs(cls,()=>heroSprites(gearEq(cls,{tid:'steel_blade',rarity:1},{tid:'steel_armor',rarity:1},{tid:'warden_visor',rarity:1},{tid:'steel_boots',rarity:1}))));};
+/* the knight's and samurai's painted swings are fixed for the tower's camera: seen from the front they cut to the left of the screen, from behind to the right.
+   During a swing the view is chosen so the blade goes toward the target. */
+function mbDrawLive(V,f,t){const fv0=f.fv;if(f.state==='attack'&&(f.cls==='knight'||f.cls==='samurai')&&f.style!=='cast')f.fv=Math.cos(f.aim||0)>=0?-1:1;
+  try{mbAs(f.cls,()=>mbDrawLive0(V,f,t));}finally{f.fv=fv0;}}
+function mbDrawLive0(V,f,t){const g0=g,lk0=curLook;g=V.q;curLook=MB_LOOK;
+  try{const X=Math.round(f.x),Y=Math.round(f.y);f.hitT=f.flash;const ps=poseFor(f,t+f.ph);
+    const flash=false;   // no white silhouette: the spark, the number and the bar show the hit
+    const rigO={t:t+f.ph,look:curLook,flash,front:f.fv>0,glint:0,vx:f.state==='run'?f.face*0.6:0,vy:0,kind:f.kind,rig:mbRig(f.cls)};
+    if(f.buffT>0){g.globalCompositeOperation='lighter';g.globalAlpha=0.35+0.15*Math.sin(t*8);g.drawImage(f.buffId==='guard'||f.buffId==='p_bulwark'?GLOW_BLUE:GLOW_GOLD,X-20,Y-34);g.globalAlpha=1;g.globalCompositeOperation='source-over';}
+    const r=drawRig(X,Y,f.face,ps,rigO);
+    f.tip=r&&r.hand?[r.hand[0]+Math.round(Math.cos(ps.blade)*12),r.hand[1]+Math.round(Math.sin(ps.blade)*12)]:[X,Y-16];
+    if(r&&(f.style==='swing'||f.style==='heavy'))drawTrail(r.sh[0],r.sh[1],f,t);
+    else if(r&&f.state==='attack'&&f.style!=='cast'&&f.style!=='shoot'&&f.style!=='gun'){const off=(f.style!=='thrust')&&f.alt===1;
+      const hand=off?[Math.round(r.shO[0]+Math.cos(ps.armO)*ARM_LEN),Math.round(r.shO[1]+Math.sin(ps.armO)*ARM_LEN)]:r.hand;drawStreak(hand,f,t);}
+    if(f.state==='attack'&&f.style==='cast'){const p=f.anim/f.dur;if(p>0.4&&p<0.62&&f.tip){g.globalCompositeOperation='lighter';g.globalAlpha=1-(p-0.4)/0.22;g.drawImage(GLOW_GOLD,f.tip[0]-20,f.tip[1]-20);g.globalAlpha=1;g.globalCompositeOperation='source-over';}}
+  }catch(e){if(DEV_HOST)console.warn('mb rig',e);}finally{g=g0;curLook=lk0;}}
+
+/* the build screen: class, path, 15 skill points — like the hero's skills tab in the tower */
+function mbBuildHtml(me,ro){const T=mbTree(me.cls);if(!me.path&&T.paths.length)me.path=T.paths[0].id;me.skills=me.skills||{};
+  const av=mbAvail(me.cls,me.path),used=mbUsed(me.skills);
+  return `<div class="mbcls" style="margin-top:8px">${mbClasses().map(id=>`<button data-mbcls="${id}" class="${id===me.cls?'on':''}"${ro?' disabled':''}><img src="${mbPortrait(id)}" alt="">${L.CLASSES[id].ru}</button>`).join('')}</div>
+   ${T.paths.length?`<div class="mbsub" style="margin-top:8px">Путь</div><div class="mbpaths">${T.paths.map(P=>`<button data-mbpath="${P.id}" class="${P.id===me.path?'on':''}"${ro?' disabled':''}><b style="color:${P.color}">${mbEsc(P.ru)}</b><small>${mbEsc(P.desc)}</small></button>`).join('')}</div>`:''}
+   <div class="mbsub" style="margin-top:8px">Умения · очков осталось: <b style="color:#ffd24a">${MB_SKPTS-used}</b> из ${MB_SKPTS}</div>
+   <div>${av.map(id=>{const sk=L.SKILLS[id],lv=me.skills[id]|0,mx=sk.max||5;let info='';try{info=sk.info?sk.info(Math.max(1,lv)):'';}catch(e){}
+     return `<div class="mbstat"><img class="mbski" src="${SKI[sk.icon]||''}" alt=""><b>${mbEsc(sk.ru)}${sk.kind==='passive'?' <span style="color:#a59cb8">· пассивное</span>':''}<small>${mbEsc(info)}</small></b>
+       <button class="mbbtn" data-mbsk="${id}" data-d="-1"${ro||!lv?' disabled':''}>−</button><i>${lv}/${mx}</i><button class="mbbtn" data-mbsk="${id}" data-d="1"${ro||lv>=mx||used>=MB_SKPTS?' disabled':''}>+</button></div>`;}).join('')}</div>`;}
+function mbBuildBind(o,me,cb){
+  const cb0=cb;cb=()=>{const pg=document.querySelector('#mbOv .mbpage'),y=pg?pg.scrollTop:0;cb0();const p2=document.querySelector('#mbOv .mbpage');if(p2)p2.scrollTop=y;};   // a redraw must not throw the list back to the top
+  o.querySelectorAll('[data-mbcls]').forEach(b=>b.onclick=()=>{if(me.cls===b.dataset.mbcls)return;me.cls=b.dataset.mbcls;me.path='';me.skills={};cb();});
+  o.querySelectorAll('[data-mbpath]').forEach(b=>b.onclick=()=>{if(me.path===b.dataset.mbpath)return;me.path=b.dataset.mbpath;const ok=new Set(mbAvail(me.cls,me.path));for(const k in me.skills)if(!ok.has(k))delete me.skills[k];cb();});
+  o.querySelectorAll('[data-mbsk]').forEach(b=>b.onclick=()=>{const id=b.dataset.mbsk,d=+b.dataset.d,sk=L.SKILLS[id],lv=me.skills[id]|0;
+    if(d>0&&(lv>=(sk.max||5)||mbUsed(me.skills)>=MB_SKPTS))return;if(d<0&&!lv)return;me.skills[id]=lv+d;if(!me.skills[id])delete me.skills[id];cb();});}
+
+/* ---------- 5. the map: a round arena, floor tiles and props in the tower's palette ---------- */
+function mbTile(v){const c=mk(32,32),q=ctx2(c),R=L.mulberry32(911+v*77);
+  const base=['#2a2236','#2c2338','#282033','#2e2539'][v&3];q.fillStyle=base;q.fillRect(0,0,32,32);
+  q.fillStyle='#17121f';q.fillRect(0,0,32,1);q.fillRect(0,16,32,1);q.fillRect(v&1?10:20,1,1,15);q.fillRect(v&2?6:26,17,1,15);
+  q.fillStyle='#352b45';q.fillRect(1,1,31,1);q.fillRect(1,17,31,1);
+  for(let i=0;i<14;i++){q.fillStyle=R()<0.5?'#241d30':'#33293f';q.fillRect((R()*32)|0,(R()*32)|0,1,1);}
+  if(v===5){q.fillStyle='#2f3b2a';for(let i=0;i<9;i++)q.fillRect(4+((R()*12)|0),20+((R()*8)|0),1,1);}
+  if(v===6){q.fillStyle='#1d1726';q.fillRect(12,6,1,4);q.fillRect(13,9,2,1);q.fillRect(14,10,1,3);}
+  return c;}
+function mbProps(){const P={},S=(w,h,fn)=>{const c=mk(w,h),q=ctx2(c);fn(q,(col,x,y,a,b)=>{q.fillStyle=col;q.fillRect(x,y,a||1,b||1);});return c;};
+  P.bones=S(12,6,(q,p)=>{p('#16121c',0,1,12,4);p('#e2dccc',1,2,10,1);p('#e2dccc',2,1,2,3);p('#e2dccc',8,1,2,3);p('#aaa292',1,3,10,1);});
+  P.skull=S(8,8,(q,p)=>{p('#16121c',0,0,8,8);p('#e2dccc',1,1,6,5);p('#aaa292',1,5,6,1);p('#16121c',2,3,1,1);p('#16121c',5,3,1,1);p('#e2dccc',2,6,4,1);});
+  P.rock=S(14,10,(q,p)=>{p('#16121c',1,1,12,9);p('#4a4258',2,2,10,6);p('#5e5470',3,2,5,2);p('#352d42',2,7,10,2);});
+  P.brazier=S(12,16,(q,p)=>{p('#16121c',2,8,8,8);p('#4a3a2a',3,9,6,2);p('#6a5030',3,11,6,1);p('#3a2e22',5,12,2,4);p('#2a2016',3,15,6,1);});
+  P.banner=S(10,22,(q,p)=>{p('#16121c',4,0,2,22);p('#6a5030',4,1,1,21);p('#16121c',0,2,10,12);p('#8a1a2a',1,3,8,9);p('#c0303e',1,3,8,2);p('#f4c95d',4,6,2,3);p('#8a1a2a',2,12,2,2);p('#8a1a2a',6,12,2,2);});
+  P.sword=S(14,6,(q,p)=>{p('#16121c',0,2,14,3);p('#c7ccd8',1,3,9,1);p('#6a5030',10,2,1,3);p('#4a3a2a',11,3,3,1);});
+  return P;}
+
+/* ---------- 7. drawing ---------- */
+function mbFighterSprite(f,t){const F=mbFrames(f.cls),fv=f.fv>0?1:-1;
+  if(f.state==='attack')return F.atk[fv][Math.max(0,Math.min(5,Math.floor(f.anim/f.dur*6)||0))];
+  const m=(n,l)=>((n%l)+l)%l;
+  if(f.state==='run')return F.run[fv][m(Math.floor((t+f.ph)*12),6)];
+  return F.idle[fv][m(Math.floor((t+f.ph)*3),4)];}
+function mbDraw(V){
+  const W=V.W,c=V.cv,q=V.q,dpr=V.dpr,cw=c.width,ch=c.height,cam=V.cam,z=cam.z,t=V.time;
+  q.setTransform(1,0,0,1,0,0);q.imageSmoothingEnabled=false;q.fillStyle='#0b0910';q.fillRect(0,0,cw,ch);
+  const ox=cw/2-cam.x*z,oy=ch/2-cam.y*z;q.setTransform(z,0,0,z,ox,oy);
+  const vx0=cam.x-cw/2/z-40,vx1=cam.x+cw/2/z+40,vy0=cam.y-ch/2/z-60,vy1=cam.y+ch/2/z+40,R0=W.R0;
+  // floor: whole-map picture when far, crisp tiles when close
+  if(z<1.6){q.drawImage(V.mapImg,-R0-48,-R0-48,(R0+48)*2,(R0+48)*2);}
+  else{const ts=32;for(let ty=Math.floor(Math.max(vy0,-R0-48)/ts);ty*ts<Math.min(vy1,R0+48);ty++)for(let tx=Math.floor(Math.max(vx0,-R0-48)/ts);tx*ts<Math.min(vx1,R0+48);tx++){
+      const cx=tx*ts+16,cy=ty*ts+16,inA=cx*cx+cy*cy<(R0+20)*(R0+20);if(!inA)continue;const h=((tx*374761393)^(ty*668265263))>>>0;q.drawImage(V.tiles[h%7],tx*ts,ty*ts);}
+    q.fillStyle='#120e19';q.beginPath();q.rect(vx0,vy0,vx1-vx0,vy1-vy0);q.arc(0,0,R0+20,0,Math.PI*2,true);q.fill('evenodd');}
+  // blood where fighters fell
+  for(const d of W.decals){if(d.x<vx0||d.x>vx1||d.y<vy0||d.y>vy1)continue;q.fillStyle='#5a1420';q.fillRect(d.x-5,d.y-1,10,3);q.fillRect(d.x-3,d.y-2,6,5);q.fillStyle='#7a1a2a';q.fillRect(d.x-2,d.y-1,4,2);}
+  // props
+  for(const p of W.props){if(p.x<vx0||p.x>vx1||p.y<vy0||p.y>vy1)continue;const s=V.props[p.k];q.drawImage(s,Math.round(p.x-s.width/2),Math.round(p.y-s.height));
+    if(p.k==='brazier'){const fl=Math.sin(t*9+p.x)*1;q.fillStyle='#ff6a1a';q.fillRect(p.x-3,p.y-14+fl,6,4);q.fillStyle='#ffd24a';q.fillRect(p.x-2,p.y-16+fl,4,3);q.fillStyle='#fff2b0';q.fillRect(p.x-1,p.y-15,2,2);
+      q.globalCompositeOperation='lighter';q.globalAlpha=0.5;q.drawImage(GLOW_WARM,p.x-22,p.y-34);q.globalAlpha=1;q.globalCompositeOperation='source-over';}}
+  // the closing ring of fire
+  q.save();q.globalAlpha=0.55;q.fillStyle='#07050b';q.beginPath();q.rect(vx0,vy0,vx1-vx0,vy1-vy0);q.arc(0,0,W.R,0,Math.PI*2,true);q.fill('evenodd');q.restore();
+  {const n=Math.min(720,Math.max(90,W.R*1.2|0));for(let i=0;i<n;i++){const a=i/n*Math.PI*2,x=Math.cos(a)*W.R,y=Math.sin(a)*W.R;if(x<vx0||x>vx1||y<vy0||y>vy1)continue;
+      const fl=(Math.sin(t*7+i*1.7)+1)*0.5;q.fillStyle=fl>0.66?'#ffd24a':fl>0.33?'#ff6a1a':'#c8182a';q.fillRect(x-1,y-2-fl*3,2,2+fl*3);}}
+  // fighters back to front by depth: whoever stands lower on the map covers the one behind, the player's own included
+  const vis=[];for(const f of W.f){if(f.x<vx0||f.x>vx1||f.y<vy0||f.y>vy1)continue;vis.push(f);}
+  for(const m of W.mins)if(m.x>=vx0&&m.x<=vx1&&m.y>=vy0&&m.y<=vy1)vis.push(m);vis.sort((a,b)=>a.y-b.y);
+  const small=z<1.15,live=z>=2.4;V.live=live;
+  for(const f of vis){if(f.skel){mbDrawSkel(V,f,t);continue;}mbDrawF(V,f,t,small,live);}
+  // the tower's own skill and hit effects
+  if(live||z>=1.2)mbFxDraw(V,t);
+  for(const f of vis)if(f.alive&&!f.skel)mbDrawOver(V,f,t,small);
+  // simple projectiles only on the far view (close up the tower's effects draw them)
+  if(!live&&z<1.2)for(const p of W.proj){const k=p.t/p.life,x=p.x0+(p.b.x-p.x0)*k,y=p.y0+(p.b.y-14-p.y0)*k-Math.sin(k*Math.PI)*6;const col=p.col||MB_PCOL.arcane;
+    q.fillStyle=col[1];q.fillRect(x-2,y-2,4,4);q.fillStyle=col[0];q.fillRect(x-1,y-1,2,2);}
+  for(const s of W.fx){if(s.x<vx0||s.x>vx1||s.y<vy0||s.y>vy1)continue;const a=1-s.t/s.life;
+    if(s.k==='p'){q.globalAlpha=Math.max(0,a);q.fillStyle=s.col;q.fillRect(s.x-1,s.y-1,2,2);q.globalAlpha=1;}
+    else if(s.k==='slash'){if(live)continue;q.globalAlpha=a;for(let i=0;i<9;i++){const an=-1.2+i*0.3,r=10;q.fillStyle=i%3?'#ffffff':'#ffe08a';q.fillRect(s.x+Math.cos(an)*r*s.face,s.y+Math.sin(an)*r*0.8,2,1);}q.globalAlpha=1;}
+    else if(s.k==='skull'){q.globalAlpha=Math.min(1,a*2);q.drawImage(V.props.skull,s.x-4,s.y-4-s.t*14);q.globalAlpha=1;}}
+  // screen-space text: names, popups
+  q.setTransform(1,0,0,1,0,0);const sx=x=>x*z+ox,sy=y=>y*z+oy,fs=Math.round(9*dpr);
+  q.font=`${fs}px 'Ember Pixel',monospace`;q.textAlign='center';q.textBaseline='bottom';
+  const label=(f,col)=>{if(!f.name)return;const x=sx(f.x),y=sy(f.y-(f.me?42:f.skel?30:34))-4*dpr;const nm=mbAt(f.name);const w=q.measureText(nm).width;q.fillStyle='rgba(11,9,16,.72)';q.fillRect(x-w/2-3*dpr,y-fs-2*dpr,w+6*dpr,fs+3*dpr);q.fillStyle=col;q.fillText(nm,x,y);};
+  if(z>=2.2*dpr||W.alive<=10){for(const f of vis){if(!f.alive||f.me)continue;if(W.alive<=10||(V.follow&&V.follow===f)||(W.me&&(W.me.tgt===f)))label(f,f.skel?'#7be38a':f===V.follow?'#ffe08a':'#f0e7d3');}/* a skeleton: its necromancer's name, in green */}
+  if(W.me&&W.me.alive){label(W.me,'#ffd24a');}
+  if(z>=1.8*dpr){for(const p of W.pops){const x=sx(p.x),y=sy(p.y-p.t*18);if(x<-50||x>cw+50||y<-50||y>ch+50)continue;q.globalAlpha=Math.min(1,(1-p.t/p.life)*2);
+      q.font=`${Math.round((p.big?12:9)*dpr)}px 'Ember Pixel',monospace`;q.fillStyle='#0b0910';q.fillText(p.txt,x+dpr,y+dpr);q.fillStyle=p.col;q.fillText(p.txt,x,y);}q.globalAlpha=1;}
+}
+function mbDrawF(V,f,t,small,live){
+  const q=V.q;
+  if(!f.alive){const age=V.W.t-f.deadT;if(age>5)return;const F=mbFrames(f.cls),sp=F.lying;q.globalAlpha=age<2?1:(5-age)/3;   // the fallen lie for a moment, then fade away
+    q.drawImage(f.face>0?sp.flip:sp.c,Math.round(f.x-sp.w/2),Math.round(f.y-sp.h+3));q.globalAlpha=1;return;}
+  q.fillStyle='rgba(10,8,28,.45)';q.fillRect(f.x-6,f.y-1,12,2);q.fillRect(f.x-4,f.y-2,8,4);
+  if(f.me){const k=0.6+0.4*Math.sin(t*5);q.globalCompositeOperation='lighter';q.globalAlpha=0.35*k;q.drawImage(GLOW_GOLD,f.x-20,f.y-32);q.globalAlpha=1;q.globalCompositeOperation='source-over';
+    q.fillStyle='#ffd24a';for(let a=0;a<6.28;a+=0.35)q.fillRect(Math.round(f.x+Math.cos(a+t)*10),Math.round(f.y+Math.sin(a+t)*3.5),1,1);}
+  if(live){mbDrawLive(V,f,t);return;}
+  const sp=mbFighterSprite(f,t),flip=f.face<0,X=Math.round(f.x-MBFX),Y=Math.round(f.y-MBFY);
+  if(f.me)q.drawImage(mbOutline(sp,flip),X,Y);
+  q.drawImage(flip?sp.flip:sp.c,X,Y);
+}
+/* health bars and the player's marker: drawn after every body, so a crowd never hides them */
+function mbDrawOver(V,f,t,small){const q=V.q;if(small&&!f.me)return;
+  const bw=f.me?22:16,bx=Math.round(f.x-bw/2),by=Math.round(f.y-31);
+  if(f.me||V.cam.z>=1.6*V.dpr||f.hp<0.99||V.W.alive<=10){q.fillStyle='#0a0710';q.fillRect(bx-1,by-1,bw+2,4);q.fillStyle='#3a2030';q.fillRect(bx,by,bw,2);
+    q.fillStyle=f.me?'#7be38a':f.hp<0.3?'#ff6070':'#e0414f';q.fillRect(bx,by,Math.max(1,Math.round(bw*f.hp)),2);}
+  if(f.me){const b=Math.round(Math.sin(t*6)*1.5);q.fillStyle='#0a0710';q.fillRect(f.x-4,by-9+b,9,6);q.fillStyle='#ffd24a';q.fillRect(f.x-3,by-8+b,7,2);q.fillRect(f.x-2,by-6+b,5,1);q.fillRect(f.x-1,by-5+b,3,1);}
+}
+function mbMapImage(W,tiles,props){const R0=W.R0,S=Math.ceil((R0+48)*2/2),c=mk(S,S),q=ctx2(c);q.fillStyle='#120e19';q.fillRect(0,0,S,S);
+  q.save();q.beginPath();q.arc(S/2,S/2,(R0+20)/2,0,Math.PI*2);q.clip();
+  for(let y=0;y<S;y+=16)for(let x=0;x<S;x+=16){const tx=Math.floor((x*2-R0-48)/32),ty=Math.floor((y*2-R0-48)/32),h=((tx*374761393)^(ty*668265263))>>>0;q.drawImage(tiles[h%7],x,y,16,16);}
+  q.restore();return c;}
+
+/* ---------- 8. screens ---------- */
+function mbCss(){if(document.getElementById('mbCss'))return;const s=document.createElement('style');s.id='mbCss';s.textContent=`
+body:has(#mbOv) #modal{z-index:9100}   /* the game's windows (e.g. «Не хватает звёзд») open above the massacre */
+#mbOv{position:fixed;inset:0;z-index:9000;background:#0b0910;color:var(--text,#f0e7d3);font-family:'Ember Pixel',monospace;display:flex;flex-direction:column;touch-action:none}
+#mbOv canvas{position:absolute;inset:0;width:100%;height:100%;image-rendering:pixelated}
+#mbOv .mbpage{position:relative;flex:1;overflow:auto;touch-action:pan-y;padding:calc(12px + env(safe-area-inset-top,0px)) 12px calc(16px + env(safe-area-inset-bottom,0px));max-width:520px;margin:0 auto;width:100%;box-sizing:border-box}
+#mbOv h2{font-size:18px;color:var(--gold,#f4c95d);margin:6px 0 4px;text-align:center}
+#mbOv .mbcard{background:var(--panel,#241e31);box-shadow:inset 0 0 0 2px var(--line,#0a0710),0 0 0 2px #3a3050;padding:10px;margin:10px 0}
+#mbOv .mbsub{font-size:12px;color:var(--muted,#a59cb8)}
+#mbOv label{display:block;font-size:12px;color:var(--muted,#a59cb8);margin:8px 0 3px}
+#mbOv input[type=text],#mbOv select{width:100%;box-sizing:border-box;background:var(--inset,#17121f);color:var(--text,#f0e7d3);border:0;box-shadow:inset 0 0 0 2px var(--line,#0a0710);padding:8px;font:inherit;font-size:14px}
+#mbOv input[type=range]{width:100%}
+#mbOv .mbrow{display:flex;gap:8px;align-items:center}
+#mbOv .mbbtn{font:inherit;font-size:14px;border:0;cursor:pointer;padding:10px 12px;background:#3a3050;color:var(--text,#f0e7d3);box-shadow:inset 0 -3px 0 rgba(0,0,0,.35),0 0 0 2px var(--line,#0a0710)}
+#mbOv .mbbtn.gold{background:linear-gradient(#ffd98a,#e0a040);color:#2a1808}
+#mbOv .mbbtn.red{background:linear-gradient(#e05060,#a02838);color:#fff}
+#mbOv .mbbtn:disabled{opacity:.5;cursor:default}
+#mbOv .mbbtn.wide{width:100%;margin-top:10px}
+#mbOv .mbcls{display:grid;grid-template-columns:repeat(5,1fr);gap:4px}
+#mbOv .mbcls button{font:inherit;font-size:11px;color:var(--text,#f0e7d3);border:0;background:var(--inset,#17121f);box-shadow:inset 0 0 0 2px var(--line,#0a0710);padding:4px 2px;display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer}
+#mbOv .mbcls button.on{box-shadow:inset 0 0 0 2px #ffd24a;background:#2e2540}
+#mbOv .mbcls img{width:44px;height:auto;image-rendering:pixelated}
+#mbOv .mbstat{display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid #2e2540}
+#mbOv .mbstat b{flex:1;font-weight:normal}
+#mbOv .mbstat small{display:block;color:var(--muted,#a59cb8);font-size:10px}
+#mbOv .mbstat button{width:30px;height:28px;padding:0}
+#mbOv .mbstat i{width:30px;text-align:center;font-style:normal;color:#ffd24a}
+#mbOv .mbski{width:26px;height:26px;image-rendering:pixelated;flex:none}
+#mbOv .mbpaths{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-top:3px}
+#mbOv .mbpaths button{font:inherit;font-size:11px;color:var(--text,#f0e7d3);border:0;background:var(--inset,#17121f);box-shadow:inset 0 0 0 2px var(--line,#0a0710);padding:6px;text-align:left;cursor:pointer;display:flex;flex-direction:column;gap:2px}
+#mbOv .mbpaths button.on{box-shadow:inset 0 0 0 2px #ffd24a;background:#2e2540}
+#mbOv .mbpaths small{color:var(--muted,#a59cb8);font-size:10px}
+#mbOv .mbprev{display:flex;gap:10px;align-items:center}
+#mbOv .mbprev canvas{position:static;width:128px;height:120px;background:#17121f;box-shadow:inset 0 0 0 2px var(--line,#0a0710);flex:none}
+#mbOv .mbpost{background:var(--panel,#241e31);box-shadow:inset 0 0 0 2px var(--line,#0a0710),0 0 0 2px #5a4320;padding:10px 12px;font-size:13px;line-height:1.55;color:var(--text,#f0e7d3);margin:2px 0 10px}
+#mbOv .mbpost>b:first-child{display:block;font-size:16px;color:var(--gold,#f4c95d);margin-bottom:4px}
+#mbOv .mbpost>b:first-child+br{display:none}
+#mbOv .mbprzimg{float:right;width:64px;height:64px;margin:0 0 6px 8px;image-rendering:auto;box-shadow:0 0 0 2px var(--line,#0a0710),0 0 0 4px #5a4320}
+#mbOv .mbprz{display:flex;gap:10px;align-items:center;margin-top:8px}#mbOv .mbprz img{width:56px;height:56px;box-shadow:0 0 0 2px #5a4320}
+#mbOv .mbrow2{display:flex;gap:6px;margin-top:6px}#mbOv .mbrow2 input{flex:1;margin:0}#mbOv .mbrow2 .mbbtn{margin:0;padding:6px 10px}
+#mbOv .mbpzrow{display:flex;gap:6px;align-items:center;margin-top:6px}#mbOv .mbpzrow span{width:22px;text-align:center}#mbOv .mbpzrow input{flex:1;margin:0}
+#mbOv .mbpzlist{margin:4px 0 2px}#mbOv .mbpzlist div{display:flex;align-items:center;gap:6px;min-height:26px}#mbOv .mbpzlist img,#mbOv .mbplaces img{width:24px;height:24px;vertical-align:middle;margin-right:4px;box-shadow:0 0 0 1px #5a4320}
+#mbOv .mbplaces{margin-top:8px;text-align:left;display:inline-block;line-height:1.7}#mbOv .mbplaces i{color:var(--dim,#9a8fb0);font-style:normal;font-size:12px}
+#mbOv .mbpost b{color:var(--gold,#f4c95d);font-weight:normal}
+#mbOv .mbpost .mbtgbtn{display:block;margin-top:10px;width:100%;font:inherit;font-size:14px;border:0;cursor:pointer;padding:10px 12px;background:linear-gradient(#ffd98a,#e0a040);color:#2a1808;box-shadow:inset 0 -3px 0 rgba(0,0,0,.35),0 0 0 2px var(--line,#0a0710)}
+#mbOv .mbpost .mbtgbtn:disabled{background:#2f4a32;color:#bfe8b0;cursor:default}
+#mbOv .mbtimer{font-size:28px;color:#ffd24a;text-align:center;margin:4px 0}
+#mbOv .mbhud{position:absolute;left:0;right:0;pointer-events:none;display:flex;gap:6px;padding:0 8px}
+#mbOv .mbhud>*{pointer-events:auto}
+#mbOv .mbtop{top:calc(8px + env(safe-area-inset-top,0px));align-items:flex-start}
+#mbOv .mbbot{bottom:calc(10px + env(safe-area-inset-bottom,0px));justify-content:center}
+#mbOv .mbbot .mbbtn{font-size:13px;padding:9px 10px}
+#mbOv .mbalive{background:rgba(11,9,16,.8);box-shadow:0 0 0 2px #3a3050;padding:6px 9px;font-size:13px;white-space:nowrap}
+#mbOv .mbalive b{color:#ff6070;font-weight:normal}
+#mbOv .mbfeed{flex:1;min-width:0;display:flex;justify-content:center;pointer-events:none}
+#mbOv .mbfeed div{background:rgba(11,9,16,.8);box-shadow:0 0 0 2px #3a3050;padding:5px 8px;font-size:11px;line-height:1.2;color:#f0e7d3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;animation:mbIn .2s ease-out}
+#mbOv .mbx{width:34px;height:32px;padding:0;flex:none}
+#mbOv .mbfollow{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(58px + env(safe-area-inset-bottom,0px));background:rgba(11,9,16,.8);padding:4px 10px;font-size:12px;color:#ffe08a;pointer-events:none;white-space:nowrap}
+#mbOv .mbban{position:absolute;left:50%;top:38%;transform:translate(-50%,-50%);text-align:center;pointer-events:none;width:92%}
+#mbOv .mbban .t1{font-size:26px;color:#ffd24a;text-shadow:2px 2px 0 #0b0910}
+#mbOv .mbban .t2{font-size:14px;color:#f0e7d3;text-shadow:1px 1px 0 #0b0910;margin-top:6px}
+#mbOv .mbend{position:absolute;inset:0;background:rgba(11,9,16,.82);display:flex;align-items:center;justify-content:center;padding:16px}
+#mbOv .mbend .mbcard{max-width:420px;width:100%;text-align:center}
+#mbOv .mbend canvas{position:static;width:192px;height:180px}
+#mbOv .mbhash{font-size:9px;color:#6f6784;word-break:break-all;margin-top:6px;font-family:monospace}
+@keyframes mbIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1}}
+`;document.head.appendChild(s);}
+function mbOpen(){mbCss();mbClose();const ov=document.createElement('div');ov.id='mbOv';document.body.appendChild(ov);
+  MBX.st={phase:'create',cfg:{title:'Массовая бойня',prize:'https://t.me/nft/PlushPepe-1',prizes:['https://t.me/nft/PlushPepe-1','https://t.me/nft/DurovsCap-12','500 звёзд'],places:3,bots:99,reg:60,max:MB_MAX,cChan:false,chan:'@ebashnya',cNft:false,nNft:1},me:null};
+  mbCreate();}
+function mbClose(){window.__mbBusy=0;cancelAnimationFrame(MBX.raf);MBX.raf=0;if(MBX.tick)clearInterval(MBX.tick);MBX.tick=0;if(MBX.poll)clearInterval(MBX.poll);MBX.poll=0;if(MBX.V&&MBX.V.endT)clearTimeout(MBX.V.endT);MBX.V=null;if(typeof MBS!=='undefined')MBS.gid=null;const o=document.getElementById('mbOv');if(o)o.remove();if(MBX.offRs)MBX.offRs();MBX.offRs=null;}
+const mbOv=()=>document.getElementById('mbOv');
+
+function mbCreate(){const c=MBX.st.cfg;
+  mbOv().innerHTML=`<div class="mbpage">
+  <h2>Массовая бойня</h2><div class="mbsub" style="text-align:center">Тестовая версия: все остальные участники — боты, бой идёт на этом устройстве.</div>
+  <div class="mbcard"><label>Название розыгрыша</label><input type="text" id="mbT" value="${mbEsc(c.title)}" maxlength="40">
+    <label>Призовых мест (дерутся всё равно до последнего)</label><select id="mbPl">${mbPlaceOpts(c.places)}</select>
+    <label>Призы — текст или ссылка на подарок (t.me/nft/…)</label><div id="mbPzs"></div>
+    <label>Ботов-участников: <b id="mbBv">${c.bots}</b> (всего бойцов с тобой: <b id="mbNv">${c.bots+1}</b>)</label>
+    <input type="range" id="mbB" min="1" max="${MB_MAX-1}" value="${c.bots}">
+    <div class="mbrow" style="margin-top:6px">${[1,9,49,99,249,499].map(n=>`<button class="mbbtn" data-mbn="${n}" style="flex:1;padding:6px 0;font-size:12px">${n+1}</button>`).join('')}</div>
+    <label>Регистрация до начала битвы</label><select id="mbR">${[[10,'10 секунд'],[30,'30 секунд'],[60,'1 минута'],[120,'2 минуты'],[300,'5 минут'],[600,'10 минут']].map(([v,t])=>`<option value="${v}"${v===c.reg?' selected':''}>${t}</option>`).join('')}</select>
+  </div>
+  <div class="mbcard"><div class="mbsub" style="margin-bottom:4px">Условия участия (можно сочетать)</div>
+    <label style="color:var(--text)"><input type="checkbox" id="mbC2"${c.cChan?' checked':''}> Подписка на канал <input type="text" id="mbC2n" value="${mbEsc(c.chan)}" style="width:130px;display:inline-block;padding:3px"></label>
+    <label style="color:var(--text)"><input type="checkbox" id="mbC3"${c.cNft?' checked':''}> Не меньше <input type="text" id="mbC3n" value="${c.nNft}" inputmode="numeric" style="width:56px;display:inline-block;padding:3px"> NFT-подарков в профиле</label>
+    <div class="mbsub" style="margin-top:6px">В тесте условия показываются, но не проверяются: проверку делает сервер бота, а здесь его нет.</div></div>
+  <button class="mbbtn gold wide" data-mbgo="publish">Опубликовать розыгрыш</button>
+  <button class="mbbtn wide" data-mbgo="close">Закрыть</button></div>`;
+  const B=mbOv().querySelector('#mbB'),upd=()=>{c.bots=+B.value;mbOv().querySelector('#mbBv').textContent=c.bots;mbOv().querySelector('#mbNv').textContent=c.bots+1;};B.oninput=upd;
+  mbOv().querySelectorAll('[data-mbn]').forEach(b=>b.onclick=()=>{B.value=b.dataset.mbn;upd();});const getPz=mbPrizeFields(mbOv(),'#mbPl',mbOv().querySelector('#mbPzs'),c.prizes);
+  mbOv().querySelector('[data-mbgo="close"]').onclick=mbClose;
+  mbOv().querySelector('[data-mbgo="publish"]').onclick=()=>{const v=id=>mbOv().querySelector(id);
+    c.title=v('#mbT').value.trim()||'Массовая бойня';{const a=getPz();c.prizes=a;c.prize=a[0]||'Приз';}c.reg=+v('#mbR').value;c.places=+v('#mbPl').value||1;
+    c.cChan=v('#mbC2').checked;c.chan=v('#mbC2n').value.trim();c.cNft=v('#mbC3').checked;c.nNft=Math.max(1,parseInt(v('#mbC3n').value)||1);
+    mbPublish();};
+}
+const MB_GIFT=/(?:https?:\/\/)?(?:t\.me|telegram\.me)\/nft\/([A-Za-z0-9]+)-(\d+)/i;
+/* the prize as typed; a Telegram gift link brings the gift's picture (the server does the same) */
+function mbPrize(t){t=String(t||'').trim();const m=t.match(MB_GIFT);if(!m)return {name:t.slice(0,60),img:''};
+  const name=m[1].replace(/([a-z])([A-Z])/g,'$1 $2')+' #'+m[2],rest=(t.slice(0,m.index)+t.slice(m.index+m[0].length)).replace(/^[\s·:—-]+|[\s·:—-]+$/g,'');
+  return {name:(rest||name).slice(0,60),img:`https://nft.fragment.com/gift/${m[1].toLowerCase()}-${m[2]}.large.jpg`};}
+const MB_MED=['🥇','🥈','🥉'],mbMed=i=>MB_MED[i]||`${i+1}.`;
+/* a prize field for each prize place: text or a gift link; the box under it shows the gift */
+function mbPrizeFields(root,sel,box,vals){const draw=()=>{const k=+root.querySelector(sel).value||1,old=[...box.querySelectorAll('input')].map(x=>x.value);
+    box.innerHTML=Array.from({length:k},(_,i)=>`<div class="mbpzrow"><span>${mbMed(i)}</span><input type="text" data-pz="${i}" maxlength="120" placeholder="${i?'приз за '+(i+1)+' место':'приз победителю'} — текст или t.me/nft/…" value="${mbEsc(old[i]!=null?old[i]:(vals&&vals[i])||'')}"></div><div data-pzv="${i}"></div>`).join('');
+    box.querySelectorAll('[data-pz]').forEach(inp=>mbPrizeLive(inp,box.querySelector(`[data-pzv="${inp.dataset.pz}"]`)));};
+  root.querySelector(sel).addEventListener('change',draw);draw();return ()=>[...box.querySelectorAll('[data-pz]')].map(x=>x.value.trim());}
+/* the prizes as the reader sees them: a list with the gifts' pictures */
+function mbPrizesHtml(ps){if(!ps.length)return '';if(ps.length===1)return `${ps[0].i?`<img class="mbprzimg" src="${ps[0].i}" alt="">`:''}Приз: <b>${mbEsc(ps[0].n)}</b><br>`;
+  return `Призы:<div class="mbpzlist">${ps.map((p,i)=>`<div>${p.i?`<img src="${p.i}" alt="">`:''}<span>${mbMed(i)}</span> <b>${mbEsc(p.n)}</b></div>`).join('')}</div>`;}
+const mbPz=t=>{const p=mbPrize(t);return {n:p.name,i:p.img};};
+function mbPrizeLive(inp,box){const f=()=>{const p=mbPrize(inp.value);box.innerHTML=p.img?`<div class="mbprz"><img src="${p.img}" alt=""><div><b>${mbEsc(p.name)}</b><div class="mbsub">Подарок из Telegram: в чате будет ссылкой на него, в игре — с картинкой.</div></div></div>`:'';};inp.addEventListener('input',f);f();}
+const mbNftTxt=n=>`🎁 не меньше ${n} NFT-${plural(n,'подарка','подарков','подарков')} в профиле`;
+const mbCondList=c=>{const a=[];if(c.chan)a.push(`📢 подписка на ${mbEsc(c.chan)}`);const n=parseInt(c.nft)||0;if(n)a.push(mbNftTxt(n));return a;};
+const mbPlaceOpts=v=>[1,2,3,4,5,6,7,8,9,10].map(n=>`<option value="${n}"${n===v?' selected':''}>${n}</option>`).join('');
+function mbConds(c){return mbCondList({chan:c.cChan?c.chan:'',nft:c.cNft?c.nNft:0});}
+function mbPublish(){const st=MBX.st,c=st.cfg;st.phase='reg';st.regEnds=Date.now()+c.reg*1000;st.bots=[];st.reg=false;st.me={cls:S&&S.cls&&mbClasses().includes(S.cls)?S.cls:'knight',path:'',skills:{},ready:false};
+  const rnd=L.mulberry32(mbRandU32()),used=new Set();
+  for(let i=0;i<c.bots;i++){let n;do n=mbBotName(rnd);while(used.has(n));used.add(n);
+    const cl=mbClasses()[(rnd()*mbClasses().length)|0],bd=mbRandBuild(cl,rnd);
+    st.bots.push({name:n,cls:cl,path:bd.path,skills:bd.skills,at:rnd()*0.9});}   // each bot signs up at its own moment of the registration
+  mbPrep();if(MBX.tick)clearInterval(MBX.tick);MBX.tick=setInterval(mbRegTick,250);}
+function mbRegTick(){const st=MBX.st;if(!st||st.phase!=='reg')return;const left=Math.max(0,st.regEnds-Date.now()),done=1-left/(st.cfg.reg*1000);
+  const nb=st.bots.filter(b=>b.at<=done).length,n=nb+(st.reg?1:0),o=mbOv();if(!o)return;
+  const tm=o.querySelector('#mbTm');if(tm){const x=Math.ceil(left/1000);tm.textContent=x>=60?Math.floor(x/60)+':'+String(x%60).padStart(2,'0'):x+' с';}const cn=o.querySelector('#mbCnt');if(cn)cn.textContent=n;
+  if(left<=0){clearInterval(MBX.tick);MBX.tick=0;mbStart();}}
+function mbPrep(){const st=MBX.st,c=st.cfg,me=st.me,conds=mbConds(c);
+  mbOv().innerHTML=`<div class="mbpage">
+  <div class="mbpost"><b>⚔️ ${mbEsc(c.title)}</b><br>${mbPrizesHtml((c.prizes||[c.prize]).slice(0,c.places||1).map(mbPz))}
+    ${conds.length?'Условия: '+conds.join(', ')+'<br>':''}Участников: <b id="mbCnt">0</b> / ${c.max} · старт через <b id="mbTm">${c.reg>=60?Math.floor(c.reg/60)+':'+String(c.reg%60).padStart(2,'0'):c.reg+' с'}</b>
+    <button class="mbtgbtn" data-mbgo="join"${st.reg?' disabled':''}>${st.reg?'✅ Ты в списке участников':'Участвовать'}</button></div>
+  ${st.reg?`<div class="mbcard"><div class="mbsub">Подготовь бойца: уровень ${MB_LV}, ${MB_SKPTS} очков умений, как в башне. Класс, путь и умения меняют то, как боец дерётся на карте. Шанс победить у всех один: 1 из N.</div>
+    <div class="mbprev" style="margin-top:8px"><canvas id="mbPv" width="64" height="60"></canvas><div style="flex:1"><div style="color:#ffd24a">${mbEsc(mbAt(mbMyName()))}</div><div class="mbsub">${L.CLASSES[me.cls].ru} · ${L.CLASSES[me.cls].range?'дальний бой':'ближний бой'}</div></div></div>
+    ${mbBuildHtml(me,me.ready)}
+    <button class="mbbtn ${me.ready?'':'gold'} wide" data-mbgo="ready">${me.ready?'Боец готов · ждём начала':'Готов'}</button></div>`
+  :`<div class="mbcard mbsub">Нажми «Участвовать», чтобы попасть в список и подготовить бойца. Если не успеешь, будешь смотреть битву как зритель.</div>`}
+  <button class="mbbtn wide" data-mbgo="close">Выйти</button></div>`;
+  const o=mbOv();o.querySelector('[data-mbgo="close"]').onclick=mbClose;
+  const j=o.querySelector('[data-mbgo="join"]');if(j)j.onclick=()=>{if(st.reg)return;st.reg=true;mbPrep();mbRegTick();};   // one fighter per person: the button locks at once
+  if(!me.ready)mbBuildBind(o,me,mbPrep);
+  const r=o.querySelector('[data-mbgo="ready"]');if(r)r.onclick=()=>{me.ready=true;mbPrep();};
+  const pv=o.querySelector('#mbPv');if(pv)mbPreview(pv,me.cls);
+  mbRegTick();}
+function mbPreview(cv,cls){const q=ctx2(cv),F=mbFrames(cls),t0=performance.now();cancelAnimationFrame(MBX.pv);
+  const loop=()=>{if(!cv.isConnected)return;const t=(performance.now()-t0)/1000,ph=t%3;let sp;
+    if(ph<1.2)sp=F.idle[1][Math.floor(t*3)%4];else if(ph<1.9)sp=F.run[1][Math.floor(t*12)%6];else sp=F.atk[1][Math.min(5,Math.floor((ph-1.9)/0.6*6))];
+    q.clearRect(0,0,64,60);q.fillStyle='rgba(10,8,28,.45)';q.fillRect(26,53,12,2);q.drawImage(sp.c,0,0);MBX.pv=requestAnimationFrame(loop);};loop();}
+
+/* ---------- 9. the battle ---------- */
+async function mbStart(){
+  const st=MBX.st,c=st.cfg;st.phase='battle';
+  const entrants=st.bots.map(b=>({name:b.name,cls:b.cls,path:b.path,sk:mbBuildSk(b.cls,b.path,b.skills)}));
+  if(st.reg){const F=mbFill(st.me.cls,st.me.path,st.me.skills);entrants.push({name:mbMyName(),cls:st.me.cls,path:F.path,sk:mbBuildSk(st.me.cls,F.path,F.skills),me:true});}   // class and stats are frozen from here
+  const N=entrants.length;
+  if(N<2){mbOv().innerHTML=`<div class="mbpage"><div class="mbcard">Розыгрыш отменён: участников меньше двух.</div><button class="mbbtn wide" data-mbgo="close">Закрыть</button></div>`;mbOv().querySelector('[data-mbgo]').onclick=mbClose;return;}
+  // the lottery: the order of deaths is drawn now, the last one wins; nothing in the battle can change it
+  const order=mbShuffle(entrants.map((e,i)=>i)),seed=mbRandU32();
+  const PS=(c.prizes||[c.prize]).slice(0,c.places||1).map(mbPz),PZ={name:PS[0].n,img:PS[0].i};
+  const proto={title:c.title,prize:PZ.name,n:N,participants:entrants.map(e=>e.name),order,seed,at:Date.now()};st.proto=proto;st.hash=await mbHash(proto);
+  const W=mbWorld(entrants,order,seed,PZ.name);
+  mbRun(W,{title:c.title,prize:PZ.name,prizes:PS,places:c.places||1,hash:st.hash});
+}
+/* the battle screen: the same for the local test and for a real giveaway (opt.step drives the clock) */
+function mbRun(W,opt){const N=W.N;window.__mbBusy=1;
+  const tiles=[0,1,2,3,4,5,6].map(mbTile),props=mbProps();
+  mbOv().innerHTML=`<canvas id="mbCv"></canvas>
+   <div class="mbhud mbtop"><div class="mbalive">Осталось: <b id="mbAl">${N}</b></div><div class="mbfeed" id="mbFeed"></div><button class="mbbtn mbx" data-mbgo="close">✕</button></div>
+   <div class="mbfollow" id="mbFol" hidden></div>
+   <div class="mbhud mbbot"><button class="mbbtn" data-mbc="me"${W.me?'':' hidden'}>Мой боец</button><button class="mbbtn" data-mbc="map">Обзор карты</button><button class="mbbtn red" data-mbc="watch"${W.me?' hidden':''}>Смотреть бой</button></div>
+   <div class="mbban" id="mbBan"></div>`;
+  const o=mbOv(),cv=o.querySelector('#mbCv'),V={W,cv,q:null,dpr:Math.min(2,window.devicePixelRatio||1),cam:{x:0,y:0,z:1},mode:'intro',follow:null,time:0,tiles,props,feed:[],lastBatch:0,batchN:0};
+  V.mapImg=mbMapImage(W,tiles,props);V.opt=opt;V.later=[];mbFxReset();MBX.V=V;
+  const fit=()=>{cv.width=Math.round(cv.clientWidth*V.dpr);cv.height=Math.round(cv.clientHeight*V.dpr);V.q=ctx2(cv);};fit();
+  const onRs=()=>fit();window.addEventListener('resize',onRs);MBX.offRs=()=>window.removeEventListener('resize',onRs);
+  V.zMe=()=>Math.min(cv.width,cv.height)/140;V.zMap=()=>Math.min(cv.width,cv.height)/((W.R+30)*2);
+  V.cam.z=V.zMap();V.cam.x=0;V.cam.y=0;
+  o.querySelector('[data-mbgo="close"]').onclick=mbClose;
+  o.querySelector('[data-mbc="me"]').onclick=()=>{if(W.me){V.mode='me';V.follow=W.me.alive?W.me:null;if(!W.me.alive){V.mode='free';V.cam.tx=W.me.x;V.cam.ty=W.me.y;}V.cam.tz=V.zMe();}};
+  o.querySelector('[data-mbc="map"]').onclick=()=>{V.mode='map';V.follow=null;};
+  o.querySelector('[data-mbc="watch"]').onclick=()=>mbWatchNext(V);
+  mbInput(V);
+  if(!opt.late){mbFeed(V,`⚔️ Битва началась · бойцов: ${N}`);
+  mbBanner(V,'В БОЙ!',W.me?'Камера летит к твоему бойцу':'Ты смотришь битву как зритель',2.2);}
+  setTimeout(()=>{if(MBX.V!==V)return;if(W.me&&W.me.alive){V.mode='me';V.follow=W.me;}else mbWatchNext(V);},opt.late?100:1300);
+  let last=performance.now();
+  const loop=now=>{if(MBX.V!==V||!cv.isConnected)return;const dt=Math.max(0,Math.min(0.05,(now-last)/1000));last=now;V.time+=dt;
+    (opt.step?opt.step(V,dt):mbStep(W,dt));mbEvents(V);if(!V.quiet)mbFxUpdate(V,dt);mbCam(V,dt);mbDraw(V);MBX.raf=requestAnimationFrame(loop);};
+  MBX.raf=requestAnimationFrame(loop);
+  return V;
+}
+function mbWatchNext(V){const W=V.W,al=W.f.filter(f=>f.alive);if(!al.length)return;
+  // prefer someone in the thick of a fight, then cycle
+  const busy=al.filter(f=>f.state==='attack'||f.hunt.length);const pool=busy.length?busy:al;
+  V.wi=((V.wi||0)+1)%pool.length;V.follow=pool[V.wi];V.mode='spec';V.cam.tz=V.zMe()*0.85;}
+function mbCam(V,dt){const W=V.W,cam=V.cam;let tx=cam.x,ty=cam.y,tz=cam.tz||cam.z;
+  if(V.mode==='me'&&W.me){if(W.me.alive){tx=W.me.x;ty=W.me.y-12;tz=cam.tz||V.zMe();}else{tx=W.me.x;ty=W.me.y;}}
+  else if(V.mode==='spec'&&V.follow){if(!V.follow.alive){const k=V.follow.killer;V.follow=k&&k.alive?k:null;if(!V.follow)mbWatchNext(V);}if(V.follow){tx=V.follow.x;ty=V.follow.y-12;}}
+  else if(V.mode==='map'){tx=0;ty=0;tz=V.zMap();}
+  else if(V.mode==='intro'){tz=V.zMap();tx=0;ty=0;}
+  else if(V.mode==='free'){tx=cam.tx!=null?cam.tx:cam.x;ty=cam.ty!=null?cam.ty:cam.y;}
+  if(V.mode==='duel'){const a=W.f.filter(f=>f.alive);if(a.length){tx=a.reduce((s,f)=>s+f.x,0)/a.length;ty=a.reduce((s,f)=>s+f.y,0)/a.length-12;tz=V.zMe()*1.1;}}
+  const k=Math.min(1,dt*3.2),kz=Math.min(1,dt*2.2);cam.x+=(tx-cam.x)*k;cam.y+=(ty-cam.y)*k;cam.z*=Math.pow(tz/cam.z,kz);
+  const lim=W.R0+60;cam.x=Math.max(-lim,Math.min(lim,cam.x));cam.y=Math.max(-lim,Math.min(lim,cam.y));
+  const fo=document.getElementById('mbFol');if(fo){const show=V.mode==='spec'&&V.follow;fo.hidden=!show;if(show)fo.textContent='Смотришь: '+mbAt(V.follow.name);}
+}
+function mbInput(V){const cv=V.cv,pts=new Map();let pinch=0,start=null;
+  const toWorld=(px,py)=>{const r=cv.getBoundingClientRect(),x=(px-r.left)*V.dpr,y=(py-r.top)*V.dpr;return [V.cam.x+(x-cv.width/2)/V.cam.z,V.cam.y+(y-cv.height/2)/V.cam.z];};
+  const freeze=()=>{if(V.mode!=='free'){V.mode='free';V.cam.tx=V.cam.x;V.cam.ty=V.cam.y;V.cam.tz=V.cam.z;}};
+  cv.addEventListener('pointerdown',e=>{cv.setPointerCapture(e.pointerId);pts.set(e.pointerId,[e.clientX,e.clientY]);start={x:e.clientX,y:e.clientY,t:performance.now(),moved:false};
+    if(pts.size===2){const [a,b]=[...pts.values()];pinch=Math.hypot(a[0]-b[0],a[1]-b[1]);}});
+  cv.addEventListener('pointermove',e=>{if(!pts.has(e.pointerId))return;const p=pts.get(e.pointerId),dx=e.clientX-p[0],dy=e.clientY-p[1];pts.set(e.pointerId,[e.clientX,e.clientY]);
+    if(start&&Math.hypot(e.clientX-start.x,e.clientY-start.y)>8)start.moved=true;if(!start||!start.moved)return;
+    if(pts.size===1){freeze();V.cam.tx-=dx*V.dpr/V.cam.z;V.cam.ty-=dy*V.dpr/V.cam.z;V.cam.x=V.cam.tx;V.cam.y=V.cam.ty;}
+    else if(pts.size===2){const [a,b]=[...pts.values()],d=Math.hypot(a[0]-b[0],a[1]-b[1]);if(pinch){if(V.mode==='map')freeze();V.cam.tz=Math.max(V.zMap()*0.8,Math.min(V.zMe()*2,(V.cam.tz||V.cam.z)*d/pinch));V.cam.z=V.cam.tz;}pinch=d;}});
+  const up=e=>{const tap=start&&!start.moved&&performance.now()-start.t<350&&pts.size===1;pts.delete(e.pointerId);if(pts.size<2)pinch=0;
+    if(tap){const [wx,wy]=toWorld(e.clientX,e.clientY);let best=null,bd=18*18;for(const f of V.W.f){if(!f.alive)continue;const d=(f.x-wx)**2+(f.y-12-wy)**2;if(d<bd){bd=d;best=f;}}
+      if(best){if(best.me){V.mode='me';V.follow=best;}else{V.mode='spec';V.follow=best;}V.cam.tz=Math.max(V.cam.z,V.zMe()*0.85);}}start=null;};
+  cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',up);
+  cv.addEventListener('wheel',e=>{e.preventDefault();if(V.mode==='map')freeze();V.cam.tz=Math.max(V.zMap()*0.8,Math.min(V.zMe()*2,(V.cam.tz||V.cam.z)*Math.exp(-e.deltaY*0.0015)));},{passive:false});
+}
+function mbFeed(V,html){const el=document.getElementById('mbFeed');if(!el)return;el.innerHTML=`<div>${html}</div>`;clearTimeout(MBX.feedT);MBX.feedT=setTimeout(()=>{if(el.isConnected)el.innerHTML='';},3500);}
+function mbBanner(V,t1,t2,sec){const el=document.getElementById('mbBan');if(!el)return;el.innerHTML=`<div class="t1">${t1}</div>${t2?`<div class="t2">${t2}</div>`:''}`;clearTimeout(V.banT);if(sec)V.banT=setTimeout(()=>{if(el.isConnected)el.innerHTML='';},sec*1000);}
+/* what happens on the map: the tower's skill effects for fighters in view; a small plaque for what matters to this player.
+   The full story (summaries, every kill) goes to the chat from the server, not here. */
+function mbEvents(V){const W=V.W,al=document.getElementById('mbAl');if(al)al.textContent=W.alive;
+  if(V.quiet){W.ev.length=0;return;}   // catching up with a battle already under way: no flood of old news
+  const c=V.cam,hw=V.cv.width/2/c.z+60,hh=V.cv.height/2/c.z+60,seen=f=>Math.abs(f.x-c.x)<hw&&Math.abs(f.y-c.y)<hh,close=c.z>=1.2;
+  for(const e of W.ev.splice(0)){if(e.type==='kill'&&W.server&&W.plan[e.v.k]!=null)e.k=W.f[W.plan[e.v.k]];
+    if(e.type==='cast'){if(close&&seen(e.f))mbCastFx(V,e);continue;}
+    if(e.type==='hop'){if(close&&seen(e.f))mbGameEvents(V,e.f,[{type:'khop',el:'thunder',from:e.from,to:e.to,big:0,n:e.n}]);continue;}
+    if(e.type==='shot'){if(close&&seen(e.f))mbGameEvents(V,e.f,[{type:'shoot',proj:e.f.proj,e:e.tg,travel:e.travel}]);continue;}
+    if(e.type==='hit'){if(close&&seen(e.b)){MBX.snd=mbNearCam(V,e.b);mbScene(()=>spark(Math.round(e.b.x-(e.a.face||1)*2),Math.round(e.b.y-10),e.crit),e.a);MBX.snd=false;}continue;}
+    if(e.type==='kill'){
+      if(e.v.me){MBX.snd=true;SFX.play('lose');MBX.snd=false;mbBanner(V,'ТЫ ПАЛ',`Тебя уничтожил ${mbEsc(mbAt(e.k.name))}. Место: ${W.N-e.v.k} из ${W.N}`,4);
+        const wb=document.querySelector('[data-mbc="watch"]');if(wb)wb.hidden=false;continue;}
+      if(e.k.me){mbFeed(V,`🗡 Ты уничтожил ${mbEsc(mbAt(e.v.name))}`);continue;}
+      if(e.left<=10)mbFeed(V,`☠️ ${mbEsc(mbAt(e.k.name))} → ${mbEsc(mbAt(e.v.name))}`);
+    }
+    if(e.type==='duel'){mbBanner(V,'ФИНАЛЬНАЯ ДУЭЛЬ',`${mbEsc(mbAt(e.a.name))} — ${mbEsc(mbAt(e.b.name))}`,3);
+      if(!(W.me&&W.me.alive))V.mode='duel';MBX.snd=true;SFX.play('boom');MBX.snd=false;}
+    if(e.type==='win'){V.mode='duel';MBX.snd=true;SFX.play('level');MBX.snd=false;mbFeed(V,`🏆 ${mbEsc(mbAt(e.w.name))} — победитель!`);if(V.endT==null)V.endT=setTimeout(()=>mbEnd(V),2600);}
+  }
+}
+/* the prize places: 1 — who stood last, then whoever fell last */
+function mbPlacesHtml(W,k,ps){ps=ps||[];if(k<2)return '';const rows=[];
+  for(const f of W.f){const pl=f.alive?1:W.N-f.k;if(pl>=1&&pl<=k)rows[pl]=f;}
+  return `<div class="mbplaces">${rows.map((f,i)=>f?`<div>${mbMed(i-1)} <span${f.me?' style="color:#ffd24a"':''}>${mbEsc(mbAt(f.name))}</span>${ps[i-1]?` — ${ps[i-1].i?`<img src="${ps[i-1].i}" alt="">`:''}<b>${mbEsc(ps[i-1].n)}</b>`:''}</div>`:'').join('')}</div>`;}
+function mbEnd(V){const W=V.W,st=MBX.st||{},w=(V.opt&&V.opt.winner!=null?W.f[V.opt.winner]:null)||W.winner,o=mbOv();if(!o)return;const meWon=w.me,myPlace=W.me?(W.me.alive?1:W.N-W.me.k):0;
+  const d=document.createElement('div');d.className='mbend';d.innerHTML=`<div class="mbcard"><h2>${meWon?'ТЫ ПОБЕДИЛ!':'Победитель'}</h2>
+   <canvas id="mbWc" width="64" height="60"></canvas><div style="font-size:18px;color:#ffd24a">${mbEsc(mbAt(w.name))}</div><div class="mbsub">${L.CLASSES[w.cls].ru} · убил ${w.kills} ${plural(w.kills,'бойца','бойцов','бойцов')}</div>
+   ${(V.opt&&V.opt.places||1)>1?mbPlacesHtml(W,V.opt.places,V.opt.prizes):`<div style="margin-top:8px">${mbPrizesHtml((V.opt&&V.opt.prizes)||[{n:W.prize,i:''}])}</div>`}
+   ${W.me&&!meWon?`<div class="mbsub" style="margin-top:6px">Твоё место: ${myPlace} из ${W.N}</div>`:''}
+   <div class="mbsub" style="margin-top:8px">Честность: участников ${W.N}, у каждого был шанс 1/${W.N}. Порядок выбывания разыгран до начала битвы.</div>
+   <div class="mbhash" id="mbHash" hidden>SHA-256 протокола: ${(V.opt&&V.opt.hash)||st.hash||'—'}</div>
+   ${V.opt&&V.opt.server?'<button class="mbbtn gold wide" data-mbgo="verify">Проверить протокол</button>':'<button class="mbbtn gold wide" data-mbgo="again">Ещё раз</button>'}<button class="mbbtn wide" data-mbgo="watch">Смотреть карту</button><button class="mbbtn wide" data-mbgo="close">Закрыть</button></div>`;
+  o.appendChild(d);d.querySelector('[data-mbgo="close"]').onclick=mbClose;const ag=d.querySelector('[data-mbgo="again"]');if(ag)ag.onclick=()=>{const cfg=st.cfg;mbClose();mbOpen();MBX.st.cfg=cfg;mbCreate();};
+  const vf=d.querySelector('[data-mbgo="verify"]');if(vf)vf.onclick=()=>mbVerify(vf);
+  d.querySelector('[data-mbgo="watch"]').onclick=()=>d.remove();
+  const wc=d.querySelector('#mbWc'),q=ctx2(wc),F=mbFrames(w.cls),t0=performance.now();const lp=()=>{if(!wc.isConnected)return;const t=(performance.now()-t0)/1000;q.clearRect(0,0,64,60);
+    q.drawImage(F.atk[1][Math.floor(t*6)%6].c,0,0);requestAnimationFrame(lp);};lp();}
+
+
+/* ---------- 10. a real giveaway: everything that matters comes from the server ---------- */
+const MBS={gid:null,st:null,off:0,me:null,saveT:0,busy:false,err:'',logN:0,rendered:''};
+async function mbApi(path,body){const tg=window.Telegram&&Telegram.WebApp;
+  const r=await fetch((window.EMBER_API||'/api').replace(/\/$/,'')+path,{method:body?'POST':'GET',headers:{'Content-Type':'application/json','X-Init-Data':(tg&&tg.initData)||''},body:body?JSON.stringify(body):undefined});
+  let j=null;try{j=await r.json();}catch(e){}if(!r.ok){const er=new Error((j&&j.reason)||('Ошибка '+r.status));er.status=r.status;throw er;}return j;}
+const mbNow=()=>Date.now()+MBS.off;
+const mbClock=ms=>{const s=Math.max(0,Math.ceil(ms/1000)),h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=s%60;return h?`${h}:${String(m).padStart(2,'0')}:${String(x).padStart(2,'0')}`:`${m}:${String(x).padStart(2,'0')}`;};
+/* the game was opened from the chat: mb_<game> → the giveaway, mbn_<token> → its admin sets it up */
+function mbBoot(){let sp='';try{sp=window.EmberNet&&EmberNet.startParam?EmberNet.startParam():'';}catch(e){}
+  let m=/^mb_([a-f0-9]{10})$/.exec(sp);if(m){mbOpenGame(m[1]);return;}
+  m=/^mbc_([np])(\d{3,20})$/.exec(sp);if(m){mbOpenNew((m[1]==='n'?-1:1)*+m[2]);return;}
+  if(/^mbn_/.test(sp))mbOpenNew(0);}   // an old /massacre link: the same form
+function mbOpenNew(pre){mbCss();mbClose();const ov=document.createElement('div');ov.id='mbOv';document.body.appendChild(ov);let CH=null;
+  const opt=(a,v,f)=>a.map(x=>`<option value="${x}"${x===v?' selected':''}>${f(x)}</option>`).join('');
+  const mins=x=>x<60?`${x} мин`:x<1440?`${x/60} ч`:'сутки';
+  ov.innerHTML=`<div class="mbpage"><h2>Массовая бойня</h2><div class="mbsub" style="text-align:center">Розыгрыш в чате: все участники дерутся на одной карте, остаётся один. Победителя выбирает честный жребий.</div>
+  <div class="mbcard"><label>Чат, где пройдёт розыгрыш</label><select id="mbCh"><option value="">Загружаю твои чаты…</option></select>
+    <div class="mbrow2"><input type="text" id="mbChQ" placeholder="или впиши @чат" maxlength="40"><button class="mbbtn" id="mbChF">Найти</button></div>
+    <div class="mbsub" id="mbChN">Здесь чаты, где ты состоишь и где бот <b>@${mbEsc(window.EMBER_BOT||'бот')}</b> — администратор. Нет нужного — попроси админов чата сделать бота администратором.</div></div>
+  <div class="mbcard"><label>Название розыгрыша</label><input type="text" id="mbT" value="Массовая бойня" maxlength="40">
+    <label>Призовых мест (дерутся всё равно до последнего)</label><select id="mbPl">${mbPlaceOpts(1)}</select>
+    <label>Призы — текст или ссылка на подарок</label><div id="mbPzs"></div>
+    <div class="mbsub">Ссылку на подарок дают в Telegram: открой подарок → «Поделиться» → «Копировать ссылку». Название подставится само.</div>
+    <label>Максимум участников (до ${MB_MAX})</label><input type="text" id="mbM" value="${MB_MAX}" inputmode="numeric">
+    <label>Регистрация открыта</label><select id="mbR">${opt([2,5,10,15,30,60,120,360,720,1440],15,mins)}</select>
+    <label>Битва после конца регистрации через</label><select id="mbD">${opt([0,1,2,5,10,15,30,60],2,x=>x?mins(x):'сразу')}</select></div>
+  <div class="mbcard"><div class="mbsub" style="margin-bottom:4px">Условия участия (можно сочетать). Участником чата нужно быть всегда.</div>
+    <label style="color:var(--text)"><input type="checkbox" id="mbC2"> Подписка на канал <input type="text" id="mbC2n" placeholder="@channel" style="width:130px;display:inline-block;padding:3px"></label>
+    <div class="mbsub">Бот должен быть админом этого канала — иначе подписку не проверить, и розыгрыш не создастся.</div>
+    <label style="color:var(--text)"><input type="checkbox" id="mbC3"> Не меньше <input type="text" id="mbC3n" value="1" inputmode="numeric" style="width:56px;display:inline-block;padding:3px"> NFT-подарков в профиле</label>
+    <div class="mbsub">Считаются только NFT — улучшенные подарки, видимые в профиле. Обычные не считаются.</div></div>
+  <div class="mbsub" id="mbErr" style="color:#ff8a94;text-align:center"></div>
+  <button class="mbbtn gold wide" id="mbGo">Опубликовать в чате</button><div class="mbsub" id="mbBal" style="text-align:center"></div><button class="mbbtn wide" data-mbgo="close">Закрыть</button></div>`;
+  ov.querySelector('[data-mbgo="close"]').onclick=mbClose;const getPz=mbPrizeFields(ov,'#mbPl',ov.querySelector('#mbPzs'));
+  const v=id=>ov.querySelector(id),go=v('#mbGo');
+  const fillChats=async q=>{const sel=v('#mbCh');try{const r=await mbApi('/mb/chats'+(q?'?q='+encodeURIComponent(q):''));CH=r;
+      const list=r.chats||[],want=sel.value||String(pre||'');
+      sel.innerHTML=list.length?list.map(c=>`<option value="${c.id}"${c.busy?' disabled':''}>${mbEsc(c.title)}${c.busy?' — уже идёт бойня':''}</option>`).join(''):'<option value="">Нет подходящих чатов</option>';
+      if(list.some(c=>String(c.id)===want&&!c.busy))sel.value=want;else{const f=list.find(c=>!c.busy);if(f)sel.value=String(f.id);}
+      go.textContent=r.price?`Опубликовать за ${r.price} ★`:'Опубликовать бесплатно';
+      v('#mbBal').textContent=r.price?`На счету ${r.balance} ★${r.balance<r.price?' — не хватает, докупишь при публикации':''}`:'';
+      if(q&&!list.some(c=>c.username&&('@'+c.username).toLowerCase()===('@'+q.replace(/^@/,'')).toLowerCase()))v('#mbChN').innerHTML=`Чат ${mbEsc(q)} не подходит: бот там не администратор, или ты в нём не состоишь.`;}
+    catch(e){sel.innerHTML=`<option value="">${e.status===401?'Открой игру в Telegram':'Не загрузилось: '+mbEsc(e.message)}</option>`;}};
+  fillChats();v('#mbChF').onclick=()=>{const q=v('#mbChQ').value.trim();if(q)fillChats(q);};
+  go.onclick=async()=>{if(go.disabled)return;go.disabled=true;v('#mbErr').textContent='';
+    const send=()=>mbApi('/mb/new',{chat:+v('#mbCh').value||0,title:v('#mbT').value,prizes:getPz(),max:parseInt(v('#mbM').value)||MB_MAX,reg:+v('#mbR').value,delay:+v('#mbD').value,places:+v('#mbPl').value||1,
+        chan:v('#mbC2').checked?v('#mbC2n').value.trim():'',nft:v('#mbC3').checked?Math.max(1,parseInt(v('#mbC3n').value)||1):0});
+    try{if(!(+v('#mbCh').value))throw new Error('Выбери чат.');let r=await send();
+      // not enough stars: the game's own window tops up exactly what is missing, then the massacre is published
+      if(!r.ok&&r.reason==='balance'){const ok=await starsShort(r.need,r.balance);if(!ok){go.disabled=false;return;}r=await send();}
+      if(!r.ok)throw new Error(r.reason==='balance'?'Не хватает звёзд.':r.reason||'Не получилось.');
+      try{if(typeof STARS!=='undefined'&&STARS&&r.cost!=null){STARS.balance=Math.max(0,(STARS.balance||0)-r.cost);updStars();}}catch(_){}
+      mbOpenGame(r.gid);}catch(e){v('#mbErr').textContent=e.message;go.disabled=false;}};}
+function mbOpenGame(gid){mbCss();mbClose();const ov=document.createElement('div');ov.id='mbOv';document.body.appendChild(ov);
+  Object.assign(MBS,{gid,st:null,me:null,busy:false,err:'',logN:0,rendered:''});MBX.st=null;
+  ov.innerHTML=`<div class="mbpage"><div class="mbcard mbsub" style="text-align:center">Загружаю розыгрыш…</div><button class="mbbtn wide" data-mbgo="close">Закрыть</button></div>`;
+  ov.querySelector('[data-mbgo="close"]').onclick=mbClose;
+  mbPoll();MBX.tick=setInterval(()=>{if(MBS.st&&MBS.st.status==='reg')mbTimers();},250);MBX.poll=setInterval(mbPoll,2500);}
+async function mbPoll(){if(MBX.V||!MBS.gid)return;const gid=MBS.gid,t0=Date.now();let st;
+  try{st=await mbApi('/mb/state?gid='+gid);}catch(e){if(!MBS.st){const o=mbOv();if(o)o.querySelector('.mbcard').textContent=e.status===401?'Розыгрыш открывается в Telegram.':e.message;}return;}
+  if(MBS.gid!==gid||!mbOv())return;MBS.off=st.now-(t0+Date.now())/2;MBS.st=st;
+  if(st.status==='running'||st.status==='done'){clearInterval(MBX.poll);clearInterval(MBX.tick);MBX.poll=MBX.tick=0;mbBattleServer(st);return;}
+  mbRenderReg();}
+function mbTimers(){const st=MBS.st,o=mbOv();if(!st||!o)return;const now=mbNow(),tm=o.querySelector('#mbTm'),cn=o.querySelector('#mbCnt');
+  if(cn)cn.textContent=st.count;
+  if(tm)tm.textContent=now<st.regEnds?'регистрация ещё '+mbClock(st.regEnds-now):now<st.planAt?'битва через '+mbClock(st.planAt-now):'жребий…';
+  const j=o.querySelector('[data-mbgo="join"]');if(j&&!(st.me&&st.me.joined)&&now>=st.regEnds){j.disabled=true;j.textContent='Регистрация закрыта';}}
+function mbRenderReg(){const pg=document.querySelector('#mbOv .mbpage'),y=pg?pg.scrollTop:0;mbRenderReg0();const p2=document.querySelector('#mbOv .mbpage');if(p2&&p2!==pg)p2.scrollTop=y;}
+function mbRenderReg0(){const st=MBS.st,o=mbOv();if(!o)return;
+  if(st.status==='cancelled'){o.innerHTML=`<div class="mbpage"><div class="mbpost"><b>⚔️ ${mbEsc(st.title)}</b><br>Розыгрыш отменён.</div><button class="mbbtn wide" data-mbgo="close">Закрыть</button></div>`;o.querySelector('[data-mbgo="close"]').onclick=mbClose;return;}
+  const joined=!!(st.me&&st.me.joined);
+  if(joined&&!MBS.me)MBS.me={cls:mbClasses().includes(st.me.cls)?st.me.cls:'knight',path:st.me.path||'',skills:Object.assign({},st.me.skills||{})};
+  const key=(joined?'j':'n')+'|'+MBS.err+'|'+(MBS.me?JSON.stringify(MBS.me):'')+'|'+st.manage;
+  if(key===MBS.rendered){mbTimers();return;}MBS.rendered=key;
+  const c=st.conds||{},conds=mbCondList(c);
+  const me=MBS.me;
+  o.innerHTML=`<div class="mbpage">
+  <div class="mbpost"><b>⚔️ ${mbEsc(st.title)}</b>${st.chat?`<span class="mbsub">Чат: ${mbEsc(st.chat)}</span>`:''}<br>${mbPrizesHtml(c.prizes||[{n:st.prize,i:c.pimg||''}])}
+    ${conds.length?'Условия: '+conds.join(', ')+'<br>':''}Участников: <b id="mbCnt">${st.count}</b> / ${st.max} · <b id="mbTm"></b>
+    <button class="mbtgbtn" data-mbgo="join"${joined?' disabled':''}>${joined?'✅ Ты в списке участников':'Участвовать'}</button>
+    ${MBS.err?`<div style="color:#ff8a94;margin-top:6px">${mbEsc(MBS.err)}</div>`:''}</div>
+  ${joined&&me?`<div class="mbcard"><div class="mbsub">Подготовь бойца до начала битвы: уровень ${MB_LV}, ${MB_SKPTS} очков умений, как в башне. Нераспределённые очки раздадутся сами. Класс, путь и умения меняют только то, как боец дерётся на карте. Шанс победить у всех один: 1 из N.</div>
+    <div class="mbprev" style="margin-top:8px"><canvas id="mbPv" width="64" height="60"></canvas><div style="flex:1"><div style="color:#ffd24a">${mbEsc(mbAt(mbMyName()))}</div><div class="mbsub">${L.CLASSES[me.cls].ru} · ${L.CLASSES[me.cls].range?'дальний бой':'ближний бой'}</div><div class="mbsub" id="mbSv"></div></div></div>
+    ${mbBuildHtml(me,false)}</div>`
+  :`<div class="mbcard mbsub">Нажми «Участвовать»: бот проверит условия, и ты подготовишь бойца. Не успеешь — сможешь смотреть битву как зритель.</div>`}
+  ${st.manage?`<button class="mbbtn red wide" data-mbgo="cancel">Отменить розыгрыш</button><div class="mbsub" style="text-align:center">Отменишь до битвы — звёзды за создание вернутся на счёт.</div>`:''}
+  <button class="mbbtn wide" data-mbgo="close">Закрыть</button></div>`;
+  o.querySelector('[data-mbgo="close"]').onclick=mbClose;
+  const j=o.querySelector('[data-mbgo="join"]');if(j)j.onclick=async()=>{if(MBS.busy||joined)return;MBS.busy=true;j.disabled=true;j.textContent='Проверяю условия…';
+    try{await mbApi('/mb/join',{gid:MBS.gid});MBS.err='';const s2=await mbApi('/mb/state?gid='+MBS.gid);MBS.st=s2;}catch(e){MBS.err=e.message;}MBS.busy=false;MBS.rendered='';mbRenderReg();};
+  const save=()=>{clearTimeout(MBS.saveT);MBS.saveT=setTimeout(async()=>{const el=document.getElementById('mbSv');
+    try{await mbApi('/mb/fighter',{gid:MBS.gid,cls:MBS.me.cls,path:MBS.me.path,skills:MBS.me.skills});if(el)el.textContent='сохранено';}catch(e){if(el)el.textContent=e.message;}},400);};
+  if(me)mbBuildBind(o,me,()=>{mbRenderReg();save();});
+  const cx=o.querySelector('[data-mbgo="cancel"]');if(cx)cx.onclick=async()=>{if(!cx.dataset.sure){cx.dataset.sure=1;cx.textContent='Точно отменить? Нажми ещё раз';return;}
+    try{await mbApi('/mb/cancel',{gid:MBS.gid});}catch(e){MBS.err=e.message;}MBS.rendered='';mbPoll();};
+  const pv=o.querySelector('#mbPv');if(pv)mbPreview(pv,me.cls);
+  mbTimers();}
+
+/* the shared battle: the server's clock and the server's log of deaths; this device only draws it */
+function mbBattleServer(st){
+  const fighters=st.fighters||[],N=st.n||fighters.length,myIdx=st.me&&st.me.joined?st.me.idx:-1;
+  const ents=fighters.map((f,i)=>{const cls=L.CLASSES[f[1]]?f[1]:'knight',path=typeof f[2]==='string'?f[2]:'',sk=f[3]&&typeof f[3]==='object'&&!Array.isArray(f[3])?f[3]:{};
+    return {name:f[0],cls,path,sk:mbBuildSk(cls,path,sk),me:i===myIdx};});
+  const target=()=>(mbNow()-st.startAt)/1000;
+  const W=mbWorld(ents,[],st.seed>>>0,st.prize,{server:true,t0:Math.min(0,target())});
+  mbFeedLog(W,st.log||[]);MBS.logN=(st.log||[]).length;MBS.final=st.status==='done'?st:null;
+  const late=target()>1;
+  const V=mbRun(W,{title:st.title,prize:st.prize,prizes:(st.conds||{}).prizes||[{n:st.prize,i:(st.conds||{}).pimg||''}],places:(st.conds||{}).places||1,hash:st.hash,server:true,late,winner:st.winner,step:(V,dt)=>{
+    const want=target();
+    if(want<0){V.cd=1;const b=document.getElementById('mbBan');if(b)b.innerHTML=`<div class="t1">СКОРО БОЙ</div><div class="t2">Битва начнётся через ${Math.ceil(-want)} с</div>`;}
+    else if(V.cd){V.cd=0;mbBanner(V,'В БОЙ!',W.me?'Твой боец на арене':'Ты смотришь битву как зритель',2);}
+    if(V.quiet)W.slow=0;
+    if(W.done&&V.quiet){V.quiet=false;const b=document.getElementById('mbBan');if(b)b.innerHTML='';V.mode='duel';if(V.endT==null)V.endT=setTimeout(()=>mbEnd(V),400);return;}
+    if(W.done||W.slow>0){mbStep(W,dt);return;}
+    if(want-W.t>0.35){const until=performance.now()+(V.quiet?28:10);while(W.t<want-0.05&&performance.now()<until&&!W.done)mbStep(W,1/20);
+      if(V.quiet&&W.t>=want-0.4){V.quiet=false;{const b=document.getElementById('mbBan');if(b)b.innerHTML='';}mbFeed(V,`📺 Ты подключился к битве. Осталось бойцов: <b>${W.alive}</b>`);
+        if(W.me&&!W.me.alive){mbBanner(V,'ТЫ ПАЛ',`Тебя уничтожил ${mbEsc(mbAt((W.f[W.plan[W.me.k]]||W.me.killer||{name:'?'}).name))}. Место: ${W.N-W.me.k} из ${W.N}`,4);const wb=document.querySelector('[data-mbc="watch"]');if(wb)wb.hidden=false;}
+        if(W.me&&W.me.alive){V.mode='me';V.follow=W.me;}}
+      if(V.quiet){const b=document.getElementById('mbBan');if(b)b.innerHTML=`<div class="t1">ДОГОНЯЮ БИТВУ</div><div class="t2">${Math.round(Math.min(1,W.t/Math.max(1,want))*100)}%</div>`;}
+      return;}
+    if(want-W.t<-0.35)return;                           // a little ahead of the server: wait for it
+    mbStep(W,Math.max(0,dt+(want-W.t)*0.1));}});
+  V.quiet=late;
+  if(st.status==='done'&&late){V.quiet=true;}
+  // the log comes in small pieces, never more than ~12 s ahead: the winner stays unknown until the end
+  MBX.poll=setInterval(async()=>{if(MBX.V!==V){clearInterval(MBX.poll);return;}const t0=Date.now();
+    try{const s=await mbApi(`/mb/state?gid=${MBS.gid}&from=${MBS.logN}`);if(MBX.V!==V)return;MBS.off=MBS.off*0.7+(s.now-(t0+Date.now())/2)*0.3;
+      mbFeedLog(W,s.log||[]);MBS.logN+=(s.log||[]).length;if(s.hash)V.opt.hash=s.hash;if(s.winner!=null)V.opt.winner=s.winner;
+      if(s.status==='done'){MBS.final=s;if(W.done&&!document.querySelector('.mbend')&&V.endT==null)V.endT=setTimeout(()=>mbEnd(V),2600);}}catch(e){}},2500);
+}
+async function mbVerify(btn){btn.disabled=true;btn.textContent='Проверяю…';const el=document.getElementById('mbHash');
+  try{const r=await mbApi('/mb/proto?gid='+MBS.gid),h=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(r.canonical)),hex=[...new Uint8Array(h)].map(x=>x.toString(16).padStart(2,'0')).join('');
+    const p=JSON.parse(r.canonical),ok=hex===r.hash,last=p.order[p.order.length-1],victims=new Set((r.log||[]).map(x=>x[1]));
+    const okW=!victims.has(last)&&victims.size===p.order.length-1;
+    if(el)el.innerHTML=`SHA-256 протокола: ${r.hash}<br>${ok?'✅ совпадает с отпечатком, опубликованным до битвы':'❌ не совпадает'}<br>${okW?'✅ победил последний в жребии: '+mbEsc(p.fighters[last].username?'@'+p.fighters[last].username:p.fighters[last].name):'❌ журнал не сходится с жребием'}<br>Бойцов: ${p.fighters.length}, жребий брошен до битвы.`;
+    btn.textContent=ok&&okW?'Протокол честный':'Есть расхождения';}catch(e){btn.disabled=false;btn.textContent='Проверить протокол';if(el)el.textContent=e.message;}}
+
+/* entry points: the chat's button opens a giveaway at launch; World → Raid lists the ones you are in */
+function mbSection(){const test=isAdmin()||DEV_HOST;setTimeout(mbMineFill,50);
+  return `<div id="mbMine"></div><div class="panel px" style="margin:10px 0"><div style="display:flex;gap:10px;align-items:center"><img src="${UI.skull}" alt="" style="width:28px;image-rendering:pixelated">
+   <div style="flex:1"><b style="color:var(--gold)">Массовая бойня</b><div class="sub">Розыгрыш в твоём чате: все участники дерутся на одной арене, выживает один. Нужен бот-админ в чате.</div></div></div>
+   <button class="btn gold" data-mb-new="1" style="margin-top:8px;width:100%;max-width:none">⚔️ Создать бойню</button></div>${test?`<div class="panel px" style="margin:10px 0"><div style="display:flex;gap:10px;align-items:center"><img src="${UI.skull}" alt="" style="width:28px;image-rendering:pixelated">
+   <div style="flex:1"><b style="color:var(--gold)">Массовая бойня</b> <span class="sub">тест с ботами</span><div class="sub">Проба режима на этом устройстве: все соперники — боты.</div></div></div>
+   <button class="btn" data-mb-open="1" style="margin-top:8px;width:100%;max-width:none">Открыть тест</button></div>`:''}`;}
+async function mbMineFill(){const el=document.getElementById('mbMine');if(!el||!(window.Telegram&&Telegram.WebApp&&Telegram.WebApp.initData))return;
+  try{const r=await mbApi('/mb/mine');if(!el.isConnected||!r.games||!r.games.length)return;
+    el.innerHTML=`<div class="panel px" style="margin:10px 0"><b style="color:var(--gold)">Массовая бойня</b>${r.games.map(g=>`<div style="display:flex;gap:8px;align-items:center;margin-top:8px"><div style="flex:1">${mbEsc(g.title)}<div class="sub">${mbEsc(g.chat)} · ${g.status==='running'?'идёт битва':'регистрация'}</div></div><button class="btn" data-mb-game="${g.gid}" style="flex:none">${g.status==='running'?'Смотреть':'Открыть'}</button></div>`).join('')}</div>`;}catch(e){}}
+document.addEventListener('click',e=>{const t=e.target.closest('[data-mb-open],[data-mb-game],[data-mb-new],[data-mbadm]');if(!t)return;e.preventDefault();e.stopPropagation();try{SFX.init();}catch(_){}
+  if(t.dataset.mbadm){mbAdmSet(t.dataset.mbadm==='in'?parseInt((document.getElementById('mbPriceIn')||{}).value):+t.dataset.mbadm);return;}
+  if(t.dataset.mbNew)mbOpenNew(0);else if(t.dataset.mbGame)mbOpenGame(t.dataset.mbGame);else mbOpen();},true);
+/* the owners' panel: the price of a massacre */
+let MB_PRICE=null;
+function mbAdmHtml(){if(MB_PRICE==null&&window.Telegram&&Telegram.WebApp&&Telegram.WebApp.initData)mbApi('/mb/chats').then(r=>{MB_PRICE=r.price;if(ADM.open&&ADM.tab==='mb')adminModal();}).catch(()=>{});
+  return `<h2>Массовая бойня</h2><p class="note" style="margin:0">Сколько стоит создать бойню в чате. Платит тот, кто создаёт, со своего счёта звёзд; если бойню отменят до битвы — звёзды вернутся. Сейчас: <b>${MB_PRICE==null?'…':MB_PRICE?MB_PRICE+' ★':'бесплатно'}</b></p>
+    <div class="dbgrow">${[0,25,50,100,250].map(v=>`<button class="btn sm ${v===MB_PRICE?'gold':''}" data-mbadm="${v}">${v?v+' ★':'Бесплатно'}</button>`).join('')}</div>
+    <div class="dbgrow"><input id="mbPriceIn" class="ninput" type="number" inputmode="numeric" min="0" max="100000" placeholder="своя цена, ★" style="flex:1;min-width:0"><button class="btn sm gold" data-mbadm="in">Поставить</button></div>
+    <p class="note nstat" id="mbPriceSt" style="margin:0"></p>`;}
+async function mbAdmSet(n){const st=(m,ok)=>{const el=document.getElementById('mbPriceSt');if(el){el.textContent=m;el.style.color=ok?'#7be38a':'#ff8a8a';}};
+  if(!isFinite(n)||n<0||n>100000){st('Нужно число от 0 до 100000',false);return;}
+  try{const r=await mbApi('/admin/mbprice',{price:n});MB_PRICE=r.price;adminModal();toast(MB_PRICE?'Бойня теперь стоит '+MB_PRICE+' ★':'Бойня теперь бесплатная',UI.check);}catch(e){st('✗ '+e.message,false);}}
+if(DEV_HOST)window.__MB={dbg:c=>{const R=mbRig(c),B=R.base;return JSON.stringify({gart:!!B.gart,gMage:!!B.gMage,nFloat:!!B.nFloat,gKnight:!!B.gKnight,gSamu:!!B.gSamu,tid:MB_LOOK.tid,lookKeys:Object.keys(MB_LOOK).join(','),cur:curLook&&curLook.tid});},drawLive:mbDrawLive,rig:mbRig,looks:()=>JSON.stringify({MST:Object.keys(MST),NSC:Object.keys(NSC),KSC:typeof KSC!=='undefined'?Object.keys(KSC):0,SSC:Object.keys(SSC_ANY()),GBL:typeof GBL!=='undefined'?Object.keys(GBL):0,BL:Object.keys(BLADE_LOOK).slice(0,80),ok:[MART_OK,NART_OK,KNART_OK,SART_OK,GART_OK]}),mbTimeline,mbShuffle,mbWorld,mbStep,mbDuration,mbOpen,mbOpenGame,mbOpenNew,mbFeedLog,MBX,MBS,get L(){return L;}};
+
 if(!TG_OK&&!DEV_HOST)tgGate();
 else if(hot&&hot.ready)hot.ready(start);else start(hot&&hot.data||{});
 })();
