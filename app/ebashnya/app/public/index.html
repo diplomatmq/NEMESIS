@@ -6871,7 +6871,7 @@ function musicAtLaunch(){musicPrefs();if(!S||S.musicOn===false)return;Music.on=t
   try{Object.assign(Music.last,JSON.parse(localStorage.getItem('ember.musicLast')||'{}'));}catch(e){}
   try{if(!Music.started)Music.start();Music.set('title');}catch(e){}}
 let musicTick=0;
-const APP_VER='261';
+const APP_VER='264';
 /* one bad frame must never freeze the game: the error is shown once and the loop goes on */
 let errShown='';
 function showErr(m){m=String(m||'').slice(0,140);if(m===errShown)return;errShown=m;try{toast('Ошибка (v'+APP_VER+'): '+esc(m),null);}catch(e){}}
@@ -7527,14 +7527,15 @@ function curHp(){
   const hs=stats();
   if(fight)return [Math.max(0,Math.round(fight.f.hero.hp)),fight.f.hero.max];
   const left=cdLeft();
-  if(left>0&&S.hpAfter!=null){const p=1-left/cdDur();return [Math.round(S.hpAfter+(hs.hp-S.hpAfter)*p),hs.hp];}
+  // v262: the gear may have been taken off during the rest — what was left after the fight can't be more than today's max
+  if(left>0&&S.hpAfter!=null){const p=1-left/cdDur(),a=Math.min(S.hpAfter,hs.hp);return [Math.round(a+(hs.hp-a)*p),hs.hp];}
   return [hs.hp,hs.hp];
 }
 function updateHud(){
   const [hp,max]=curHp();
   set($('hLvl'),'textContent',String(S.level));
   $('hXp').style.width=Math.round(100*S.xp/L.xpNeed(S.level))+'%';
-  $('hHp').style.width=`calc(${(100*hp/max).toFixed(1)}% - 4px)`;
+  $('hHp').style.width=`calc(${(100*Math.min(1,hp/max)).toFixed(1)}% - 4px)`;
   {const el=$('hHpT'),v=hudHp(hp,max);if(el.textContent!==v){const L0=el.textContent.length;el.textContent=v;if(v.length!==L0)fitText(el,12,7);}}
   set($('hGold'),'textContent',hudNum(S.gold));
   updateSkillbar();restTick();
@@ -11257,7 +11258,7 @@ function mbWorld(entrants,order,seed,prize,opts){opts=opts||{};order=order||[];
     return {i,name:e.name,me:!!e.me,cls:e.cls,C,st,ranged:!!C.range,proj:C.proj||'',x:pts[i][0],y:pts[i][1],face:rnd()<0.5?1:-1,fv:rnd()<0.5?1:-1,
       hp:1,alive:true,dieAt:dieAt[i],k:rank[i],state:'idle',anim:0,dur:0.5,atkCd:0.5+rnd()*2,tgt:null,tgtT:0,doom:null,hunt:[],flash:0,
       spd:24+st.eva*0.9+st.hast*0.3,adur:Math.max(0.32,0.55-st.hast*0.012),cd:Math.max(0.55,1.15-st.hast*0.03),
-      pDodge:0.06+st.eva*0.014,pBlock:0.07+st.arm*0.014+(e.cls==='knight'?0.08:0),pCrit:0.05+st.crit*0.012,dmgK:0.85+st.str*0.04,tough:1+st.vit*0.05,
+      pDodge:0.06+st.eva*0.014,pBlock:0.07+st.arm*0.014+(e.cls==='knight'?0.08:0),pCrit:0.05+st.crit*0.012,dmgK:(0.85+st.str*0.04)*(e.w||1),tough:(1+st.vit*0.05)*Math.sqrt(e.w||1),w:e.w||1,
       ph:rnd()*10,deadT:0,killer:null,kills:0,wan:[0,0],wanT:0,style:C.style,kind:C.weapon,aim:0,alt:0,buffT:0,buffId:'',path:e.path||'',
       sk:(e.sk||[]).map(q=>Object.assign({},q,{t:1.5+rnd()*Math.max(1,q.cd)}))};});
   W.me=W.f.find(f=>f.me)||null;W.winner=order.length===N&&order[N-1]!=null?W.f[order[N-1]]:null;
@@ -11334,13 +11335,14 @@ function mbHit(W,a,b,fromProj,mult){mult=mult||1;
   if(r<b.pDodge+ed+b.pBlock+eb){pop('блок','#7ab8ff');for(let j=0;j<4;j++)W.fx.push({k:'p',x:b.x-b.face*3,y:b.y-14,vx:(W.rnd()-0.5)*60,vy:-20-W.rnd()*30,g:120,life:0.3,t:0,col:j%2?'#fff':'#ffe08a'});return;}
   const crit=W.rnd()<a.pCrit,dmg=(0.035+W.rnd()*0.025)*(crit?1.9:1)*a.dmgK*mult/b.tough*(fated?0.8:1);
   // nobody drops to zero from a stray blow: only the fighter whose turn has come falls, and only to the one sent for him
-  const nh=b.hp-dmg;b.hp=Math.max(b.doom?0.03:0.06,nh);
-  // a fighter whose turn hasn't come gets his second wind when he's nearly down: everyone sees why he still stands
-  if(!b.doom&&b.hp<0.2&&W.t-(b.swT||-99)>12){b.swT=W.t;b.hp=0.55+W.rnd()*0.2;b.buffT=1.2;b.buffId='second_wind';b.kx=(b.x-a.x)>0?7:-7;
-    if(W.pops.length<120)W.pops.push({x:b.x,y:b.y-36,txt:'второе дыхание',col:'#7be38a',t:0,life:1.2,big:0});
-    for(let j=0;j<14;j++){const an=j/14*6.28;W.fx.push({k:'p',x:b.x+Math.cos(an)*8,y:b.y-6+Math.sin(an)*4,vx:Math.cos(an)*14,vy:-40-W.rnd()*30,g:-20,life:0.8,t:0,col:j%2?'#b8ffcc':'#3ecf6a'});}
-    W.ev.push({type:'wind',f:b});}if(W.t-(b.flAt||-9)>0.5){b.flash=0.12;b.flAt=W.t;}   // a crowd hits often: blink at most twice a second
-  const n=Math.max(1,Math.round(dmg*(800+a.st.str*30)));if(mult>1)pop(String(n)+(crit?'!':''),crit?'#ffd24a':MB_SKCOL[a.cls]||'#ff9a3a',1);else pop(crit?n+'!':String(n),crit?'#ffd24a':'#f0e7d3',crit);
+  // v263: every blow takes what it takes. The one sent for this fighter hits so that his last blow lands when the fighter's
+  // turn comes; anyone else's blows hurt in full but wear thinner as the fighter weakens (he backs off, he isn't immortal)
+  let dd=dmg;
+  if(b.doom&&b.doom.by===a){const left=Math.max(0.4,b.doom.T-W.t),need=b.hp*Math.min(0.85,(a.cd||1)/left);dd=Math.max(dmg,need);}
+  else if(!b.doom&&b.hp<0.5)dd=dmg*Math.max(0.15,(b.hp-0.12)/0.38);
+  const nh=b.hp-dd;b.hp=Math.max(b.doom?0.02:0.12,nh);
+  if(W.t-(b.flAt||-9)>0.5){b.flash=0.12;b.flAt=W.t;}   // a crowd hits often: blink at most twice a second
+  const n=Math.max(1,Math.round(dd*(800+a.st.str*30)));if(mult>1)pop(String(n)+(crit?'!':''),crit?'#ffd24a':MB_SKCOL[a.cls]||'#ff9a3a',1);else pop(crit?n+'!':String(n),crit?'#ffd24a':'#f0e7d3',crit);
   for(let j=0;j<(crit?8:4);j++)W.fx.push({k:'p',x:b.x,y:b.y-12,vx:(W.rnd()-0.5)*70,vy:-10-W.rnd()*40,g:110,life:0.35,t:0,col:crit?'#ffd24a':'#ff6070'});
   b.kx=(b.x-a.x)>0?2:-2;W.ev.push({type:'hit',a,b,crit});
 }
@@ -11358,7 +11360,6 @@ function mbStep(W,dt){
     f.flash=Math.max(0,f.flash-dt);if(f.dodge>0)f.dodge-=dt;if(f.buffT>0)f.buffT-=dt;
     if(f.doom&&!f.doom.by.alive){const T=f.doom.T;f.doom=null;mbSendKiller(W,f,T);}   // my killer fell first: someone else comes for me
     if(!f.doom&&f.hp<1)f.hp=Math.min(1,f.hp+dt*(f.tgt&&!f.tgt.skel&&Math.hypot(f.tgt.x-f.x,f.tgt.y-f.y)<30?0.01:0.05));   // slowly in a fight, faster when nobody is on him
-    if(f.doom)f.hp=Math.min(f.hp,Math.max(0.03,f.doom.h0*Math.max(0,f.doom.T-W.t)/Math.max(1,f.doom.T-f.doom.t0)+0.12));
     // whom to fight: my victim first, then my killer, then whoever is near
     let tg=f.hunt.length?f.hunt[0]:(f.doom?f.doom.by:f.tgt);
     if(!tg||!tg.alive||(!f.hunt.length&&!f.doom&&!W.duel&&W.t>f.tgtT)){tg=mbNear(W,f,150)||null;f.tgtT=W.t+3+W.rnd()*4;
@@ -11487,7 +11488,7 @@ function mbOutline(sp,flip){const k=flip?'mboF':'mbo';if(sp[k])return sp[k];
 
 
 /* ---------- 4b. builds: the class's skills at level 15, the same tree and points as in the tower ---------- */
-const MB_SKPTS=30;   // level 30: 30 points, each path opens its third skill (up to 3)
+const MB_SKPTS=20;   // v263: 20 points to spend; the tree is level 30's (each path's third skill up to 3)
 function mbTree(cls){const C=L.CLASSES[cls]||L.CLASSES.knight,P=(L.PATHS&&L.PATHS[cls])||[];
   return {base:C.skills.filter(id=>L.SKILLS[id]&&L.SKILLS[id].unlock<=MB_LV),
     paths:P.map(p=>({id:p.id,ru:p.ru,desc:p.desc||'',color:p.color||'#f4c95d',nodes:Object.keys(p.nodes||{}).filter(id=>L.SKILLS[id]&&(L.SKILLS[id].unlock||99)<=MB_LV)}))};}
@@ -11603,11 +11604,25 @@ function mbDrawLive0(V,f,t){const g0=g,lk0=curLook;g=V.q;curLook=MB_LOOK;
   }catch(e){if(DEV_HOST)console.warn('mb rig',e);}finally{g=g0;curLook=lk0;}}
 
 /* the build screen: class, path, 15 skill points — like the hero's skills tab in the tower */
+/* v263: the build's weight in the draw — the same sums as the server's mb_engine.js «rate»: the build fights every class's
+   default build twice with the game's duel engine; its score against its own class's default gives the ratio, and the
+   chance is ratio^3.5 kept within ×0.7…×1.5 */
+const MB_WC=new Map();
+function mbWeight(cls,path,skills){const f=mbFill(cls,path,skills),key=cls+'|'+f.path+'|'+Object.keys(f.skills).sort().map(k=>k+':'+f.skills[k]).join(',');
+  if(MB_WC.has(key))return MB_WC.get(key);
+  let w=1;try{const H=b=>L.duelHero({cls:b.cls,path:b.path,level:MB_LV,skills:b.skills,inv:[],eq:{}});
+    if(!mbWeight.ref){mbWeight.ref={};for(const c of mbClasses()){const T=mbTree(c),p0=T.paths.length?T.paths[0].id:'',d=mbFill(c,p0,{});mbWeight.ref[c]=H({cls:c,path:d.path,skills:d.skills});}}
+    const R=Object.values(mbWeight.ref),score=A=>{let s=0;for(const B of R)for(const seed of [11,29]){const D=L.duelStart(A,B,seed);while(!D.done)L.duelStep(D);
+      s+=(1-Math.max(0,D.F[1].hero.hp)/D.F[1].hero.max)-(1-Math.max(0,D.F[0].hero.hp)/D.F[0].hero.max)+2;}return s/(R.length*2);};
+    const bk=cls+'|'+f.path;if(!mbWeight.base)mbWeight.base={};if(mbWeight.base[bk]==null){const d=mbFill(cls,f.path,{});mbWeight.base[bk]=score(H({cls,path:d.path,skills:d.skills}));}   // the same class and path, points spread by default
+    const ratio=Math.round(score(H({cls,path:f.path,skills:f.skills}))/mbWeight.base[bk]*1000)/1000;w=Math.round(Math.max(0.7,Math.min(1.5,Math.pow(ratio,3.5)))*100)/100;}catch(e){w=1;}
+  MB_WC.set(key,w);return w;}
 function mbBuildHtml(me,ro){const T=mbTree(me.cls);if(!me.path&&T.paths.length)me.path=T.paths[0].id;me.skills=me.skills||{};
   const av=mbAvail(me.cls,me.path),used=mbUsed(me.skills);
   return `<div class="mbcls" style="margin-top:8px">${mbClasses().map(id=>`<button data-mbcls="${id}" class="${id===me.cls?'on':''}"${ro?' disabled':''}><img src="${mbPortrait(id)}" alt="">${L.CLASSES[id].ru}</button>`).join('')}</div>
    ${T.paths.length?`<div class="mbsub" style="margin-top:8px">Путь</div><div class="mbpaths">${T.paths.map(P=>`<button data-mbpath="${P.id}" class="${P.id===me.path?'on':''}"${ro?' disabled':''}><b style="color:${P.color}">${mbEsc(P.ru)}</b><small>${mbEsc(P.desc)}</small></button>`).join('')}</div>`:''}
    <div class="mbsub" style="margin-top:8px">Умения · очков осталось: <b style="color:#ffd24a">${MB_SKPTS-used}</b> из ${MB_SKPTS}</div>
+   ${(()=>{const w=mbWeight(me.cls,me.path,me.skills);return `<div class="mbsub" style="margin-top:4px">Шанс в жребии: <b style="color:${w>1.02?'#7be38a':w<0.98?'#ff8a7a':'#ffd24a'}">×${w.toFixed(2).replace('.',',')}</b> <span style="color:#a59cb8">· обычная прокачка ×1, от ×0,7 до ×1,5${used<MB_SKPTS?' · свободные очки раздадутся сами':''}</span></div>`;})()}
    <div>${av.map(id=>{const sk=L.SKILLS[id],lv=me.skills[id]|0,mx=sk.max||5;let info='';try{info=sk.info?sk.info(Math.max(1,lv)):'';}catch(e){}
      return `<div class="mbstat"><img class="mbski" src="${SKI[sk.icon]||''}" alt=""><b>${mbEsc(sk.ru)}${sk.kind==='passive'?' <span style="color:#a59cb8">· пассивное</span>':''}<small>${mbEsc(info)}</small></b>
        <button class="mbbtn" data-mbsk="${id}" data-d="-1"${ro||!lv?' disabled':''}>−</button><i>${lv}/${mx}</i><button class="mbbtn" data-mbsk="${id}" data-d="1"${ro||lv>=mx||used>=MB_SKPTS?' disabled':''}>+</button></div>`;}).join('')}</div>`;}
@@ -11989,7 +12004,7 @@ function mbBoot(){let sp='';try{sp=window.EmberNet&&EmberNet.startParam?EmberNet
 function mbOpenNew(pre){mbCss();mbClose();const ov=document.createElement('div');ov.id='mbOv';document.body.appendChild(ov);let CH=null;
   const opt=(a,v,f)=>a.map(x=>`<option value="${x}"${x===v?' selected':''}>${f(x)}</option>`).join('');
   const mins=x=>x<60?`${x} мин`:x<1440?`${x/60} ч`:'сутки';
-  ov.innerHTML=`<div class="mbpage"><h2>Массовая бойня</h2><div class="mbsub" style="text-align:center">Розыгрыш в чате: все участники дерутся на одной карте, остаётся один. Победителя выбирает честный жребий.</div>
+  ov.innerHTML=`<div class="mbpage"><h2>Массовая бойня</h2><div class="mbsub" style="text-align:center">Розыгрыш в чате: все участники дерутся на одной карте, остаётся один. Победителя выбирает честный жребий, а прокачка умений меняет шансы от ×0,7 до ×1,5.</div>
   <div class="mbcard"><label>Чат, где пройдёт розыгрыш</label><select id="mbCh"><option value="">Загружаю твои чаты…</option></select>
     <div class="mbrow2"><input type="text" id="mbChQ" placeholder="или впиши @чат" maxlength="40"><button class="mbbtn" id="mbChF">Найти</button></div>
     <div class="mbsub" id="mbChN">Здесь чаты, где ты состоишь и где бот <b>@${mbEsc(window.EMBER_BOT||'бот')}</b> — администратор. Нет нужного — попроси админов чата сделать бота администратором.</div></div>
@@ -12076,7 +12091,7 @@ function mbRenderReg0(){const st=MBS.st,o=mbOv();if(!o)return;
 function mbBattleServer(st){
   const fighters=st.fighters||[],N=st.n||fighters.length,myIdx=st.me&&st.me.joined?st.me.idx:-1;
   const ents=fighters.map((f,i)=>{const cls=L.CLASSES[f[1]]?f[1]:'knight',path=typeof f[2]==='string'?f[2]:'',sk=f[3]&&typeof f[3]==='object'&&!Array.isArray(f[3])?f[3]:{};
-    return {name:f[0],cls,path,sk:mbBuildSk(cls,path,sk),me:i===myIdx};});
+    return {name:f[0],cls,path,sk:mbBuildSk(cls,path,sk),me:i===myIdx,w:+f[4]>0?+f[4]:1};});
   const target=()=>(mbNow()-st.startAt)/1000;
   const W=mbWorld(ents,[],st.seed>>>0,st.prize,{server:true,t0:Math.min(0,target())});
   mbFeedLog(W,st.log||[]);MBS.logN=(st.log||[]).length;MBS.final=st.status==='done'?st:null;
@@ -12128,7 +12143,7 @@ document.addEventListener('click',e=>{const t=e.target.closest('[data-mb-open],[
 let MB_PRICE=null;
 function mbAdmHtml(){if(MB_PRICE==null&&window.Telegram&&Telegram.WebApp&&Telegram.WebApp.initData)mbApi('/mb/chats').then(r=>{MB_PRICE=r.price;if(ADM.open&&ADM.tab==='mb')adminModal();}).catch(()=>{});
   return `<h2>Массовая бойня</h2><p class="note" style="margin:0">Сколько стоит создать бойню в чате. Платит тот, кто создаёт, со своего счёта звёзд; если бойню отменят до битвы — звёзды вернутся. Сейчас: <b>${MB_PRICE==null?'…':MB_PRICE?MB_PRICE+' ★':'бесплатно'}</b></p>
-    <div class="dbgrow">${[0,25,50,100,250].map(v=>`<button class="btn sm ${v===MB_PRICE?'gold':''}" data-mbadm="${v}">${v?v+' ★':'Бесплатно'}</button>`).join('')}</div>
+    <div class="dbgrow">${[0,25,35,50,100,250].map(v=>`<button class="btn sm ${v===MB_PRICE?'gold':''}" data-mbadm="${v}">${v?v+' ★':'Бесплатно'}</button>`).join('')}</div>
     <div class="dbgrow"><input id="mbPriceIn" class="ninput" type="number" inputmode="numeric" min="0" max="100000" placeholder="своя цена, ★" style="flex:1;min-width:0"><button class="btn sm gold" data-mbadm="in">Поставить</button></div>
     <p class="note nstat" id="mbPriceSt" style="margin:0"></p>`;}
 async function mbAdmSet(n){const st=(m,ok)=>{const el=document.getElementById('mbPriceSt');if(el){el.textContent=m;el.style.color=ok?'#7be38a':'#ff8a8a';}};

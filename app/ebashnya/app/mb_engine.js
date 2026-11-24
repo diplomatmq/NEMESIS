@@ -207,8 +207,28 @@ function mbFeedLog(W,rows){for(const r of rows){const k=r[0],v=r[1],kl=r[2];if(W
 return {mbDuration,mbTimeline,mbWorld,mbStep,mbFeedLog,mbDue};
 }
 
+/* v263 — how strong a build is, for the weighted draw. Every build fights the default build (points spread in order, the
+   first path) of every class twice with the game's own duel engine; it scores the share of the opponent's health it took
+   minus the share of its own it lost. The score is divided by the score of its own class's default build: the class itself
+   gives nothing, only how the points were spent. The same sums run in the game, so a player sees his chance while building. */
+function mbRate(q){
+  const fs=require('fs'),path=require('path');
+  const html=fs.readFileSync(path.join(__dirname,'public','index.html'),'utf8'),m=/<script id="logic">([\s\S]*?)<\/script>/.exec(html);
+  const L=new Function(m[1]+';return Logic;')();
+  const LV=q.level||30,H=(b)=>L.duelHero({cls:b.cls,path:b.path,level:LV,skills:b.skills||{},inv:[],eq:{}});
+  const defs={};for(const c of Object.keys(q.defaults||{}))defs[c]=H(q.defaults[c]);
+  const REF=Object.keys(defs).map(c=>defs[c]);
+  const score=A=>{let s=0;for(const B of REF)for(const seed of [11,29]){const D=L.duelStart(A,B,seed);while(!D.done)L.duelStep(D);
+    const a=Math.max(0,D.F[0].hero.hp)/D.F[0].hero.max,b=Math.max(0,D.F[1].hero.hp)/D.F[1].hero.max;s+=(1-b)-(1-a)+2;}return s/(REF.length*2);};
+  // the yardstick is the default build of the same class AND path: neither the class nor the path gives anything by itself
+  const base={},pd=q.pathDefaults||{};const baseOf=b=>{const k=b.cls+'|'+b.path;if(base[k]==null){const d=pd[k];base[k]=d?score(H(d)):score(defs[b.cls]);}return base[k];};
+  return {ratio:(q.builds||[]).map(b=>{try{return Math.round(score(H(b))/(baseOf(b)||1)*1000)/1000;}catch(e){return 1;}})};
+}
+
 let raw='';process.stdin.on('data',d=>raw+=d);process.stdin.on('end',()=>{
-  try{const q=JSON.parse(raw),M=MBCore({mulberry32,CLASSES}),N=q.fighters.length;
+  try{const q=JSON.parse(raw);
+    if(q.mode==='rate'){process.stdout.write(JSON.stringify(mbRate(q)));return;}
+    const M=MBCore({mulberry32,CLASSES}),N=q.fighters.length;
     const ents=q.fighters.map((f,i)=>({name:'f'+i,cls:CLASSES[f.cls]?f.cls:'knight',stats:Object.assign({str:0,vit:0,arm:0,crit:0,hast:0,eva:0},f.stats||{})}));
     const W=M.mbWorld(ents,q.order,q.seed>>>0,'',{t0:0});const log=[];
     while(!W.done&&W.t<W.D+300){M.mbStep(W,1/30);for(const e of W.ev.splice(0))if(e.type==='kill')log.push([e.v.k,e.v.i,e.k.i,Math.round(W.t*100)/100]);}

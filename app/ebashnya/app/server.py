@@ -4226,7 +4226,7 @@ import secrets, math, re, zlib, struct
 RL.update({"mbjoin": (6, 60), "mbfighter": (40, 60)})
 MB_MAX = 500
 MB_PTS = 15
-MB_SKPTS = 30             # skill points at level 30
+MB_SKPTS = 20             # v263: 20 points to spend (the tree is still level 30's)
 # the class's skills a level-15 hero can take: base skills and, per path, its nodes open by level 15 (must match the game)
 MB_TREE = {
     "knight":    (("bash", "guard", "holy_blade", "bastion"), {"guardian": ("p_bulwark", "p_ironskin", "p_faithwall"), "crusader": ("p_judgement", "p_zeal", "p_wrath")}),
@@ -4346,7 +4346,7 @@ def mb_clean_gid(v):
 db.execute("CREATE TABLE IF NOT EXISTS mb_chats(chat_id BIGINT PRIMARY KEY, title TEXT, username TEXT, admin INTEGER, ts REAL DEFAULT 0)")
 db.commit()
 _mb_seen, _mb_cache_bot, _mb_cache_mem = {}, {}, {}
-MB_PRICE_DEFAULT = 50
+MB_PRICE_DEFAULT = 35
 
 def mb_price():
     r = db.execute("SELECT v FROM kv WHERE k='mb_price'").fetchone()
@@ -4506,18 +4506,26 @@ def _mb_conds_text(c):
         out.append(f"🎁 не меньше {n} NFT-{plural_ru(n, 'подарка', 'подарков', 'подарков')} в профиле")
     return out
 
+def mb_tgtime(ts, fallback):
+    """v263: a time Telegram itself counts down in the message (Bot API 9.5 «date_time» entity, format r = «через 5 минут»).
+    Old apps show the fallback text."""
+    return f'<tg-time unix="{int(ts)}" format="r">{html_esc(fallback)}</tg-time>'
+
 def _mb_announce_text(g, n):
     """The giveaway post: blocks with air between them, the important bits in bold, the fine print in a quote."""
     c = _mb_conds_text(g["conds"])
     reg, plan = mb_msk(g["reg_ends"]), mb_msk(g["plan_at"])
-    when = (f"🗡 Битва в <b>{plan} МСК</b>\n⏳ Регистрация до {reg}" if reg != plan else f"🗡 Битва в <b>{plan} МСК</b>")
+    now = time.time()
+    bt = f"🗡 Битва в <b>{plan} МСК</b>" + (f" · {mb_tgtime(g['plan_at'], 'в ' + plan)}" if g["plan_at"] > now else "")
+    rt = f"⏳ Регистрация до {reg}" + (f" · закроется {mb_tgtime(g['reg_ends'], 'в ' + reg)}" if g["reg_ends"] > now else "")
+    when = f"{bt}\n{rt}" if reg != plan else bt
     return (f"⚔️ <b>{html_esc(g['title'])}</b>\n"
             f"<i>Массовая бойня: все на одной арене, выживет один</i>\n\n"
             + mb_prizes_text(g) + "\n\n"
             + when + "\n"
             + f"👥 Участников: <b>{n}</b> из {g['max_n']}\n\n"
             + ("📋 <b>Условия</b>\n" + "\n".join(c) + "\n\n" if c else "")
-            + "<blockquote>Шансы у всех равные: победителя выбирает честный жребий, класс и прокачка на него не влияют.</blockquote>")
+            + "<blockquote>Победителя выбирает честный жребий, а прокачка умений меняет шансы: от ×0,7 до ×1,5 (обычная прокачка — ×1). Класс и путь сами по себе преимущества не дают.</blockquote>")
 
 def mb_new(user, body):
     try:
@@ -4735,6 +4743,8 @@ def mb_fighter(user, body):
             return 409, {"ok": False, "reason": "Битва уже началась: бойца не изменить."}
         n = db.execute("UPDATE mb_players SET cls=?, stats=? WHERE pk=?", (cls, json.dumps({"path": b[0], "skills": b[1]}), f"{gid}:{user['id']}")).rowcount
         db.commit()
+    if n:
+        mb_rate_bg(cls, b[0], b[1])
     return (200, {"ok": True}) if n else (404, {"ok": False, "reason": "Сначала зарегистрируйся."})
 
 def mb_cancel(user, body):
@@ -4760,8 +4770,23 @@ def mb_cancel(user, body):
 def _mb_canon(proto):
     return json.dumps(proto, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
 
+def _mb_parts(rows):
+    parts = []
+    for uid, name, un, cls, st in rows:
+        cls = cls if cls in MB_CLASSES else "knight"
+        raw = json.loads(st or "{}")
+        try:
+            bd = mb_build_ok(cls, str(raw.get("path", "")), raw.get("skills") or {}) or mb_build_ok(cls, "", {})
+        except (TypeError, ValueError, AttributeError):
+            bd = mb_build_ok(cls, "", {})
+        parts.append({"uid": uid, "name": name, "username": un or "", "cls": cls, "path": bd[0], "skills": mb_fill(cls, bd[0], dict(bd[1]))})
+    return parts
+
 def mb_draw(gid):
     """Registration is over: freeze the fighters and draw the order of deaths. Runs once per game (status changes under the lock)."""
+    with db_lock:
+        pre = db.execute("SELECT uid, name, username, cls, stats FROM mb_players WHERE gid=? ORDER BY joined, pk", (gid,)).fetchall()
+    mb_rate([(p["cls"], p["path"], p["skills"]) for p in _mb_parts(pre)])     # v263: the builds' weights, outside the lock
     with db_lock:
         g = _mb_row(gid)
         if not g or g["status"] != "reg":
@@ -4774,17 +4799,14 @@ def mb_draw(gid):
             cancel = True
         else:
             cancel = False
-            parts = []
-            for uid, name, un, cls, st in rows:
-                cls = cls if cls in MB_CLASSES else "knight"
-                raw = json.loads(st or "{}")
-                try:
-                    bd = mb_build_ok(cls, str(raw.get("path", "")), raw.get("skills") or {}) or mb_build_ok(cls, "", {})
-                except (TypeError, ValueError, AttributeError):
-                    bd = mb_build_ok(cls, "", {})
-                parts.append({"uid": uid, "name": name, "username": un or "", "cls": cls, "path": bd[0], "skills": mb_fill(cls, bd[0], dict(bd[1]))})
-            order = list(range(len(parts)))
-            _mb_rng.shuffle(order)
+            parts = _mb_parts(rows)
+            ws = mb_rate([(p["cls"], p["path"], p["skills"]) for p in parts])
+            for p, w in zip(parts, ws):
+                p["w"] = w
+            # the weighted draw (Efraimidis–Spirakis): each fighter draws u^(1/w); the highest survives, so a fighter wins
+            # with probability w / (sum of all w), and the lower draws fall first
+            keys = [_mb_rng.random() ** (1.0 / max(0.01, p["w"])) for p in parts]
+            order = sorted(range(len(parts)), key=lambda i: keys[i])
             seed = _mb_rng.getrandbits(31)
             start_at = max(now + MB_LEAD_IN, g["plan_at"])
             proto = {"game": gid, "chat": g["chat_id"], "title": g["title"], "prize": g["prize"], "drawn": round(now, 3),
@@ -4800,12 +4822,78 @@ def mb_draw(gid):
             tg_try("unpinChatMessage", chat_id=g["chat_id"], message_id=g["post_mid"])
         return
     threading.Thread(target=mb_compute, args=(gid,), daemon=True).start()
+    threading.Thread(target=mb_tell_fighters, args=(g, [p["uid"] for p in parts], start_at), daemon=True).start()
     tg_try("sendMessage", chat_id=g["chat_id"], parse_mode="HTML",
            text=(f"🔥 <b>{html_esc(g['title'])}</b>\n<i>Регистрация закрыта</i>\n\n"
-                 f"👥 Бойцов: <b>{len(parts)}</b>\n🗡 Битва начнётся через <b>{int(start_at - time.time() + 0.5)} с</b>\n\n"
+                 f"👥 Бойцов: <b>{len(parts)}</b>\n🗡 Битва начнётся {mb_tgtime(start_at, 'через ' + str(int(start_at - time.time() + 0.5)) + ' с')}\n\n"
                  + mb_prizes_text(g) + "\n\n"
-                 "<blockquote>Жребий уже брошен. Проверить, что результат не подменили, можно в игре: «Итоги битвы» → «Проверить протокол».</blockquote>"),
+                 "<blockquote>Жребий с учётом прокачки уже брошен. Проверить, что результат не подменили, можно в игре: «Итоги битвы» → «Проверить протокол».</blockquote>"),
            reply_markup={"inline_keyboard": [[{"text": "📺 Смотреть трансляцию", "url": app_link("mb_" + gid)}]]})
+
+def mb_tell_fighters(g, uids, start_at):
+    """v263: everyone who signed up hears from the bot in private that the battle is about to begin (only those who
+    started the bot can be written to). About 20 messages a second: well inside Telegram's limit for a bot."""
+    with db_lock:
+        ok = {r[0] for r in db.execute(f"SELECT id FROM players WHERE can_pm=1 AND id IN ({','.join('?' * len(uids))})", tuple(uids)).fetchall()} if uids else set()
+    kb = {"inline_keyboard": [[{"text": "📺 Смотреть битву", "url": app_link("mb_" + g["id"])}]]}
+    sent = 0
+    for uid in uids:
+        if uid not in ok:
+            continue
+        left = int(start_at - time.time() + 0.5)
+        txt = (f"⚔️ <b>{html_esc(g['title'])}</b>: массовая бойня начинается "
+               + (mb_tgtime(start_at, f"через {left} с") if left > 0 else "прямо сейчас") + "!\n\nТы в списке бойцов — открой трансляцию и смотри, как пройдёт твой бой.")
+        for _ in range(3):
+            r = tg_try("sendMessage", chat_id=uid, text=txt, parse_mode="HTML", reply_markup=kb)
+            if r.get("ok") or r.get("error_code") != 429:
+                break
+            time.sleep(float(((r.get("parameters") or {}).get("retry_after")) or 2))
+        sent += 1
+        time.sleep(0.05)
+    log.info("mb %s: told %s of %s fighters in private", g["id"], sent, len(uids))
+
+# ---- v263: the weighted draw. The draw still decides, but a stronger build has better odds: from ×0.7 to ×1.5 against the
+# class's default build (×1). The weight comes from mb_engine.js «rate» (duels of the game's own engine), cached per build.
+MB_W_MIN, MB_W_MAX, MB_W_POW = 0.7, 1.5, 3.5
+_mb_wcache = {}
+
+def _mb_bkey(cls, path, skills):
+    return f"{cls}|{path}|" + ",".join(f"{k}:{v}" for k, v in sorted((skills or {}).items()) if v)
+
+def mb_weight_of(ratio):
+    return round(max(MB_W_MIN, min(MB_W_MAX, (ratio or 1) ** MB_W_POW)), 3)
+
+def mb_rate(builds):
+    """[(cls, path, skills)] already filled → [weight]. Unknown builds go to Node in one run; without Node everyone gets ×1."""
+    keys = [_mb_bkey(*b) for b in builds]
+    miss = [i for i, k in enumerate(keys) if k not in _mb_wcache]
+    if miss and NODE and os.path.exists(MB_ENGINE):
+        defaults = {}
+        for c in MB_CLASSES:
+            p0 = next(iter(MB_TREE[c][1]))
+            defaults[c] = {"cls": c, "path": p0, "skills": mb_fill(c, p0, {})}
+        uniq = {}
+        for i in miss:
+            uniq.setdefault(keys[i], builds[i])
+        pdef = {f"{c}|{pp}": {"cls": c, "path": pp, "skills": mb_fill(c, pp, {})} for c in MB_CLASSES for pp in MB_TREE[c][1]}
+        q = {"mode": "rate", "level": 30, "defaults": defaults, "pathDefaults": pdef,
+             "builds": [{"cls": b[0], "path": b[1], "skills": b[2]} for b in uniq.values()]}
+        try:
+            p = subprocess.run([NODE, MB_ENGINE], input=json.dumps(q).encode(), capture_output=True, timeout=90)
+            r = json.loads(p.stdout.decode() or "{}")
+            for k, ratio in zip(uniq.keys(), r.get("ratio") or []):
+                _mb_wcache[k] = mb_weight_of(ratio)
+        except Exception as e:
+            log.warning("mb rate: %s", e)
+    return [_mb_wcache.get(k, 1.0) for k in keys]
+
+def mb_rate_bg(cls, path, skills):
+    """A player changed his build: work its weight out now, so the draw doesn't wait for it."""
+    try:
+        bd = mb_build_ok(cls, path, skills) or mb_build_ok(cls, "", {})
+        threading.Thread(target=mb_rate, args=([(cls, bd[0], mb_fill(cls, bd[0], dict(bd[1])))],), daemon=True).start()
+    except Exception:
+        pass
 
 _mb_computing = set()
 def mb_compute(gid):
@@ -4868,7 +4956,7 @@ def _mb_snapshot(gid):
     c = {"at": now, "g": g, "n": n, "players": players}
     if g["proto"]:
         proto = json.loads(g["proto"])
-        c["fighters"] = [[p["username"] or p["name"], p["cls"], p.get("path", ""), p.get("skills", {})] for p in proto["fighters"]]
+        c["fighters"] = [[p["username"] or p["name"], p["cls"], p.get("path", ""), p.get("skills", {}), p.get("w", 1)] for p in proto["fighters"]]
         c["uid2i"] = {p["uid"]: i for i, p in enumerate(proto["fighters"])}
         c["T"] = mb_timeline(len(proto["fighters"]))[1]
         c["log"] = json.loads(g["log"]) if g["log"] else None
