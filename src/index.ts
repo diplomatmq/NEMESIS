@@ -192,12 +192,8 @@ bot.use(async (ctx, next) => {
 bot.use(handleBannedUser);
 
 // ---------------------------------------------------------------------------
-// Disabled chats: an admin switches the in-chat text game off for a group with
-// /chat <chat_id> (from a private chat with the bot). While off, the game
-// commands, the combat words and the game buttons (status, attack, defense and
-// the menus) are ignored there. Mini-app features — /boss, /massacre and the
-// messages the mini app sends — are relayed to Python before this point and
-// keep working.
+// Disabled chats: silently ignore text-game commands, combat words and buttons.
+// Mini-app features are relayed to Python before this point and keep working.
 // ---------------------------------------------------------------------------
 const DISABLED_CHAT_COMMANDS = new Set<string>([
   'status', 'статус',
@@ -224,10 +220,6 @@ bot.use(async (ctx, next) => {
   // Game menus are opened by buttons; the mini app has its own callbacks, which
   // were relayed earlier, so everything reaching here belongs to the text game.
   if (ctx.callbackQuery) {
-    await ctx.answerCallbackQuery({
-      text: '🚫 В этом чате чат-версия игры отключена',
-      show_alert: true,
-    }).catch(() => {});
     return;
   }
 
@@ -244,10 +236,7 @@ bot.use(async (ctx, next) => {
     return next();
   }
 
-  await ctx.reply(
-    '🚫 В этом чате чат-версия игры отключена.\nИграйте в мини-приложении!',
-    { reply_to_message_id: ctx.message?.message_id }
-  );
+  // No reply: disabled game input is intentionally ignored without a message.
 });
 
 // Command handlers
