@@ -6,6 +6,7 @@ import { formatBossIcon } from '../../game/BossSystem';
 import { seasonService } from '../../game/SeasonService';
 import { slotMachineService } from '../../game/SlotMachineService';
 import { referralService } from '../../game/ReferralService';
+import { chatGameService } from '../../game/ChatGameService';
 import { UserModel } from '../../database/models/User';
 
 export const ADMIN_IDS = [793216884, 678418106];
@@ -333,4 +334,38 @@ export async function handleNftGive(ctx: Context) {
 
   const name = target.username ? `@${target.username}` : target.first_name || `id: ${target.telegram_id}`;
   await ctx.reply(`🎖 Гарантированный NFT выдан игроку ${name}\nВыпадет за следующего убитого босса.`);
+}
+
+/**
+ * /chat <chat_id> — turns the in-chat text game off (or back on) for a group.
+ * While off, status/attack/defense and the game menus do not answer there; the
+ * mini-app features (/boss, /massacre, notifications) keep working.
+ * Administrators only, meant to be called from a private chat with the bot.
+ */
+export async function handleChatToggle(ctx: Context) {
+  if (!ctx.from || !ADMIN_IDS.includes(ctx.from.id)) {
+    return;
+  }
+
+  const replyOptions = { reply_to_message_id: ctx.message?.message_id };
+  const args = (ctx.message?.text ?? '').split(/\s+/).slice(1);
+  const chatId = Number(args[0]);
+
+  if (!args[0] || !Number.isInteger(chatId) || chatId === 0) {
+    await ctx.reply('Использование: /chat <chat_id>\nПример: /chat -1001234567890', replyOptions);
+    return;
+  }
+
+  try {
+    const disabled = await chatGameService.toggle(chatId);
+    await ctx.reply(
+      disabled
+        ? `🚫 Чат ${chatId}: чат-игра выключена.\nСтатус, атака, защита и меню там больше не отвечают.`
+        : `✅ Чат ${chatId}: чат-игра снова включена.`,
+      replyOptions
+    );
+  } catch (error: any) {
+    console.error('❌ Error toggling chat game:', error);
+    await ctx.reply(`❌ Ошибка: ${error.message || 'не удалось сохранить'}`, replyOptions);
+  }
 }

@@ -7,7 +7,7 @@ import { handleGameAction, handleStatus, handleInventory, handleUsePotion, handl
 import { handleSuccessfulPayment, handlePreCheckoutQuery } from './bot/handlers/payment';
 import { handleClassSelection, handleClassCallback } from './bot/handlers/class';
 import { handleAchievements } from './bot/handlers/achievements';
-import { ADMIN_IDS, handleDbStats, handleTop, handleSeasonStart, handleSeasonStartCallback, handleAdminCommand, handleGiveItem, handleNftGive } from './bot/handlers/admin';
+import { ADMIN_IDS, handleDbStats, handleTop, handleSeasonStart, handleSeasonStartCallback, handleAdminCommand, handleGiveItem, handleNftGive, handleChatToggle } from './bot/handlers/admin';
 import { handleSlotSpinCount, handleDiceMessage, handleSlotPayment } from './bot/handlers/slots';
 import { handleNewRef, handleRef, handleReferralCallback, handleReferralTextInput } from './bot/handlers/referral';
 import { handleBan, handleUnban, handleGoblins, handleBannedUser } from './bot/handlers/bans';
@@ -15,6 +15,7 @@ import { handleInlineQuery, handleChatBossCallback } from './bot/handlers/inline
 import { handleBossCommand, handleBossMention, handleRaidKeywords } from './bot/handlers/chatboss';
 import { InvoiceService } from './payment/InvoiceService';
 import { gameService } from './game/GameService';
+import { chatGameService } from './game/ChatGameService';
 import { seasonService } from './game/SeasonService';
 import { trailService } from './game/TrailService';
 
@@ -190,6 +191,65 @@ bot.use(async (ctx, next) => {
 // ---------------------------------------------------------------------------
 bot.use(handleBannedUser);
 
+// ---------------------------------------------------------------------------
+// Disabled chats: an admin switches the in-chat text game off for a group with
+// /chat <chat_id> (from a private chat with the bot). While off, the game
+// commands, the combat words and the game buttons (status, attack, defense and
+// the menus) are ignored there. Mini-app features — /boss, /massacre and the
+// messages the mini app sends — are relayed to Python before this point and
+// keep working.
+// ---------------------------------------------------------------------------
+const DISABLED_CHAT_COMMANDS = new Set<string>([
+  'status', 'статус',
+  'inventory', 'инвентарь',
+  'equipment', 'экипировка',
+  'sacrifice', 'жертвоприношение',
+  'potion', 'зелье',
+  'class', 'класс',
+  'achievements', 'достижения',
+  'reset', 'сброс',
+]);
+
+const CHAT_COMBAT_TEXT = /^(атака|атаковать|удар|attack|a|защита|защититься|блок|defend|block|d)$/i;
+
+bot.use(async (ctx, next) => {
+  const chat = ctx.chat;
+  if (!chat || (chat.type !== 'group' && chat.type !== 'supergroup')) {
+    return next();
+  }
+  if (!chatGameService.isDisabled(chat.id)) {
+    return next();
+  }
+
+  // Game menus are opened by buttons; the mini app has its own callbacks, which
+  // were relayed earlier, so everything reaching here belongs to the text game.
+  if (ctx.callbackQuery) {
+    await ctx.answerCallbackQuery({
+      text: '🚫 В этом чате чат-версия игры отключена',
+      show_alert: true,
+    }).catch(() => {});
+    return;
+  }
+
+  const text = (ctx.message?.text ?? ctx.message?.caption ?? '').trim();
+  if (!text) {
+    return next();
+  }
+
+  const isGameCommand = text.startsWith('/') &&
+    DISABLED_CHAT_COMMANDS.has(text.slice(1).split(/[\s@]/)[0].toLowerCase());
+
+  // Numbers feed the pin picker, another part of the chat game.
+  if (!isGameCommand && !CHAT_COMBAT_TEXT.test(text) && !/^\d+$/.test(text)) {
+    return next();
+  }
+
+  await ctx.reply(
+    '🚫 В этом чате чат-версия игры отключена.\nИграйте в мини-приложении!',
+    { reply_to_message_id: ctx.message?.message_id }
+  );
+});
+
 // Command handlers
 bot.command('start', handleStart);
 
@@ -256,6 +316,7 @@ bot.command('giveitem', handleGiveItem);
 bot.command('nftgive', handleNftGive);
 bot.command('ban', handleBan);
 bot.command('unban', handleUnban);
+bot.command('chat', handleChatToggle);
 
 // Referral system
 bot.command('new_ref', handleNewRef);
@@ -363,6 +424,13 @@ async function start() {
     }
     console.log('✅ Database connected');
 
+    // Restore the chats where the in-chat text game was switched off.
+    try {
+      await chatGameService.load();
+    } catch (error) {
+      console.error('⚠️ Chat game state load failed:', error);
+    }
+
     // Unblock players whose pending path choice was left without usable buttons:
     // resolve leftover trail events with a random direction.
     try {
@@ -404,6 +472,7 @@ async function start() {
       { command: 'wipe', description: 'Сброс игрока мини-аппа' },
       { command: 'refund', description: 'Возврат покупки' },
       { command: 'nft', description: 'Заявки на NFT' },
+      { command: 'chat', description: 'Вкл/выкл чат-игру в чате' },
       { command: 'terms', description: 'Условия использования' },
       { command: 'paysupport', description: 'Помощь с оплатой' },
     ];
