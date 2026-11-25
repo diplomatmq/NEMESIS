@@ -213,8 +213,13 @@ class PostgreSQLAdapter:
         # Add table prefix
         prefixed_query = self._prefix_table(query)
         
-        # Convert ? placeholders to %s for PostgreSQL
-        pg_query = prefixed_query.replace('?', '%s')
+        # Convert ? placeholders to %s for PostgreSQL. psycopg2 %-formats a statement only when
+        # parameters are passed, and then every literal «%» has to be doubled: a LIKE pattern such as
+        # 'gift-to:%' is otherwise read as a placeholder and raises «tuple index out of range».
+        if params:
+            pg_query = prefixed_query.replace('%', '%%').replace('?', '%s')
+        else:
+            pg_query = prefixed_query.replace('?', '%s')
         
         # Convert unix timestamp params to PostgreSQL timestamp
         # Check if query has timestamp columns
@@ -326,8 +331,9 @@ class PostgreSQLAdapter:
         # Add table prefix
         prefixed_query = self._prefix_table(query)
         
-        # Convert ? placeholders to %s for PostgreSQL
-        pg_query = prefixed_query.replace('?', '%s')
+        # Convert ? placeholders to %s for PostgreSQL. executemany always binds parameters, so a
+        # literal «%» in the statement (a LIKE pattern) has to be doubled for psycopg2.
+        pg_query = prefixed_query.replace('%', '%%').replace('?', '%s')
         
         try:
             cursor.executemany(pg_query, params_list)
