@@ -2125,6 +2125,7 @@ _rl_lock = threading.Lock()
 _rl_hits = collections.defaultdict(collections.deque)
 RL = {                       # action: (times, seconds)
     "post": (150, 60),       # any request that changes something: far above what playing needs
+    "giftfind": (40, 60),
     "duel_new": (10, 3600), "duel_direct": (1, 15), "duel_answer": (30, 60),
     "gr_new": (6, 600), "gr_join": (20, 60), "gr_public": (8, 600), "gr_start": (10, 60), "gr_kick": (20, 60),
     "share": (12, 60), "duel_card": (12, 60), "ghost": (20, 60), "pcode": (8, 60), "pwd": (4, 60),
@@ -2208,6 +2209,48 @@ def _card(uid, sv, st=None):
     if st:
         c.update(power=st.get("power", 0), hp=st.get("hp", 0))
     return c
+
+LB_PAGE = 50
+
+def leaderboard_page(user, qs):
+    """v275: the whole board, 50 a page. ?cls= one class, ?q= a name to find, ?page=N, ?me=1 the page with my place."""
+    key = _cls_key((qs.get("cls") or [""])[0])
+    q = str((qs.get("q") or [""])[0]).strip().lstrip("@")[:40]
+    page = as_int((qs.get("page") or ["0"])[0], 0, 100000)
+    uid = user["id"]
+    if q and not rate_ok(uid, "giftfind"):
+        return SLOW(uid, "giftfind")
+    with db_lock:
+        where, args = "flagged=0 AND room>0", []
+        if key:
+            al = _cls_aliases(key)
+            where += f" AND cls IN ({','.join('?' * len(al))})"
+            args += list(al)
+        total = db.execute(f"SELECT COUNT(*) FROM players WHERE {where}", tuple(args)).fetchone()[0]
+        me = db.execute("SELECT room, reached, cls, flagged FROM players WHERE id=?", (uid,)).fetchone()
+        my_rank = None
+        if me and (me[0] or 0) > 0 and not me[3] and (not key or _cls_key(me[2]) == key):
+            my_rank = 1 + db.execute(f"SELECT COUNT(*) FROM players WHERE {where} AND (room>? OR (room=? AND reached<?))",
+                                     (*args, me[0], me[0], me[1])).fetchone()[0]
+        if (qs.get("me") or [""])[0] and my_rank:
+            page = (my_rank - 1) // LB_PAGE
+        if q:
+            ql = q.lower()       # matched here, not in SQL: SQLite's LOWER()/LIKE leave Cyrillic case as it is
+            rows = [r[:6] for r in db.execute(f"""SELECT id, name, cls, room, level, reached, username FROM players WHERE {where}
+                                                 ORDER BY room DESC, reached ASC""", tuple(args)).fetchall()
+                    if ql in (r[1] or "").lower() or ql in (r[6] or "").lower()][:LB_PAGE]
+            ranks = [1 + db.execute(f"SELECT COUNT(*) FROM players WHERE {where} AND (room>? OR (room=? AND reached<?))",
+                                    (*args, r[3], r[3], r[5])).fetchone()[0] for r in rows]
+            pages = 1
+        else:
+            rows = db.execute(f"""SELECT id, name, cls, room, level, reached FROM players WHERE {where}
+                                  ORDER BY room DESC, reached ASC LIMIT {LB_PAGE} OFFSET {page * LB_PAGE}""", tuple(args)).fetchall()
+            ranks = [page * LB_PAGE + i + 1 for i in range(len(rows))]
+            pages = max(1, (total + LB_PAGE - 1) // LB_PAGE)
+        out = [{"rank": rk, "name": n or "Игрок", "cls": CLS_RU.get(c, c), "room": r, "level": lv or 0, "me": pid == uid, "tag": _tag(pid)}
+               for (pid, n, c, r, lv, _re), rk in zip(rows, ranks)]
+        db.commit()
+    return 200, {"ok": True, "rows": out, "page": page, "pages": pages, "total": total, "per": LB_PAGE, "my_rank": my_rank, "cls": key, "q": q}
 
 def _tag(uid):
     r = db.execute("SELECT dtag FROM players WHERE id=?", (uid,)).fetchone()
@@ -3084,6 +3127,111 @@ def refund_command(msg):
         partner_credit(r[0], -r[1])
         db.commit()
     tg("sendMessage", chat_id=chat, text=f"Вернул {r[1]} ★ игроку {r[0]}.")
+
+# ---------------------------------------------------------------- v274: rest skips as a gift
+# Bought with the giver's stars (1 ★ a skip, as in the shop) and put on the friend's account at once. Only stars can be given:
+# free skips (quests, friends, luck) never move between accounts. The friend hears it from the bot and sees it in the game.
+GIFT_MAX_N = 100            # skips in one gift
+GIFT_DAY = 20               # gifts a giver may send in a Moscow day
+
+def _gift_row(uid):
+    r = db.execute("SELECT id, name, username, cls, level, room FROM players WHERE id=?", (uid,)).fetchone()
+    if not r:
+        return None
+    return {"uid": r[0], "name": r[1] or (("@" + r[2]) if r[2] else "Игрок"), "username": r[2] or "", "cls": _cls_key(r[3]) or "knight",
+            "level": r[4] or 1, "room": r[5] or 0}
+
+def gift_find(user, qs):
+    """?q=@nick or a name or an id: who can get a gift. Without q: friends (invited, or the one who invited), duel rivals."""
+    uid, q = user["id"], str((qs.get("q") or [""])[0]).strip().lstrip("@")[:40]
+    if q and not rate_ok(uid, "giftfind"):
+        return SLOW(uid, "giftfind")
+    out, seen = [], {uid}
+    with db_lock:
+        if q:
+            ids = []
+            if q.isdigit():
+                ids.append(as_int(q, 0, 10**15))
+            ql, like = q.lower(), "%" + q.lower().replace("%", "").replace("_", "\\_") + "%"
+            ids += [r[0] for r in db.execute("SELECT id FROM players WHERE LOWER(username)=? LIMIT 3", (ql,)).fetchall()]
+            ids += [r[0] for r in db.execute("""SELECT id FROM players WHERE flagged=0 AND (LOWER(username) LIKE ? OR LOWER(name) LIKE ? OR name LIKE ?)
+                                                ORDER BY room DESC LIMIT 30""", (like, like, "%" + q + "%")).fetchall()]
+        else:
+            ids = [r[0] for r in db.execute("SELECT id FROM players WHERE ref_by=? ORDER BY room DESC LIMIT 20", (uid,)).fetchall()]
+            rb = db.execute("SELECT ref_by FROM players WHERE id=?", (uid,)).fetchone()
+            if rb and rb[0]:
+                ids.insert(0, rb[0])
+            for a, b in db.execute("SELECT from_uid, to_uid FROM duels WHERE (from_uid=? OR to_uid=?) AND to_uid IS NOT NULL ORDER BY created DESC LIMIT 30", (uid, uid)).fetchall():
+                ids.append(b if a == uid else a)
+            for (t,) in db.execute("SELECT n FROM star_ledger WHERE uid=? AND what='gift-to' ORDER BY ts DESC LIMIT 10", (uid,)).fetchall():
+                ids.insert(0, t)
+        for i in ids:
+            if i in seen or len(out) >= 12:
+                continue
+            seen.add(i)
+            r = _gift_row(i)
+            if r:
+                out.append(r)
+    return 200, {"ok": True, "list": out}
+
+def gift_send(user, body):
+    """{to: uid, n: 1..100, note, k}: n skips to a friend for n stars. k (one per press) makes a retry free of a second charge."""
+    uid, to, n = user["id"], as_int(body.get("to"), 0, 10**15), as_int(body.get("n"), 0, GIFT_MAX_N)
+    note = re.sub(r"\s+", " ", str(body.get("note") or "")).strip()[:80]
+    k = re.sub(r"[^A-Za-z0-9]", "", str(body.get("k") or ""))[:24]
+    if n < 1:
+        return 200, {"ok": False, "reason": "Сколько пропусков подарить?"}
+    if not to or to == uid:
+        return 200, {"ok": False, "reason": "Выбери, кому подарить."}
+    with db_lock:
+        if k and _kv_get(f"giftk:{uid}:{k}", ""):
+            return 200, dict(_stars_state(uid), ok=True, n=n, again=True)
+        friend = _gift_row(to)
+        if not friend:
+            return 200, {"ok": False, "reason": "Такого игрока нет в игре."}
+        day0 = q_day_start(q_day())
+        sent = db.execute("SELECT COUNT(*) FROM star_ledger WHERE uid=? AND what='gift-to' AND ts>=?", (uid, day0)).fetchone()[0]
+        if sent >= GIFT_DAY:
+            return 200, {"ok": False, "reason": f"Сегодня уже {GIFT_DAY} подарков — продолжим завтра."}
+        bal = (db.execute("SELECT stars FROM players WHERE id=?", (uid,)).fetchone() or (0,))[0] or 0
+        if bal < n:
+            return 200, dict(_stars_state(uid), ok=False, reason="balance", need=n)
+        now = time.time()
+        db.execute("UPDATE players SET stars=stars-? WHERE id=?", (n, uid))
+        db.execute("UPDATE players SET skips=skips+? WHERE id=?", (n, to))
+        db.execute("INSERT INTO star_ledger(uid, delta, what, n, ts) VALUES(?,?,?,?,?)", (uid, -n, "gift-skips", n, now))
+        db.execute("INSERT INTO star_ledger(uid, delta, what, n, ts) VALUES(?,?,?,?,?)", (uid, 0, "gift-to", to, now))
+        db.execute("INSERT INTO star_ledger(uid, delta, what, n, ts) VALUES(?,?,?,?,?)", (to, 0, "gift-skips-in", n, now))
+        db.execute("INSERT INTO star_ledger(uid, delta, what, n, ts) VALUES(?,?,?,?,?)", (to, 0, "gift-from", uid, now))
+        q = json.loads(_kv_get(f"giftq:{to}", "[]") or "[]")[-19:]
+        q.append({"from": display_name(user), "un": user.get("username") or "", "uid": uid, "n": n, "note": note, "cls": _cls_key(
+            (db.execute("SELECT cls FROM players WHERE id=?", (uid,)).fetchone() or ("",))[0]) or "knight", "at": int(now)})
+        _kv_set(f"giftq:{to}", json.dumps(q, ensure_ascii=False))
+        if k:
+            _kv_set(f"giftk:{uid}:{k}", "1")
+        pm = db.execute("SELECT can_pm FROM players WHERE id=?", (to,)).fetchone()
+        db.commit()
+        st = _stars_state(uid)
+    log.info("gift: %s -> %s, %s skips", uid, to, n)
+    if pm and pm[0]:
+        who = ("@" + html_esc(user["username"])) if user.get("username") else html_esc(display_name(user))
+        txt = (f"🎁 {who} подарил тебе <b>{n} {plural_ru(n, 'пропуск', 'пропуска', 'пропусков')} отдыха</b>!"
+               + (f"\n\n«{html_esc(note)}»" if note else "") + "\n\nОни уже на твоём счёте в игре.")
+        threading.Thread(target=lambda: tg_try("sendMessage", chat_id=to, text=txt, parse_mode="HTML",
+                         reply_markup={"inline_keyboard": [[{"text": "🎮 Открыть игру", "url": app_link()}]]}), daemon=True).start()
+    return 200, dict(st, ok=True, n=n, to=friend)
+
+def gift_take(user, body):
+    """The gifts that came while the player was away. {seen: at}: the game has shown those up to this time — they go.
+    Nothing is dropped before the game says so: a reload in between shows the gift again instead of losing it."""
+    seen = as_int(body.get("seen"), 0, 10**11)
+    with db_lock:
+        q = json.loads(_kv_get(f"giftq:{user['id']}", "[]") or "[]")
+        if seen and q:
+            q = [g for g in q if as_int(g.get("at"), 0, 10**11) > seen]
+            _kv_set(f"giftq:{user['id']}", json.dumps(q, ensure_ascii=False))
+            db.commit()
+    return 200, {"ok": True, "gifts": q}
 
 def stars_buy(user, body):
     """{item: skips (n 1..100) | reset | path | class | luck}. Takes the stars and gives the right; the game applies it."""
@@ -5461,6 +5609,8 @@ class Handler(BaseHTTPRequestHandler):
             if not u:
                 return self.send_json(401, {"ok": False, "reason": "not signed in"})
             ensure_player(u)
+            if path == "/api/leaderboard/page":
+                return self.send_json(*leaderboard_page(u, urllib.parse.parse_qs(url.query)))
             if path == "/api/leaderboard":
                 return self.send_json(*leaderboard(u, urllib.parse.parse_qs(url.query).get("cls", [""])[0]))
             if path == "/api/mb/state":
@@ -5491,6 +5641,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(*duel_mine(u))
             if path == "/api/admin/ac":
                 return self.send_json(*ac_admin_get(u))
+            if path == "/api/gift/find":
+                return self.send_json(*gift_find(u, urllib.parse.parse_qs(url.query)))
             if path == "/api/stars":
                 return self.send_json(*stars_get(u))
             if path == "/api/quests":
@@ -5621,6 +5773,8 @@ class Handler(BaseHTTPRequestHandler):
             "/api/stars/invoice": lambda: stars_invoice(u, body),
             "/api/admin/stars": lambda: stars_mode(u, body),
             "/api/stars/buy": lambda: stars_buy(u, body),
+            "/api/gift/send": lambda: gift_send(u, body),
+            "/api/gift/take": lambda: gift_take(u, body),
             "/api/stars/skip": lambda: stars_skip(u, body),
             "/api/luck": lambda: luck_spin(u, body),
             "/api/luck/info": lambda: luck_info(u),

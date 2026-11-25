@@ -193,6 +193,8 @@ html.tg-fs #app{padding-top:calc(6px + var(--fs-top,0px))}html.tg-fs .tinner{pad
 .rinfo.notice .tk.run{animation:ntick linear 1.5s infinite}
 @keyframes ntick{0%,8%{transform:translateX(0)}100%{transform:translateX(-100%)}}.rinfo.notice[hidden]{display:none}
 .rinfo.rdbg{box-shadow:inset 0 0 0 2px #7a3ab0}
+.lball2{margin:8px 0 0}.lbanav{gap:6px;align-items:center;margin:4px 0}.lbanav .note{flex:1;text-align:center;margin:0}.lball3 li{cursor:pointer}.lball3 small{opacity:.65}.lball3 li.me{box-shadow:inset 0 0 0 2px var(--gold)}
+.giftlist{margin:0 0 8px;max-height:30vh;overflow-y:auto}.giftlist li{align-items:center;cursor:pointer}.giftlist li img{height:34px;width:40px;object-fit:contain;image-rendering:pixelated;flex:none}.giftlist li.on{box-shadow:inset 0 0 0 2px var(--gold);background:#2a2010}.giftlist small{opacity:.7}.giftlist .gfok{color:var(--gold)}.gifttog{gap:6px;margin:4px 0 8px}
 .ninput{width:100%;font:inherit;font-size:14px;padding:8px;background:#120e18;color:var(--text);border:2px solid var(--line);margin-bottom:6px}
 .dbgrow{display:flex;flex-wrap:wrap;gap:4px}.dbgrow .btn{flex:1 0 auto;min-width:56px}
 .roomno{font-size:22px;font-weight:700;line-height:1.05;text-wrap:balance}
@@ -2635,7 +2637,7 @@ window.EmberNet=(()=>{
       const CL=(ORD?ORD.map(k=>{const f=(d.classes||[]).find(c=>c.key===k);return {key:k,ru:(f&&f.ru)||LG.CLASSES[k].ru,n:f?f.n:0};}):(d.classes||[]).slice()).sort((a,b)=>(b.key===d.my_cls)-(a.key===d.my_cls)||b.n-a.n);
       const chips=CL.length>1?`<div class="lbcls">${[{key:'',ru:'Все'},...CL].map(c=>`<button class="btn sm${(c.key||'')===(d.cls||'')?' gold':''}${c.key?'':' lball'}" data-lbc="${esc(c.key)}">${esc(c.ru)}${c.key&&c.key===d.my_cls?' ★':''}</button>`).join('')}</div>`:'';
       const other=d.cls&&d.my_cls&&d.cls!==d.my_cls?'<p class="lbnote">Ты играешь за другой класс — твоё место во вкладке со звёздочкой.</p>':'';
-      el.innerHTML=chips+(T.length?`${pod}${rows?`<ol class="lb lbrest">${rows}</ol>`:''}${mine}${other}<p class="lbnote">${cRu?'Здесь только герои класса «'+esc(cRu)+'».':'Место считается по самой высокой пройденной комнате.'} Нажми на игрока, чтобы вызвать его на дуэль.</p>`:'<p class="lbnote">'+(cRu?'За этот класс пока никто не прошёл ни одной комнаты.':'Пока никого нет. Пройдите первую комнату и займите первое место.')+'</p>');
+      el.innerHTML=chips+(T.length?`${pod}${rows?`<ol class="lb lbrest">${rows}</ol>`:''}${mine}<button class="btn lball2" data-act="lb-all">Весь рейтинг${d.cls?' класса':''}</button>${other}<p class="lbnote">${cRu?'Здесь только герои класса «'+esc(cRu)+'».':'Место считается по самой высокой пройденной комнате.'} Нажми на игрока, чтобы вызвать его на дуэль.</p>`:'<p class="lbnote">'+(cRu?'За этот класс пока никто не прошёл ни одной комнаты.':'Пока никого нет. Пройдите первую комнату и займите первое место.')+'</p>');
       el.onclick=e=>{const b=e.target.closest('[data-lbc]');if(!b)return;e.stopPropagation();lbCls=b.dataset.lbc||'';renderBoard(el,myRoom);};};
     const ck=lbCls||'';
     if(cache[ck]&&Date.now()-cacheAt[ck]<30000){draw(cache[ck]);return;}
@@ -2650,7 +2652,8 @@ window.EmberNet=(()=>{
     try{fetch(API+'/ev',{method:'POST',keepalive:true,headers:{'Content-Type':'application/json','X-Init-Data':tg.initData},body:JSON.stringify({ev:b})}).catch(()=>{});}catch(e){}}
   function fightLog(e){if(!tg)return;evq.push(e);if(evq.length>=10)evFlush();else if(!evT)evT=setTimeout(evFlush,30000);}
   document.addEventListener('visibilitychange',()=>{if(document.hidden)evFlush();});
-  return {tg:!!tg,prod:!!tg||!!window.EMBER_PROD,user,nav,haptic,onProgress,renderBoard,fightLog,invalidate(){cache={};cacheAt={};},lbReset(){lbCls='';}};
+  return {tg:!!tg,prod:!!tg||!!window.EMBER_PROD,user,nav,haptic,onProgress,renderBoard,fightLog,invalidate(){cache={};cacheAt={};},lbReset(){lbCls='';},lbClass(){return lbCls;},
+    async lbPage(o){const r=await fetch(API+'/leaderboard/page?'+new URLSearchParams(o),{headers:{'X-Init-Data':tg.initData}});if(!r.ok)throw new Error(r.status);return r.json();}};
 })();
 </script>
 <script id="ember-fullscreen">
@@ -2736,6 +2739,7 @@ window.EmberFS=(()=>{const W=window.Telegram&&window.Telegram.WebApp,tg=W&&W.ini
   N.starsMode=test=>call('/admin/stars',{test});
   /* Telegram's own payment sheet: resolves 'paid' | 'cancelled' | 'failed' | 'pending' */
   N.payInvoice=link=>new Promise(res=>{if(!tg||!tg.openInvoice||!at('6.1')){res('unsupported');return;}try{tg.openInvoice(link,st=>res(st));}catch(e){res('failed');}});
+  N.giftFind=q=>call('/gift/find'+(q?'?q='+encodeURIComponent(q):''));N.giftSend=o=>call('/gift/send',o);N.giftTake=seen=>call('/gift/take',{seen:seen||0});
   N.starsBuy=(item,n,extra)=>call('/stars/buy',Object.assign({item,n},extra||{}));
   /* v216: a skip carries a one-time key, so a retry after a lost answer is never charged twice; no answer in 15 s counts as none */
   N.starsSkip=k=>Promise.race([call('/stars/skip',{x:1,n:k||''}),new Promise((_,no)=>setTimeout(()=>no(new Error('timeout')),15000))]);
@@ -6882,7 +6886,7 @@ function musicAtLaunch(){musicPrefs();if(!S||S.musicOn===false)return;Music.on=t
   try{Object.assign(Music.last,JSON.parse(localStorage.getItem('ember.musicLast')||'{}'));}catch(e){}
   try{if(!Music.started)Music.start();Music.set('title');}catch(e){}}
 let musicTick=0;
-const APP_VER='273';
+const APP_VER='275';
 /* one bad frame must never freeze the game: the error is shown once and the loop goes on */
 let errShown='';
 function showErr(m){m=String(m||'').slice(0,140);if(m===errShown)return;errShown=m;try{toast('Ошибка (v'+APP_VER+'): '+esc(m),null);}catch(e){}}
@@ -7757,12 +7761,85 @@ function starsModal(){
     <p class="note" style="margin:0;text-align:left">После каждого боя герой отдыхает ${restTxt()}. Пропуск — сразу следующий бой: кнопка боя во время отдыха превращается в «Пропустить». Один пропуск — одна звезда.<br><b>С пропусками открывается автофарм</b> (кнопка «АВТО» слева от «Сражаться»): герой сам идёт вверх без отдыха, тратя по пропуску на бой.</p>
     <div class="skipbuy"><input type="range" id="skipN" min="1" max="100" value="${Math.min(100,Math.max(1,S.skipPick||10))}"><b id="skipNV">${Math.min(100,Math.max(1,S.skipPick||10))}</b></div>
     <button class="btn ember" data-act="st-skips" id="skipBuyBtn">Купить ${Math.min(100,Math.max(1,S.skipPick||10))} пропусков · ${Math.min(100,Math.max(1,S.skipPick||10))} ${STI()}</button>
+    ${starsOnline()?`<button class="btn" data-act="gift-open">🎁 Подарить пропуски другу</button>`:''}
     <h2>Что ещё за звёзды</h2>
     <ul class="starlist"><li>Сброс навыков — <b>${STAR_PRICE.reset} ${STI()}</b></li><li>Смена пути — <b>${STAR_PRICE.path} ${STI()}</b></li><li>Смена класса — ${st.class_free?'<b>первая бесплатно</b>, дальше':''} <b>${STAR_PRICE.class} ${STI()}</b></li><li>Удача перед боссом — <b>${STAR_PRICE.luck} ${STI()}</b></li></ul>
     <button class="btn" data-act="close" data-focus>Закрыть</button></div>`);
   const r=$('skipN');if(r)r.addEventListener('input',()=>{const n=+r.value;S.skipPick=n;$('skipNV').textContent=n;$('skipBuyBtn').innerHTML=skipBtnText(n);});}
 /* buying rest skips on its own sheet: opened from «АВТО» without skips and from «Пропустить отдых» without skips.
    After the purchase it does what the player tapped for: skips this rest, or starts the autofarm. */
+/* v274: rest skips as a gift — the friend is found by @nick or name, or picked among friends and duel rivals;
+   the stars are the giver's, the skips land on the friend's account at once, the bot tells him */
+const GIFT={to:null,list:[],q:'',n:10,note:'',busy:0,t:0};
+function giftModal(pre){if(!starsOnline()){toast('Подарки работают, когда игра открыта в Telegram',null);return;}
+  Object.assign(GIFT,{to:pre||null,list:pre?[pre]:[],q:'',n:Math.min(100,Math.max(1,S.skipPick||10)),note:'',busy:0});
+  const st=STARS||{balance:0,skips:0};
+  openModal(`<div class="sheet px px-gold skipsheet"><h3>Подарить пропуски</h3>
+    <div class="skiphead"><span><img src="${TICKET_ICON}" alt="">Пропусков: <b>${st.skips||0}</b></span><span><img src="${STAR_ICON}" alt="">на счету: <b id="gfBal">${st.balance||0}</b></span></div>
+    <div class="row gifttog"><button class="btn sm" data-act="gift-self">Себе</button><button class="btn sm gold">🎁 В подарок</button></div>
+    <input class="ninput" id="gfQ" placeholder="@ник или имя игрока" autocomplete="off" maxlength="40">
+    <p class="note gfhint" id="gfHint">Друзья и с кем были дуэли:</p>
+    <ol class="lb giftlist" id="gfL"><li class="note">Загружаю…</li></ol>
+    <div class="skipbuy"><input type="range" id="gfN" min="1" max="100" value="${GIFT.n}"><b id="gfNV">${GIFT.n}</b></div>
+    <input class="ninput" id="gfNote" placeholder="Подпись к подарку (необязательно)" maxlength="80">
+    <button class="btn ember" id="gfGo">🎁 Подарить</button>
+    <p class="note" id="gfTip" style="margin:6px 0 0">Пропуски сразу придут на счёт друга, а бот напишет ему, от кого подарок. Один пропуск — одна звезда.</p>
+    <button class="btn" data-act="close">Закрыть</button></div>`);
+  const q=$('gfQ');q.oninput=()=>{clearTimeout(GIFT.t);GIFT.t=setTimeout(()=>giftFind(q.value.trim()),400);};
+  $('gfN').addEventListener('input',()=>{GIFT.n=+$('gfN').value;S.skipPick=GIFT.n;$('gfNV').textContent=GIFT.n;giftBtn();});
+  $('gfNote').oninput=()=>{GIFT.note=$('gfNote').value;};$('gfGo').onclick=giftSend;
+  giftBtn();if(pre)giftList();else giftFind('');}
+async function giftFind(q){GIFT.q=q;const h=$('gfHint');if(h)h.textContent=q?'Найдено:':'Друзья и с кем были дуэли:';
+  let r=null;try{r=await EmberNet.giftFind(q);}catch(e){}if(GIFT.q!==q||!$('gfL'))return;
+  GIFT.list=(r&&r.list)||[];if(GIFT.to&&!GIFT.list.some(x=>x.uid===GIFT.to.uid))GIFT.list.unshift(GIFT.to);giftList(r?null:'Не загрузилось. Попробуй ещё раз.');}
+function giftList(err){const el=$('gfL');if(!el)return;
+  if(err||!GIFT.list.length){el.innerHTML=`<li class="note" style="justify-content:center">${err||(GIFT.q?'Никого не нашлось. Проверь @ник — игрок должен хоть раз открыть игру.':'Пока некому — найди друга по @нику')}</li>`;return;}
+  el.innerHTML=GIFT.list.map((f,i)=>`<li data-gi="${i}" class="${GIFT.to&&GIFT.to.uid===f.uid?'on':''}"><img src="${lookPortraitWide({cls:f.cls}).toDataURL()}" alt=""><span class="ln">${esc(f.username?'@'+f.username:f.name)}<br><small>${esc(f.username?f.name+' · ':'')}${esc(clsRu(f.cls))} · этаж ${f.room}</small></span><span class="gfok">${GIFT.to&&GIFT.to.uid===f.uid?'✓':''}</span></li>`).join('');
+  el.querySelectorAll('[data-gi]').forEach(li=>li.onclick=()=>{GIFT.to=GIFT.list[+li.dataset.gi];giftList();giftBtn();});}
+function giftBtn(){const b=$('gfGo');if(!b)return;const n=GIFT.n;
+  b.innerHTML=GIFT.to?`🎁 Подарить ${n} ${plural(n,'пропуск','пропуска','пропусков')} · ${n} ${STI()}`:'Выбери, кому подарить';b.disabled=!GIFT.to||GIFT.busy;}
+async function giftSend(again){if(!GIFT.to||GIFT.busy)return;GIFT.busy=1;giftBtn();const to=GIFT.to,n=GIFT.n,k=GIFT.k=again===true&&GIFT.k?GIFT.k:Math.random().toString(36).slice(2,12);
+  let r=null;try{r=await EmberNet.giftSend({to:to.uid,n,note:GIFT.note,k});}catch(e){}
+  GIFT.busy=0;
+  if(!r){toast('Сервер не ответил — звёзды не списаны',null);giftBtn();return;}
+  if(r.balance!=null){STARS=Object.assign({},STARS||{},r);updStars();}
+  if(!r.ok&&r.reason==='balance'){if(await starsShort(r.need,r.balance)){giftModal(to);GIFT.n=n;const s2=$('gfN');if(s2){s2.value=n;$('gfNV').textContent=n;}giftBtn();giftSend(true);}return;}
+  if(!r.ok){toast(esc(r.reason||'Не получилось'),null);giftBtn();return;}
+  closeModal();SFX.play('coin');toast(`Подарено: ${n} ${plural(n,'пропуск','пропуска','пропусков')} для ${esc(to.username?'@'+to.username:to.name)}`,TICKET_ICON);}
+/* the receiving side: gifts that came while the game was closed are shown once, one after another */
+let giftQ=[],giftSeen=0;
+async function giftTake(){if(!starsOnline())return;let r=null;try{r=await EmberNet.giftTake();}catch(e){}
+  const nw=((r&&r.gifts)||[]).filter(g=>g.at>giftSeen&&!giftQ.some(x=>x.at===g.at&&x.uid===g.uid));
+  if(nw.length){giftQ=giftQ.concat(nw);starsRefresh();giftShow();}}
+let giftWait=0;
+function giftShow(){if(!giftQ.length)return;
+  if(!$('modal').hidden||titleOn){if(!giftWait){giftWait=1;setTimeout(()=>{giftWait=0;giftShow();},1000);}return;}   // after the title screen, when no window is open
+  const g=giftQ.shift(),who=g.un?'@'+g.un:g.from;giftSeen=Math.max(giftSeen,g.at);EmberNet.giftTake(giftSeen).catch(()=>{});
+  openModal(`<div class="sheet px px-gold"><div class="rw-title">ПОДАРОК!</div>
+    <div style="text-align:center;margin:8px 0"><img src="${lookPortraitWide({cls:g.cls||'knight'}).toDataURL()}" alt="" style="height:96px;image-rendering:pixelated"></div>
+    <p class="note" style="font-size:16px"><b style="color:var(--gold)">${esc(who)}</b> дарит тебе<br><b style="font-size:22px;color:var(--gold)">${g.n} ${TKI()} ${plural(g.n,'пропуск','пропуска','пропусков')} отдыха</b></p>
+    ${g.note?`<p class="note" style="font-style:italic">«${esc(g.note)}»</p>`:''}
+    <p class="note" style="margin:0">Уже на твоём счёте.</p>
+    <button class="btn ember" data-act="close" data-focus>Забрать</button></div>`,()=>setTimeout(giftShow,400));SFX.play('level');}
+/* v275: the whole board — every hero who climbed, 50 a page, search by name, a jump to your own place; a tap still challenges */
+const LBA={cls:'',page:0,q:'',d:null,t:0};
+function lbAllOpen(){if(!(window.EmberNet&&EmberNet.tg&&EmberNet.lbPage))return;Object.assign(LBA,{cls:EmberNet.lbClass?EmberNet.lbClass()||'':'',page:0,q:'',d:null});
+  const cRu=LBA.cls&&L.CLASSES[LBA.cls]?L.CLASSES[LBA.cls].ru:'';
+  openModal(`<div class="sheet px lbsheet"><h3>${cRu?'Рейтинг: '+esc(cRu):'Весь рейтинг'}</h3>
+    <div class="dbgrow"><input class="ninput" id="lbaQ" placeholder="Найти игрока" autocomplete="off" maxlength="40" style="flex:1;min-width:0;margin:0"><button class="btn sm gold" data-act="lb-me" style="flex:none;width:auto;padding:0 12px">Моё место</button></div>
+    <div id="lbaL"><p class="note">Загружаю…</p></div><button class="btn" data-act="close" data-focus>Закрыть</button></div>`);
+  $('lbaQ').oninput=()=>{clearTimeout(LBA.t);LBA.t=setTimeout(()=>{LBA.q=$('lbaQ').value.trim();LBA.page=0;lbAllLoad();},400);};lbAllLoad();}
+async function lbAllLoad(me){const o={page:LBA.page};if(LBA.cls)o.cls=LBA.cls;if(LBA.q&&!me)o.q=LBA.q;if(me){o.me=1;LBA.q='';const qi=$('lbaQ');if(qi)qi.value='';}
+  let r=null;try{r=await EmberNet.lbPage(o);}catch(e){}if(!$('lbaL'))return;
+  if(!r||!r.ok){$('lbaL').innerHTML='<p class="note">Не загрузилось. Попробуй ещё раз.</p>';return;}
+  LBA.d=r;LBA.page=r.page;lbAllDraw(me);}
+function lbAllDraw(me){const d=LBA.d,el=$('lbaL');if(!el)return;
+  const nav=d.pages>1&&!d.q?`<div class="row lbanav"><button class="btn sm" data-lbp="-1"${d.page<=0?' disabled':''}>← Назад</button><span class="note">${d.page*d.per+1}–${Math.min(d.total,(d.page+1)*d.per)} из ${d.total}</span><button class="btn sm" data-lbp="1"${d.page>=d.pages-1?' disabled':''}>Вперёд →</button></div>`:'';
+  const row=r=>`<li class="${r.me?'me':''}"${!r.me&&r.tag?` data-act="duel-pick" data-tag="${esc(r.tag)}" data-name="${esc(r.name)}" data-cls="${esc(r.cls||'')}" data-room="${r.room}" data-level="${r.level||''}"`:''}><span class="lr">${r.rank}</span><span class="ln">${esc(r.name)}${r.me?' (ты)':''}<br><small>${[r.cls,r.level?r.level+' ур.':''].filter(Boolean).map(esc).join(' · ')}</small></span>${!r.me&&r.tag?'<i class="lbduel">вызвать</i>':''}<b class="lv">${r.room}</b></li>`;
+  el.innerHTML=(d.my_rank?`<p class="note" style="margin:0 0 6px">Твоё место: <b>${d.my_rank}</b> из ${d.total}</p>`:'')+nav
+    +(d.rows.length?`<ol class="lb lball3">${d.rows.map(row).join('')}</ol>`:`<p class="note">${d.q?'Никого не нашлось':'Пока пусто'}</p>`)+nav;
+  el.querySelectorAll('[data-lbp]').forEach(b=>b.onclick=()=>{LBA.page=Math.max(0,LBA.page+(+b.dataset.lbp));lbAllLoad();const sh=el.closest('.sheet');if(sh)sh.scrollTop=0;});
+  if(me){const m=el.querySelector('li.me');if(m)m.scrollIntoView({block:'center'});}}
 let skipFor=null;
 function skipModal(why){skipFor=why||null;
   if(!starsOnline()&&!starsLocal()){openModal(`<div class="sheet px"><h3>Пропуск отдыха</h3><p class="note">Пропуски покупаются за звёзды, когда игра открыта в Telegram.</p><button class="btn" data-act="close" data-focus>Закрыть</button></div>`);return;}
@@ -7771,6 +7848,7 @@ function skipModal(why){skipFor=why||null;
     :`После каждого боя герой отдыхает ${restTxt()}. Пропуск — сразу следующий бой. С пропусками работает и <b>автофарм</b> (кнопка «АВТО»).`;
   openModal(`<div class="sheet px px-gold skipsheet"><h3>${why==='auto'?'Автофарм':why==='more'?'Докупить пропуски':'Пропуск отдыха'}</h3>
     <div class="skiphead"><span><img src="${TICKET_ICON}" alt="">Пропусков: <b>${st.skips||0}</b></span><span><img src="${STAR_ICON}" alt="">на счету: <b>${st.balance||0}</b></span></div>
+    ${starsOnline()?`<div class="row gifttog"><button class="btn sm gold">Себе</button><button class="btn sm" data-act="gift-open">🎁 В подарок</button></div>`:''}
     <p class="note" style="margin:0;text-align:left">${lead} Один пропуск — одна звезда.</p>
     <div class="skipbuy"><input type="range" id="skipN" min="1" max="100" value="${n0}"><b id="skipNV">${n0}</b></div>
     <button class="btn ember" data-act="st-skips" id="skipBuyBtn">${skipBtnText(n0)}</button>
@@ -11024,6 +11102,8 @@ document.addEventListener('click',ev=>{
     case'luck':{if(S.luckCharges>0){toast('Удача уже заряжена: сработает в бою с этим боссом',STAR_ICON);break;}
       starsCall('luck').then(r=>{if(!r)return;S.luckCharges=(S.luckCharges||0)+1;persist();updateRoomHeader();SFX.play('buff');toast('Удача заряжена: лут босса будет лучше',STAR_ICON);});break;}
     case'st-top':{const n=+el.dataset.n,test=!starsReal();starsCall('topup',n).then(r=>{if(r){toast(`+${n} ${STI()}${test?' (тест)':''}`,STAR_ICON);if(!starsModalSync())starsModal();}});break;}
+    case'lb-all':lbAllOpen();break;case'lb-me':LBA.page=0;lbAllLoad(1);break;
+    case'gift-open':giftModal();break;case'gift-self':skipModal('more');break;
     case'st-skips':{const n=Math.min(100,Math.max(1,+(($('skipN')||{}).value||1))),why=skipFor;skipFor=null;starsCall('skips',n).then(r=>{if(!r)return;setTimeout(questsRefresh,300);toast(`Куплено пропусков: ${n} · всего ${r.skips}`,TICKET_ICON);SFX.play('coin');
       if(why==='skip'){closeModal();useSkip();}else if(why==='auto'){closeModal();if(!AUTO.on)autoToggle();}else if(why==='more'){closeModal();updAuto();}else starsModal();});break;}
     case'st-wallet':ev.preventDefault();skipFor=null;starsModal();break;
@@ -11197,7 +11277,7 @@ const ADMIN_IDS=[678418106];
 function isAdmin(){const W=window.Telegram&&window.Telegram.WebApp,u=W&&W.initDataUnsafe&&W.initDataUnsafe.user;return !!(u&&ADMIN_IDS.includes(+u.id));}
 const NOTICE_API=(window.EMBER_API||'/api').replace(/\/$/,'');
 let noticeText='';
-async function noticePoll(){try{const r=await fetch(NOTICE_API+'/notice',{cache:'no-store'});if(r.ok){const d=await r.json();noticeText=d.text||'';if(d.rest!=null)setRestMs(d.rest*1000);showNotice();}}catch(e){}}
+async function noticePoll(){giftTake();try{const r=await fetch(NOTICE_API+'/notice',{cache:'no-store'});if(r.ok){const d=await r.json();noticeText=d.text||'';if(d.rest!=null)setRestMs(d.rest*1000);showNotice();}}catch(e){}}
 function showNotice(){const el=$('notice');if(!el)return;el.hidden=!noticeText;el.innerHTML=noticeText?`<span class="ft"><span class="tk">📣 ${esc(noticeText)}</span></span>`:'';noticeTick();}
 /* v244: a notice longer than the bar crawls slowly (≈28 px/s) so it can be read to the end, then loops */
 function noticeTick(){const el=$('notice');if(!el||el.hidden)return;const ft=el.querySelector('.ft'),tk=el.querySelector('.tk');if(!ft||!tk)return;
