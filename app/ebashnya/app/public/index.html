@@ -6886,7 +6886,7 @@ function musicAtLaunch(){musicPrefs();if(!S||S.musicOn===false)return;Music.on=t
   try{Object.assign(Music.last,JSON.parse(localStorage.getItem('ember.musicLast')||'{}'));}catch(e){}
   try{if(!Music.started)Music.start();Music.set('title');}catch(e){}}
 let musicTick=0;
-const APP_VER='275';
+const APP_VER='279';
 /* one bad frame must never freeze the game: the error is shown once and the loop goes on */
 let errShown='';
 function showErr(m){m=String(m||'').slice(0,140);if(m===errShown)return;errShown=m;try{toast('Ошибка (v'+APP_VER+'): '+esc(m),null);}catch(e){}}
@@ -7798,12 +7798,12 @@ function giftList(err){const el=$('gfL');if(!el)return;
   el.querySelectorAll('[data-gi]').forEach(li=>li.onclick=()=>{GIFT.to=GIFT.list[+li.dataset.gi];giftList();giftBtn();});}
 function giftBtn(){const b=$('gfGo');if(!b)return;const n=GIFT.n;
   b.innerHTML=GIFT.to?`🎁 Подарить ${n} ${plural(n,'пропуск','пропуска','пропусков')} · ${n} ${STI()}`:'Выбери, кому подарить';b.disabled=!GIFT.to||GIFT.busy;}
-async function giftSend(again){if(!GIFT.to||GIFT.busy)return;GIFT.busy=1;giftBtn();const to=GIFT.to,n=GIFT.n,k=GIFT.k=again===true&&GIFT.k?GIFT.k:Math.random().toString(36).slice(2,12);
-  let r=null;try{r=await EmberNet.giftSend({to:to.uid,n,note:GIFT.note,k});}catch(e){}
+async function giftSend(again){if(!GIFT.to||GIFT.busy)return;const nf=$('gfNote');if(nf)GIFT.note=nf.value;GIFT.busy=1;giftBtn();const to=GIFT.to,n=GIFT.n,note=GIFT.note,k=GIFT.k=again===true&&GIFT.k?GIFT.k:Math.random().toString(36).slice(2,12);
+  let r=null;try{r=await EmberNet.giftSend({to:to.uid,n,note,k});}catch(e){}
   GIFT.busy=0;
   if(!r){toast('Сервер не ответил — звёзды не списаны',null);giftBtn();return;}
   if(r.balance!=null){STARS=Object.assign({},STARS||{},r);updStars();}
-  if(!r.ok&&r.reason==='balance'){if(await starsShort(r.need,r.balance)){giftModal(to);GIFT.n=n;const s2=$('gfN');if(s2){s2.value=n;$('gfNV').textContent=n;}giftBtn();giftSend(true);}return;}
+  if(!r.ok&&r.reason==='balance'){if(await starsShort(r.need,r.balance)){giftModal(to);GIFT.n=n;GIFT.note=note;const s2=$('gfN');if(s2){s2.value=n;$('gfNV').textContent=n;}const n2=$('gfNote');if(n2)n2.value=note;giftBtn();giftSend(true);}return;}   // v278: the note survives the top-up
   if(!r.ok){toast(esc(r.reason||'Не получилось'),null);giftBtn();return;}
   closeModal();SFX.play('coin');toast(`Подарено: ${n} ${plural(n,'пропуск','пропуска','пропусков')} для ${esc(to.username?'@'+to.username:to.name)}`,TICKET_ICON);}
 /* the receiving side: gifts that came while the game was closed are shown once, one after another */

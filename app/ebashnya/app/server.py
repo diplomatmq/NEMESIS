@@ -3163,8 +3163,8 @@ def gift_find(user, qs):
                 ids.insert(0, rb[0])
             for a, b in db.execute("SELECT from_uid, to_uid FROM duels WHERE (from_uid=? OR to_uid=?) AND to_uid IS NOT NULL ORDER BY created DESC LIMIT 30", (uid, uid)).fetchall():
                 ids.append(b if a == uid else a)
-            for (t,) in db.execute("SELECT n FROM star_ledger WHERE uid=? AND what='gift-to' ORDER BY ts DESC LIMIT 10", (uid,)).fetchall():
-                ids.insert(0, t)
+            for (w,) in db.execute("SELECT what FROM star_ledger WHERE uid=? AND what LIKE 'gift-to:%' ORDER BY ts DESC LIMIT 10", (uid,)).fetchall():
+                ids.insert(0, as_int(w.split(":", 1)[1], 0, 10**15))
         for i in ids:
             if i in seen or len(out) >= 12:
                 continue
@@ -3190,7 +3190,7 @@ def gift_send(user, body):
         if not friend:
             return 200, {"ok": False, "reason": "Такого игрока нет в игре."}
         day0 = q_day_start(q_day())
-        sent = db.execute("SELECT COUNT(*) FROM star_ledger WHERE uid=? AND what='gift-to' AND ts>=?", (uid, day0)).fetchone()[0]
+        sent = db.execute("SELECT COUNT(*) FROM star_ledger WHERE uid=? AND what LIKE 'gift-to:%' AND ts>=?", (uid, day0)).fetchone()[0]
         if sent >= GIFT_DAY:
             return 200, {"ok": False, "reason": f"Сегодня уже {GIFT_DAY} подарков — продолжим завтра."}
         bal = (db.execute("SELECT stars FROM players WHERE id=?", (uid,)).fetchone() or (0,))[0] or 0
@@ -3200,9 +3200,9 @@ def gift_send(user, body):
         db.execute("UPDATE players SET stars=stars-? WHERE id=?", (n, uid))
         db.execute("UPDATE players SET skips=skips+? WHERE id=?", (n, to))
         db.execute("INSERT INTO star_ledger(uid, delta, what, n, ts) VALUES(?,?,?,?,?)", (uid, -n, "gift-skips", n, now))
-        db.execute("INSERT INTO star_ledger(uid, delta, what, n, ts) VALUES(?,?,?,?,?)", (uid, 0, "gift-to", to, now))
+        db.execute("INSERT INTO star_ledger(uid, delta, what, n, ts) VALUES(?,?,?,?,?)", (uid, 0, f"gift-to:{to}", n, now))   # the id in «what»: n is 32-bit in PostgreSQL
         db.execute("INSERT INTO star_ledger(uid, delta, what, n, ts) VALUES(?,?,?,?,?)", (to, 0, "gift-skips-in", n, now))
-        db.execute("INSERT INTO star_ledger(uid, delta, what, n, ts) VALUES(?,?,?,?,?)", (to, 0, "gift-from", uid, now))
+        db.execute("INSERT INTO star_ledger(uid, delta, what, n, ts) VALUES(?,?,?,?,?)", (to, 0, f"gift-from:{uid}", n, now))
         q = json.loads(_kv_get(f"giftq:{to}", "[]") or "[]")[-19:]
         q.append({"from": display_name(user), "un": user.get("username") or "", "uid": uid, "n": n, "note": note, "cls": _cls_key(
             (db.execute("SELECT cls FROM players WHERE id=?", (uid,)).fetchone() or ("",))[0]) or "knight", "at": int(now)})
