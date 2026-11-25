@@ -142,6 +142,17 @@ db.execute("""CREATE TABLE IF NOT EXISTS raid_tries_c(uid INTEGER, ci TEXT, day 
 db.execute("""CREATE TABLE IF NOT EXISTS raid_stats(uid INTEGER, ci TEXT, dmg INTEGER DEFAULT 0, best INTEGER DEFAULT 0, hits INTEGER DEFAULT 0,
   PRIMARY KEY(uid, ci))""")
 db.execute("CREATE TABLE IF NOT EXISTS raid_chats(ci TEXT PRIMARY KEY)")
+# v270: PostgreSQL's INTEGER ends at 2 147 483 647. Strong heroes hit the chat boss for billions now: such a hit failed
+# with «integer out of range» and was lost (the game still showed its own number). Damage gets 64 bits, as in SQLite.
+for _t, _c in (("raid_hits", "dmg"), ("raid_stats", "dmg"), ("raid_stats", "best")):
+    try:
+        db.execute(f"ALTER TABLE {_t} ALTER COLUMN {_c} TYPE BIGINT")
+        db.commit()
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
 db.execute("CREATE TABLE IF NOT EXISTS kv(k TEXT PRIMARY KEY, v TEXT)")
 _rcols = {r[1] for r in db.execute("PRAGMA table_info(raids)")}
 if "lvl" not in _rcols:
@@ -346,7 +357,7 @@ def hello(user, fields, is_new, body):
             d = db.execute("SELECT from_uid FROM duels WHERE id=?", (start[5:21],)).fetchone()
             inviter = d[0] if d else 0
         else:
-            inviter = as_int(start.split("_", 1)[1])
+            inviter = as_int(start.split("_", 1)[1], 0, 10**15)   # v268: Telegram ids are past 10⁹ now — the old cap turned every such inviter into nobody
         # the daily «someone came by your link»: any player but the link's owner, once a day each. v239: a duel challenge
         # thrown into a chat counts too — the quest's hint tells players to send one, and before it silently didn't count
         if inviter and inviter != user["id"]:
@@ -531,12 +542,12 @@ def raid_hit(user, fields, body):
             return 400, {"ok": False, "reason": "open the game from a group chat"}
         v = raid_view(ci, week, user["id"])
         if v["over"]:
-            return 200, v
+            return 200, dict(v, counted=0, why="over")
         # three tries a day in every chat separately
         t = db.execute("SELECT n, last FROM raid_tries_c WHERE uid=? AND ci=? AND day=?", (user["id"], ci, day)).fetchone()
         n, last = t if t else (0, 0)
         if n >= RAID_TRIES:
-            return 200, v
+            return 200, dict(v, counted=0, why="tries")
         if now - last < RAID_MIN_GAP:
             return 429, {"ok": False, "reason": "too soon"}
         db.execute("INSERT OR REPLACE INTO raid_tries_c(uid, ci, day, n, last) VALUES(?,?,?,?,?)", (user["id"], ci, day, n + 1, now))
@@ -544,8 +555,9 @@ def raid_hit(user, fields, body):
         # one 40 s try can't do more than ~3 average tries of the player's floor: forged numbers are cut
         # strong heroes do many times the average of their floor; only absurd numbers are cut
         dmg = min(as_int(body.get("dmg"), 0, 10**15), 15 * try_dmg(min(max(as_int(body.get("room"), 0, 100000), 1), room + 20)))
+        why = None
         if is_flagged(user["id"]):
-            dmg = 0
+            dmg, why = 0, "review"
         # In PostgreSQL a bare column name in ON CONFLICT DO UPDATE SET is ambiguous
         # (it exists both in the target table and in "excluded"), so the existing row
         # must be referenced by table name: raid_hits.dmg. SQLite accepts the same form.
@@ -559,6 +571,8 @@ def raid_hit(user, fields, body):
         v = raid_view(ci, week, user["id"])
     v["reward"] = raid_reward(dmg, room, week == -1)
     v["counted"] = dmg
+    if why:
+        v["why"] = why
     with db_lock:
         _ecr_add(user["id"], g=v["reward"]["gold"], c=v["reward"]["cores"])
         db.commit()
@@ -606,7 +620,7 @@ def results_card(bkey, bname, tot, top, fighters):
         F = lambda w, z: ImageFont.truetype(os.path.join(base, f"ember_{w}.ttf"), z)
         d = ImageDraw.Draw(im)
         d.fontmode = "1"                       # no smoothing: pixels stay pixels when the picture is enlarged
-        # the font is drawn at its own pixel sizes (9 and 10) — other sizes break its letters; big text is the same text doubled
+        # the font is drawn at its own pixel size (10 for both weights; 9 breaks the thin one's letters) — big text is the same text doubled
         def text(x, y, t, w, z, col, center=False, maxw=None, big=False):
             f = F(w, z)
             k = 2 if big and d.textlength(t, font=f) * 2 <= (maxw or 999) else 1
@@ -628,15 +642,18 @@ def results_card(bkey, bname, tot, top, fighters):
             im.paste(lay, (round(x), y), lay)
         text(54, 7, "ИТОГИ БИТВЫ", 700, 10, "#ff9a2e")
         text(54, 19, bname, 700, 10, "#ffffff", maxw=180, big=True)
-        text(54, 42, f"Чат нанёс {_fmt(tot)} урона", 400, 9, "#ffd27a", maxw=180)
-        text(54, 53, f"Бойцов: {fighters}", 400, 9, "#d8ccff")
+        text(54, 42, f"Чат нанёс {_fmt(tot)} урона", 400, 10, "#ffd27a", maxw=180)
+        text(54, 54, f"Бойцов: {fighters}", 400, 10, "#d8ccff")
         spots = ((120, 98, "#fff3c0", 1), (48, 112, "#ffffff", 2), (192, 120, "#ffe0c0", 3))
         for cx, top_y, col, place in spots:
             row = top[place - 1] if len(top) >= place else None
             name, dmg = (row[1] or (("@" + row[2]) if row[2] else "Игрок"), row[3]) if row else ("—", None)
-            text(cx, top_y - 13, name, 700, 10 if place == 1 else 9, "#ffffff" if place == 1 else "#e8e0ff", center=True, maxw=100 if place == 1 else 70)
+            text(cx, top_y - 13, name, 700, 10, "#ffffff" if place == 1 else "#e8e0ff", center=True, maxw=100 if place == 1 else 70)
             if dmg is not None:
-                text(cx, top_y + 24, _fmt(dmg), 700, 10, col, center=True, maxw=58)
+                dm = _fmt(dmg)
+                if d.textlength(dm, font=F(700, 10)) > 58:          # 12 345 678 does not fit a pedestal: 12,3 млн
+                    dm = (f"{dmg / 1e9:.1f} млрд" if dmg >= 1e9 else f"{dmg / 1e6:.1f} млн").replace(".", ",")
+                text(cx, top_y + 24, dm, 700, 10, col, center=True, maxw=58)
         im = im.resize((im.width * 5, im.height * 5), Image.NEAREST)
         name = "res_" + hashlib.sha256(f"{bkey}{tot}{top}{time.time()}".encode()).hexdigest()[:20] + ".jpg"
         im.save(os.path.join(CARDS, name), "JPEG", quality=95, subsampling=0)
@@ -686,7 +703,7 @@ def _boss_btn(chat_id):
     return [{"text": "⚔️ Бить босса", "url": app_link("rg_" + str(chat_id).replace("-", "m"))}]
 
 # pictures for the bot's messages, drawn from the game's art: public/bot/*.jpg (the ?v= makes Telegram take a new picture after a change)
-BOT_CARDS_V = "2"
+BOT_CARDS_V = "4"
 def bot_card(name):
     return WEBAPP_URL + "bot/" + name + ".jpg?v=" + BOT_CARDS_V
 
@@ -1326,6 +1343,31 @@ def partner_info(user):
                               "wd": _pwd_get(uid), "wd_min": PARTNER_WD_MIN,
                               "top": [{"name": a or "Игрок", "spent": b or 0, "earned": (c or 0) / 100, "at": (d or 0) * 1000} for a, b, c, d in top]}
     return 200, out
+
+PARTNER_PAGE = 20
+
+def partner_refs(user, qs):
+    """v269: every referral of a partner, a page at a time: ?page=0.. &sort=spent|new &q=part of the name.
+    An admin may look at any partner's list with ?uid=."""
+    uid = user["id"]
+    if uid in ADMIN_IDS and (qs.get("uid") or [""])[0]:
+        uid = as_int(qs["uid"][0], 0, 10**15)
+    page = as_int((qs.get("page") or ["0"])[0], 0, 100000)
+    order = "r.joined DESC" if (qs.get("sort") or [""])[0] == "new" else "r.spent DESC, r.joined DESC"
+    q = str((qs.get("q") or [""])[0]).strip().lstrip("@").lower()[:32]
+    with db_lock:
+        p = db.execute("SELECT active FROM partners WHERE uid=?", (uid,)).fetchone()
+        if not p or (not p[0] and user["id"] not in ADMIN_IDS):
+            return 403, {"ok": False}
+        rows = db.execute(f"""SELECT pl.name AS nm, pl.username AS un, pl.room AS rm, r.spent AS sp, r.earned_c AS ec, r.joined AS jn
+                              FROM partner_refs r LEFT JOIN players pl ON pl.id=r.ref WHERE r.partner=? ORDER BY {order}""", (uid,)).fetchall()
+    if q:     # matched here, not in SQL: SQLite's LOWER() leaves Cyrillic as it is
+        rows = [x for x in rows if q in (x[0] or "").lower() or q in (x[1] or "").lower()]
+    total = len(rows)
+    rows = rows[page * PARTNER_PAGE:(page + 1) * PARTNER_PAGE]
+    return 200, {"ok": True, "total": total, "page": page, "per": PARTNER_PAGE,
+                 "rows": [{"name": a or (("@" + b) if b else "Игрок"), "room": c or 0, "spent": d or 0, "earned": (e or 0) / 100,
+                           "at": (f or 0) * 1000} for a, b, c, d, e, f in rows]}
 
 def partner_code(user):
     """The partner presses «Сгенерировать код»: once; after that his code and link stay the same."""
@@ -1969,6 +2011,11 @@ def share_photo_file_id(uid, jpeg):
     return fid
 
 # ---------------------------------------------------------------- challenge card shared to a chat
+def _card_k(im):
+    """The game draws a chat card on a small pixel grid; it is enlarged by a whole number to about 1200 px wide
+    (240 wide ×5 from the old versions, 400 wide ×3 since v266), so every pixel stays a clean square."""
+    return max(1, min(5, 1200 // max(1, im.width)))
+
 def share_prepare(user, body):
     """Turn the game's card into a JPEG Telegram already has (file_id), then prepare a message with the button."""
     if not rate_ok(user["id"], "share"):
@@ -1993,7 +2040,8 @@ def share_prepare(user, body):
         if im.width > 1000 or im.height > 1000:
             log.warning("share_prepare: image too large %dx%d", im.width, im.height)
             return 413, {"ok": False}
-        im = im.resize((im.width * 5, im.height * 5), Image.NEAREST)
+        k = _card_k(im)
+        im = im.resize((im.width * k, im.height * k), Image.NEAREST)
         name = hashlib.sha256(raw).hexdigest()[:24] + ".jpg"
         buf = io.BytesIO()
         im.save(buf, "JPEG", quality=95, subsampling=0)
@@ -2145,6 +2193,8 @@ def _save_of(uid):
 def _look(sv):
     eq, inv = sv.get("eq") or {}, sv.get("inv") or []
     out = {"cls": str(sv.get("cls", "knight"))[:16]}
+    if out["cls"] == "mage":
+        out["p"] = str(sv.get("path") or "")[:16]      # v272: fire or ice is drawn from his own path, not the viewer's
     for k, slot in (("w", "weapon"), ("a", "armor"), ("h", "helmet"), ("b", "boots")):
         it = next((i for i in inv if isinstance(i, dict) and i.get("slot") == slot and eq.get(slot) == i.get("uid")), None)
         if it:
@@ -2610,7 +2660,10 @@ def duel_card(user, body):
         if len(raw) > 400_000:
             return 413, {"ok": False}
         im = Image.open(io.BytesIO(raw)).convert("RGB")
-        im = im.resize((im.width * 5, im.height * 5), Image.NEAREST)
+        if im.width > 1000 or im.height > 1000:
+            return 413, {"ok": False}
+        k = _card_k(im)
+        im = im.resize((im.width * k, im.height * k), Image.NEAREST)
         name = hashlib.sha256(raw).hexdigest()[:24] + ".jpg"
         im.save(os.path.join(CARDS, name), "JPEG", quality=95, subsampling=0)
     except Exception as e:
@@ -4501,6 +4554,8 @@ def _mb_conds_text(c):
     out = []
     if c.get("chan"):
         out.append(f"📢 подписка на {html_esc(c['chan'])}")
+    if c.get("prem"):
+        out.append("💎 Telegram Premium")
     if mb_nft_need(c):
         n = mb_nft_need(c)
         out.append(f"🎁 не меньше {n} NFT-{plural_ru(n, 'подарка', 'подарков', 'подарков')} в профиле")
@@ -4542,12 +4597,18 @@ def mb_new(user, body):
     title = str(body.get("title", "")).strip()[:40] or "Массовая бойня"
     raw = body.get("prizes")
     raw = [str(x) for x in raw][:10] if isinstance(raw, list) else [str(body.get("prize", ""))]
+    # v271: rest skips may be a prize too, paid now with the price; the bot puts them on the winners' accounts itself
+    sks = body.get("skips") if isinstance(body.get("skips"), list) else []
+    sks = [as_int(x, 0, MB_SK_MAX) for x in sks[:10]]
     prizes = []
-    for x in raw:
-        n, i, u = mb_prize(x)
-        if not n:
+    for i in range(len(raw)):
+        n, img, u = mb_prize(raw[i])
+        k = sks[i] if i < len(sks) else 0
+        if not n and not k:
             break
-        prizes.append({"n": n, "i": i, "u": u})
+        if k:
+            n = (n + " + " if n else "") + mb_sk_txt(k)
+        prizes.append({"n": n[:90], "i": img, "u": u, "sk": k})
     if not prizes:
         return 400, {"ok": False, "reason": "Укажи приз."}
     try:
@@ -4564,6 +4625,7 @@ def mb_new(user, body):
     if len(prizes) < places:
         return 400, {"ok": False, "reason": f"Укажи приз для каждого места: заполнено {len(prizes)} из {places}."}
     prizes = prizes[:places]
+    sk_cost = sum(p["sk"] for p in prizes)
     prize, pimg, purl = prizes[0]["n"], prizes[0]["i"], prizes[0]["u"]
     chan = str(body.get("chan", "") or "").strip()[:64]
     if chan:
@@ -4587,18 +4649,21 @@ def mb_new(user, body):
             return 409, {"ok": False, "reason": "В этом чате уже идёт массовая бойня."}
         # the price comes off the hero's star balance; short — the game tops up exactly what is missing and comes back
         price, bal = mb_price(), (db.execute("SELECT stars FROM players WHERE id=?", (user["id"],)).fetchone() or (0,))[0] or 0
-        if bal < price:
-            return 200, {"ok": False, "reason": "balance", "need": price, "balance": bal}
+        if bal < price + sk_cost:
+            return 200, {"ok": False, "reason": "balance", "need": price + sk_cost, "balance": bal}
         if price:
             db.execute("UPDATE players SET stars=stars-? WHERE id=?", (price, user["id"]))
             db.execute("INSERT INTO star_ledger(uid, delta, what, n, ts) VALUES(?,?,?,?,?)", (user["id"], -price, "massacre", 1, now))
+        if sk_cost:
+            db.execute("UPDATE players SET stars=stars-? WHERE id=?", (sk_cost, user["id"]))
+            db.execute("INSERT INTO star_ledger(uid, delta, what, n, ts) VALUES(?,?,?,?,?)", (user["id"], -sk_cost, "massacre-skips", sk_cost, now))
         gid = secrets.token_hex(5)
         reg_ends = now + reg * 60
         plan_at = reg_ends + delay * 60 + (MB_LEAD_IN if delay == 0 else 0)
         db.execute("INSERT INTO mb_games(id, chat_id, chat_title, by_uid, title, prize, conds, max_n, created, reg_ends, plan_at, status, flags) "
                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                   (gid, chat_id, t.get("t", ""), user["id"], title, prize, json.dumps({"chan": chan, "nft": nnft, "places": places, "prizes": prizes, "pimg": pimg, "purl": purl}),
-                    mx, now, reg_ends, plan_at, "reg", json.dumps({"paid": price})))
+                   (gid, chat_id, t.get("t", ""), user["id"], title, prize, json.dumps({"chan": chan, "nft": nnft, "prem": 1 if body.get("prem") else 0, "places": places, "prizes": prizes, "pimg": pimg, "purl": purl}),
+                    mx, now, reg_ends, plan_at, "reg", json.dumps({"paid": price + sk_cost, "sk": sk_cost})))
         db.commit()
         g = _mb_row(gid)
     kb = {"inline_keyboard": [[{"text": "⚔️ Участвовать", "url": app_link("mb_" + gid)}]]}
@@ -4606,9 +4671,9 @@ def mb_new(user, body):
     if not r.get("ok"):          # the post didn't go out: no massacre, the stars go back
         with db_lock:
             db.execute("UPDATE mb_games SET status='cancelled' WHERE id=?", (gid,))
-            if price:
-                db.execute("UPDATE players SET stars=stars+? WHERE id=?", (price, user["id"]))
-                db.execute("INSERT INTO star_ledger(uid, delta, what, n, ts) VALUES(?,?,?,?,?)", (user["id"], price, "massacre-refund", 1, time.time()))
+            if price + sk_cost:
+                db.execute("UPDATE players SET stars=stars+? WHERE id=?", (price + sk_cost, user["id"]))
+                db.execute("INSERT INTO star_ledger(uid, delta, what, n, ts) VALUES(?,?,?,?,?)", (user["id"], price + sk_cost, "massacre-refund", 1, time.time()))
             db.commit()
         return 200, {"ok": False, "reason": f"Бот не смог написать в чат ({r.get('description') or 'ошибка Telegram'}). Звёзды вернулись на счёт."}
     if r.get("ok") and isinstance(r.get("result"), dict):
@@ -4616,9 +4681,21 @@ def mb_new(user, body):
             db.execute("UPDATE mb_games SET post_mid=? WHERE id=?", (r["result"]["message_id"], gid))
             db.commit()
         tg_try("pinChatMessage", chat_id=chat_id, message_id=r["result"]["message_id"], disable_notification=True)
-    return 200, {"ok": True, "gid": gid, "cost": price}
+    return 200, {"ok": True, "gid": gid, "cost": price + sk_cost}
 
 MB_MEDAL = {1: "🥇", 2: "🥈", 3: "🥉"}
+MB_SK_MAX = 1000          # rest skips for one place
+
+def mb_sk_txt(k):
+    k = int(k)
+    w = "пропуск" if k % 10 == 1 and k % 100 != 11 else "пропуска" if 2 <= k % 10 <= 4 and not 12 <= k % 100 <= 14 else "пропусков"
+    return f"{k} {w} отдыха"
+
+def mb_sk_refund(g, k, why):
+    """Caller holds db_lock. Skips nobody won (fewer fighters than places, or no battle at all) go back to the organizer as stars."""
+    if k > 0:
+        db.execute("UPDATE players SET stars=stars+? WHERE id=?", (k, g["by_uid"]))
+        db.execute("INSERT INTO star_ledger(uid, delta, what, n, ts) VALUES(?,?,?,?,?)", (g["by_uid"], k, why, k, time.time()))
 def mb_prize_list(g):
     c = g["conds"]
     return c.get("prizes") or [{"n": g["prize"], "i": c.get("pimg", ""), "u": c.get("purl", "")}]
@@ -4667,7 +4744,7 @@ def _mb_nft_count(uid, need):
             return n
     return n
 
-def mb_check(g, uid):
+def mb_check(g, uid, user=None):
     """None when the player may join, otherwise the reason in plain words. Every check asks Telegram itself."""
     r = tg_try("getChatMember", chat_id=g["chat_id"], user_id=uid)
     st = ((r.get("result") or {}).get("status")) if r.get("ok") else None
@@ -4676,6 +4753,9 @@ def mb_check(g, uid):
     if st in ("left", "kicked") or (st == "restricted" and not (r.get("result") or {}).get("is_member")):
         return "Участвовать могут только участники чата, где идёт розыгрыш."
     c = g["conds"]
+    # v273: Telegram itself puts is_premium into the signed launch data, so it can't be faked from the game
+    if c.get("prem") and not (user or {}).get("is_premium"):
+        return "Участвовать могут только игроки с Telegram Premium."
     if c.get("chan"):
         r = tg_try("getChatMember", chat_id=c["chan"], user_id=uid)
         if not r.get("ok"):
@@ -4710,7 +4790,7 @@ def mb_join(user, body):
             return 200, {"ok": True, "already": True}
     if not rate_ok(user["id"], "mbjoin"):
         return 429, {"ok": False, "reason": "Слишком часто. Подожди немного."}
-    why = mb_check(g, user["id"])
+    why = mb_check(g, user["id"], user)
     if why:
         return 403, {"ok": False, "reason": why}
     with db_lock:      # count and insert under one lock: two taps or two players at once can't pass the limit
@@ -4795,6 +4875,7 @@ def mb_draw(gid):
         now = time.time()
         if len(rows) < 2:
             db.execute("UPDATE mb_games SET status='cancelled', finished=? WHERE id=?", (now, gid))
+            mb_sk_refund(g, int((g.get("flags") or {}).get("sk", 0) or 0), "massacre-skips-back")
             db.commit()
             cancel = True
         else:
@@ -4827,7 +4908,7 @@ def mb_draw(gid):
            text=(f"🔥 <b>{html_esc(g['title'])}</b>\n<i>Регистрация закрыта</i>\n\n"
                  f"👥 Бойцов: <b>{len(parts)}</b>\n🗡 Битва начнётся {mb_tgtime(start_at, 'через ' + str(int(start_at - time.time() + 0.5)) + ' с')}\n\n"
                  + mb_prizes_text(g) + "\n\n"
-                 "<blockquote>Жребий с учётом прокачки уже брошен. Проверить, что результат не подменили, можно в игре: «Итоги битвы» → «Проверить протокол».</blockquote>"),
+                 "<blockquote>Жребий с учётом прокачки уже брошен. Проверить, что результат не подменили, можно в игре: «Реплей бойни» → «Проверить протокол».</blockquote>"),
            reply_markup={"inline_keyboard": [[{"text": "📺 Смотреть трансляцию", "url": app_link("mb_" + gid)}]]})
 
 def mb_tell_fighters(g, uids, start_at):
@@ -5020,6 +5101,44 @@ def mb_mine(user):
 def _mb_who(p):
     return mention(p["uid"], p["name"], p["username"])
 
+def _mb_watch_kb(g, text="📺 Смотреть трансляцию"):
+    return {"inline_keyboard": [[{"text": text, "url": app_link("mb_" + g["id"])}]]}
+
+# v265: private messages of the battle (who fell, who won) go out one by one from a queue: the battle loop never waits
+_mb_dm_q = queue.Queue()
+
+def _mb_dm_worker():
+    while True:
+        uid, txt, kb = _mb_dm_q.get()
+        try:
+            with db_lock:
+                ok = db.execute("SELECT can_pm FROM players WHERE id=?", (uid,)).fetchone()
+            if not ok or not ok[0]:
+                continue
+            for _ in range(3):
+                r = tg_try("sendMessage", chat_id=uid, text=txt, parse_mode="HTML", reply_markup=kb, disable_web_page_preview=True)
+                if r.get("ok") or r.get("error_code") != 429:
+                    break
+                time.sleep(float(((r.get("parameters") or {}).get("retry_after")) or 2))
+        except Exception as e:
+            log.info("mb dm: %s", e)
+        time.sleep(0.05)
+
+threading.Thread(target=_mb_dm_worker, daemon=True).start()
+
+def _mb_tell_fallen(g, parts, N, rows):
+    """Everyone who fell in these rows hears in private who took him out and where he finished."""
+    for r in rows:
+        v, k = parts[r[1]], parts[r[2]]
+        if not v.get("uid"):
+            continue
+        place = N - r[0]
+        if place <= int(g["conds"].get("places", 1) or 1):
+            continue                    # a prize place: one message at the end, with the place and the killer
+        _mb_dm_q.put((v["uid"], f"☠️ <b>{html_esc(g['title'])}</b>: ты выбыл из бойни.\n\n"
+                                f"Тебя вынес {_mb_who(k)}.\nТвоё место: <b>{place}</b> из {N}.",
+                      _mb_watch_kb(g, "📺 Досмотреть битву")))
+
 def _mb_send(g, text, markup=None):
     p = {"chat_id": g["chat_id"], "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}
     if markup:
@@ -5062,13 +5181,16 @@ def mb_progress(g):
             if alive == 2:
                 a, b = [parts[i] for i in range(N) if i not in {x[1] for x in rows[:r[0] + 1]}][:2]
                 lines.append(f"⚔️ <b>Финальная дуэль:</b> {_mb_who(a)} против {_mb_who(b)}")
-    wait = _mb_send(g, "\n\n".join(lines))   # the last blows too: their own message, before the results
+    wait = _mb_send(g, "\n\n".join(lines), _mb_watch_kb(g))   # the last blows too: their own message, before the results
+    told = 0
     with db_lock:
         if wait:
             db.execute("UPDATE mb_games SET last_post=? WHERE id=?", (now + wait, g["id"]))
         else:
-            db.execute("UPDATE mb_games SET posted=?, last_post=? WHERE id=? AND posted=?", (posted + len(due), now, g["id"], posted))
+            told = db.execute("UPDATE mb_games SET posted=?, last_post=? WHERE id=? AND posted=?", (posted + len(due), now, g["id"], posted)).rowcount
         db.commit()
+    if told:
+        _mb_tell_fallen(g, parts, N, due)
     if not wait and posted + len(due) >= N - 1:
         g = _mb_row(g["id"])
         mb_finish(g)
@@ -5124,20 +5246,44 @@ def mb_finish(g):
         cur = _mb_row(g["id"])
         if not cur or cur["status"] != "running":
             return
-        db.execute("UPDATE mb_games SET status='done', finished=? WHERE id=? AND status='running'", (time.time(), g["id"]))
+        if not db.execute("UPDATE mb_games SET status='done', finished=? WHERE id=? AND status='running'", (time.time(), g["id"])).rowcount:
+            return
+        proto = json.loads(cur["proto"])
+        N = len(proto["fighters"])
+        top = mb_places(proto, cur["conds"].get("places", 1))
+        ps = mb_prize_list(cur)
+        # v271: the skips of each prize place land on the winner's account at once; places nobody took give them back
+        for i, p in enumerate(ps, 1):
+            k = int(p.get("sk") or 0)
+            if not k:
+                continue
+            if i <= len(top) and top[i - 1].get("uid"):
+                db.execute("UPDATE players SET skips=skips+? WHERE id=?", (k, top[i - 1]["uid"]))
+                db.execute("INSERT INTO star_ledger(uid, delta, what, n, ts) VALUES(?,?,?,?,?)", (top[i - 1]["uid"], 0, "massacre-prize-skips", k, time.time()))
+            else:
+                mb_sk_refund(cur, k, "massacre-skips-back")
         db.commit()
     _mb_cache.pop(g["id"], None)
-    proto = json.loads(cur["proto"])
-    N = len(proto["fighters"])
-    top = mb_places(proto, cur["conds"].get("places", 1))
     w = top[0]
-    ps = mb_prize_list(cur)
     rows = [f"{MB_MEDAL.get(i, f'{i}.')} {_mb_who(p)}" + (f" — {mb_prize_html(ps[i - 1])}" if i <= len(ps) else "") for i, p in enumerate(top, 1)]
     cap = (f"🏆 <b>Итоги: {html_esc(cur['title'])}</b>\n\n"
            f"Последним на ногах остался {_mb_who(w)}\n\n"
            + ("Призовые места:\n" if len(top) > 1 else "Приз:\n") + "\n".join(rows) + "\n\n"
-           f"👥 Бойцов было {N}, шанс у каждого — 1 из {N}.")
-    kb = {"inline_keyboard": [[{"text": "📜 Итоги битвы", "url": app_link("mb_" + cur["id"])}]]}
+           f"👥 Бойцов было {N}. Жребий учитывал прокачку: шанс у каждого от ×0,7 до ×1,5.")
+    kb = {"inline_keyboard": [[{"text": "🎬 Реплей бойни", "url": app_link("mb_" + cur["id"])}]]}
+    killer = {r[1]: r[2] for r in json.loads(cur["log"] or "[]")}
+    idx = {id(p): i for i, p in enumerate(proto["fighters"])}
+    for i, p in enumerate(top, 1):
+        k = killer.get(idx.get(id(p)))
+        if p.get("uid"):
+            _mb_dm_q.put((p["uid"], (f"🏆 <b>{html_esc(cur['title'])}</b>: ты победил! Последним на ногах остался именно ты."
+                                     if i == 1 else f"🏅 <b>{html_esc(cur['title'])}</b>: ты занял {i} место из {N}."
+                                     + (f"\nТебя вынес {_mb_who(proto['fighters'][k])}." if k is not None else ""))
+                          + (("\n\nТвой приз: " + mb_prize_html(ps[i - 1]) + ". "
+                              + ("Пропуски уже на твоём счёте в игре." if ps[i - 1].get("sk") and ps[i - 1]["n"] == mb_sk_txt(ps[i - 1]["sk"])
+                                 else "Пропуски уже на твоём счёте, остальное — организатор свяжется с тобой." if ps[i - 1].get("sk")
+                                 else "Организатор свяжется с тобой.")) if i <= len(ps) else ""),
+                          {"inline_keyboard": [[{"text": "🎬 Реплей бойни", "url": app_link("mb_" + cur["id"])}]]}))
     png = mb_card_png(w["cls"], "@" + w["username"] if w.get("username") else (w.get("name") or "Победитель"))
     try:
         r = tg_multipart("sendPhoto", {"photo": ("winner.png", png, "image/png")}, chat_id=cur["chat_id"], caption=cap,
@@ -5150,7 +5296,7 @@ def mb_finish(g):
     if cur["post_mid"]:
         tg_try("unpinChatMessage", chat_id=cur["chat_id"], message_id=cur["post_mid"])
     tg_try("sendMessage", chat_id=cur["by_uid"], parse_mode="HTML",
-           text=f"🏆 Бойня «{html_esc(cur['title'])}» окончена. Кому что отдать:\n"
+           text=f"🏆 Бойня «{html_esc(cur['title'])}» окончена. Кому что отдать (пропуски бот уже начислил сам):\n"
                 + "\n".join(f"{i}. {_mb_who(p)} (id {p['uid']})" + (f" — {mb_prize_html(ps[i - 1])}" if i <= len(ps) else "") for i, p in enumerate(top, 1)),
            disable_web_page_preview=True)
 
@@ -5321,6 +5467,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(*ref_info(u))
             if path == "/api/partner":
                 return self.send_json(*partner_info(u))
+            if path == "/api/partner/refs":
+                return self.send_json(*partner_refs(u, urllib.parse.parse_qs(url.query)))
             if path == "/api/admin/partners":
                 return self.send_json(*admin_partners(u))
             if path == "/api/raid":

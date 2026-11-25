@@ -55,3 +55,6 @@ restore-db.ps1
 # Deployment scripts with sensitive data
 deploy-to-server.ps1
 server-config.txt
+
+# Emoji-ассеты (пока не коммитим)
+app/ebashnya/emoji/
