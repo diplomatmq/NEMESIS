@@ -14,7 +14,7 @@ Settings come from environment variables (see emberspire.env.example):
 """
 import html as _html
 import random
-import base64, hashlib, hmac, io, json, os, sqlite3, threading, time, urllib.parse, urllib.request, urllib.error, mimetypes, logging
+import base64, decimal, hashlib, hmac, io, json, os, sqlite3, threading, time, urllib.parse, urllib.request, urllib.error, mimetypes, logging
 
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
@@ -5342,6 +5342,14 @@ def mb_loop():
         except Exception as e:
             log.warning("mb loop: %s", e)
 
+def _json_default(o):
+    # PostgreSQL widens SUM(bigint) to numeric, so psycopg2 hands back a Decimal and json.dumps chokes.
+    # The game and the browser only need a number: whole values become int, anything else a float.
+    if isinstance(o, decimal.Decimal):
+        return int(o) if o == o.to_integral_value() else float(o)
+    raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "Emberspire"
 
@@ -5406,7 +5414,7 @@ class Handler(BaseHTTPRequestHandler):
             pass
 
     def send_json(self, code, obj):
-        self.send_bytes(code, json.dumps(obj, ensure_ascii=False).encode(), "application/json; charset=utf-8", "no-store")
+        self.send_bytes(code, json.dumps(obj, ensure_ascii=False, default=_json_default).encode(), "application/json; charset=utf-8", "no-store")
 
     def signed(self):
         return check_init_data(self.headers.get("X-Init-Data", ""))
